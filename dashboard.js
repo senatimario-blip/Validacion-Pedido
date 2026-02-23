@@ -1,5 +1,5 @@
 // ============================================================
-// dashboard.js — Dashboard Dinámico e Interactivo (VERSIÓN FINAL OPTIMIZADA)
+// dashboard.js — Dashboard Dinámico e Interactivo (VERSIÓN FINAL)
 // ============================================================
 
 // ---- Estado del dashboard ----
@@ -29,7 +29,7 @@ const CHART_DEFAULTS = {
 };
 
 // ============================================================
-// Lógica de Procesamiento de Fechas (CORREGIDA PARA FORMATO LATINO)
+// Lógica de Procesamiento de Fechas
 // ============================================================
 function dashParseDate(dateStr) {
     if (!dateStr) return null;
@@ -37,21 +37,17 @@ function dashParseDate(dateStr) {
 
     let s = dateStr.toString().trim();
 
-    // 1. Si viene en formato ISO (con la T)
     if (s.includes('T')) {
         const d = new Date(s);
         return isNaN(d.getTime()) ? null : d;
     }
 
-    // 2. Divide la cadena por barras, espacios, guiones o dos puntos
-    // Esto captura DD/MM/YYYY HH:MM y DD/MM/YYYY HH:MM:SS
     const parts = s.split(/[\s/:-]/);
     if (parts.length >= 3) {
         const day = parseInt(parts[0]);
         const month = parseInt(parts[1]) - 1;
         let year = parseInt(parts[2]);
         
-        // Ajuste de año corto (ej. 26 -> 2026)
         if (year < 100) year += 2000;
 
         const hour = parts[3] ? parseInt(parts[3]) : 0;
@@ -148,7 +144,7 @@ function renderDashboard() {
 // ============================================================
 // KPI Cards con Lógica TPE Blindada
 // ============================================================
-    function renderKPIs() {
+function renderKPIs() {
     const total = dashOrders.length;
     const validados = dashOrders.filter(o => o.estado === 'Validado').length;
     const cancelados = dashOrders.filter(o => o.estado === 'Cancelado' || o.estado === 'Rechazado').length;
@@ -172,7 +168,7 @@ function renderDashboard() {
                 
                 let deliveryDate;
                 
-                // Prioridad 1: Fecha de Entrega de la Base de Datos
+                // Prioridad 1: Usar la Fecha de Entrega de la Base de Datos
                 if (o.fecha_entrega && String(o.fecha_entrega).trim() !== '') {
                     deliveryDate = dashParseDate(o.fecha_entrega);
                 } else {
@@ -182,21 +178,19 @@ function renderDashboard() {
 
                 if (!deliveryDate) return;
 
-                // Lector Estricto de Horas
+                // Lector Estricto de Horas (protección contra fechas 1899 de Sheets)
                 let h = 0, m = 0;
                 let horaValida = false;
                 const horaStr = String(o.hora_entrega).trim();
 
                 if (horaStr.includes('T')) {
-                    // Formato ISO de Google (ej. 1899-12-30T15:10:00.000Z)
                     const dTime = new Date(horaStr);
                     if (!isNaN(dTime.getTime())) {
-                        h = dTime.getHours(); // Extrae la hora exacta que tipeó el usuario
+                        h = dTime.getHours();
                         m = dTime.getMinutes();
                         horaValida = true;
                     }
                 } else {
-                    // Formato de texto simple "10:10"
                     const parts = horaStr.split(':');
                     if (parts.length >= 2) {
                         h = parseInt(parts[0], 10);
@@ -210,12 +204,12 @@ function renderDashboard() {
                     let diffMs = deliveryDate - orderDate;
                     
                     // Ajuste de cruce de medianoche
-                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
+                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) {
                         deliveryDate.setDate(deliveryDate.getDate() + 1);
                         diffMs = deliveryDate - orderDate;
                     }
                     
-                    // ESCUDO DE SEGURIDAD ESTRICTO: 1 min a 12 horas.
+                    // ESCUDO DE SEGURIDAD ESTRICTO: 1 minuto a 12 horas
                     if (diffMs > 0 && diffMs <= 43200000) {
                         tpeTotalMins += Math.floor(diffMs / 60000);
                         tpeCount++;
@@ -228,6 +222,8 @@ function renderDashboard() {
     });
 
     const tpeMins = tpeCount > 0 ? Math.round(tpeTotalMins / tpeCount) : 0;
+    
+    // Si no hay datos válidos, muestra "0 min"
     const tpeString = tpeCount > 0 
         ? (tpeMins >= 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`) 
         : '0 min';
@@ -245,8 +241,13 @@ function renderDashboard() {
     setText('kpi-sla-base', `${slaFuera} fuera de ${slaBase} pedidos`);
 }
 
+function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+}
+
 // ============================================================
-// Gráficos y Tablas (Siguen la misma lógica corregida)
+// Gráficos y Tablas
 // ============================================================
 function destroyChart(key) { if (dashCharts[key]) { dashCharts[key].destroy(); delete dashCharts[key]; } }
 function baseOptions(extra = {}) { return Object.assign({}, CHART_DEFAULTS, extra); }
