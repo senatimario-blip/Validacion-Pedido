@@ -22,6 +22,8 @@ function doPost(e) {
       case 'rechazarPedido':      result = rechazarPedido(payload); break;
       case 'crearPedidosMasivos': result = crearPedidosMasivos(payload); break;
       case 'marcarSLAFuera':      result = marcarSLAFuera(payload); break;
+      case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
+      case 'setGeminiKey':        result = setGeminiKey(payload); break;
       default: result = { success: false, message: "Acción desconocida" };
     }
     output.setContent(JSON.stringify(result));
@@ -51,8 +53,8 @@ function listarPedidos() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: true, data: [] };
 
-  // Leer 15 columnas (A..O)
-  const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
+  // Leer 17 columnas (A..Q)
+  const data = sheet.getRange(2, 1, lastRow - 1, 17).getValues();
   const pedidos = data.map(row => ({
     nro:               row[0],
     fecha:             row[1],
@@ -68,7 +70,9 @@ function listarPedidos() {
     tipo_pago:         row[11],  // L: Tipo Pago Val.
     vuelto:            row[12],  // M: Vuelto
     motivo_cancelacion: row[13], // N: Motivo Cancelación
-    sla_fuera:         row[14]   // O: SLA Fuera Tiempo
+    sla_fuera:         row[14],  // O: SLA Fuera Tiempo
+    fecha_entrega:     row[15],  // P: Fecha Entrega
+    hora_entrega:      row[16]   // Q: Hora Entrega
   })).filter(p => p.nro);
 
   return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
@@ -138,6 +142,8 @@ function validarPedido(data) {
   sheet.getRange(rowIndex, 13).setValue(                     // M: Vuelto
     (data.tipo === "EFECTIVO" && data.vuelto) ? parseFloat(data.vuelto) : ""
   );
+  sheet.getRange(rowIndex, 16).setValue(data.fechaEntrega || ""); // P: Fecha de Entrega
+  sheet.getRange(rowIndex, 17).setValue(data.horaEntrega || "");  // Q: Hora de Entrega
 
   return { success: true };
 }
@@ -208,4 +214,89 @@ function rechazarPedido(data) {
     }
   }
   return { success: false, message: "Pedido no encontrado" };
+}
+
+// --- GEMINI VISION OCR ---
+
+function setGeminiKey(data) {
+  if (!data.apiKey) return { success: false, message: "API key requerida" };
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', data.apiKey);
+  return { success: true, message: "API key guardada correctamente" };
+}
+
+function processVoucherOCR(data) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    return { success: false, message: "No hay API key de Gemini configurada. Use setGeminiKey primero." };
+  }
+
+  if (!data.imageBase64 || !data.mimeType) {
+    return { success: false, message: "Faltan datos de imagen (imageBase64, mimeType)" };
+  }
+
+  var prompt = 'Analiza esta imagen de un voucher/comprobante de pago POS (IziPay u otro). '
+    + 'Extrae estos campos y devuelve SOLO JSON valido sin markdown ni backticks: '
+    + '{"fecha":"DD/MM/YY","hora":"HH:MM","total":0.00,"tipoPago":"QR o TARJETA","comercio":"nombre","tipoTarjeta":"VISA etc"} '
+    + 'Reglas: total es monto TOTAL en decimal. tipoPago es QR si menciona QR/Yape/Plin/Billetera, sino TARJETA. '
+    + 'Si no es visible usa "" o 0. SOLO JSON.';
+
+  // Try models in order
+  var models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+  var lastError = '';
+
+  for (var m = 0; m < models.length; m++) {
+    var model = models[m];
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
+
+    var body = {
+      contents: [{ parts: [
+        { text: prompt },
+        { inline_data: { mime_type: data.mimeType, data: data.imageBase64 } }
+      ]}],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
+    };
+
+    try {
+      var response = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(body),
+        muteHttpExceptions: true
+      });
+
+      var code = response.getResponseCode();
+      var respText = response.getContentText();
+
+      if (code === 429) {
+        lastError = 'Cuota excedida para ' + model;
+        Utilities.sleep(2000);
+        continue;
+      }
+
+      if (code !== 200) {
+        lastError = 'Error ' + code + ' en ' + model;
+        continue;
+      }
+
+      var jsonResp = JSON.parse(respText);
+      var geminiText = jsonResp.candidates[0].content.parts[0].text || '';
+      
+      // Clean markdown wrapping if present
+      geminiText = geminiText.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim();
+      
+      // Extract JSON object
+      var jsonMatch = geminiText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        var result = JSON.parse(jsonMatch[0]);
+        result.model = model;
+        return { success: true, data: result };
+      } else {
+        lastError = 'Respuesta no parseable: ' + geminiText.substring(0, 100);
+      }
+    } catch(e) {
+      lastError = e.toString();
+    }
+  }
+
+  return { success: false, message: 'OCR falló: ' + lastError };
 }

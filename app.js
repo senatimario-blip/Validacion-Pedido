@@ -467,10 +467,13 @@ window.openValidateModal = (nro) => {
     uploadPlaceholder.classList.remove('hidden');
     document.getElementById('photo-actions').classList.add('hidden');
     valPhotoAmountInput.value = '';
+    document.getElementById('val-fecha-entrega').value = '';
+    document.getElementById('val-hora-entrega').value = '';
+    document.getElementById('val-tiempo-transcurrido').textContent = '--';
 
-    // Reset Validation Mode Default
-    document.querySelector('input[name="valType"][value="pos"]').checked = true;
-    updateValidationMode('pos');
+    // Reset Validation Mode Default (Uncheck all)
+    document.querySelectorAll('input[name="valType"]').forEach(r => r.checked = false);
+    updateValidationMode(null);
 
     // If order already has photo/validation
     const cleanUrl = extractPhotoUrl(order.foto);
@@ -561,10 +564,20 @@ window.openValidateModal = (nro) => {
         if (removeBtn) removeBtn.style.display = 'none';
     } else {
         saveBtn.style.display = 'block';
-        dropZone.style.pointerEvents = 'auto';
-        dropZone.style.opacity = '1';
         valPhotoAmountInput.disabled = false;
         document.querySelectorAll('input[name="valType"]').forEach(r => r.disabled = false);
+
+        const isTypeSelected = document.querySelector('input[name="valType"]:checked');
+        if (isTypeSelected) {
+            dropZone.style.pointerEvents = 'auto';
+            dropZone.style.opacity = '1';
+            photoInput.disabled = false;
+        } else {
+            dropZone.style.pointerEvents = 'none';
+            dropZone.style.opacity = '0.5';
+            photoInput.disabled = true;
+        }
+
         const badge = document.getElementById('readonly-badge');
         if (badge) badge.remove();
 
@@ -597,6 +610,22 @@ function updateValidationMode(mode) {
     posOptions.style.display = 'none';
     efectivoOptions.style.display = 'none';
     onlineOptions.style.display = 'none';
+
+    const dropZone = document.getElementById('photo-drop-zone');
+    if (!mode) {
+        ocrBtn.style.display = 'none';
+        helperParams.textContent = 'Selecciona un Tipo de Validación (POS/Online/Efectivo) primero.';
+        if (currentUser && currentUser.rol === 'Admin') {
+            dropZone.style.pointerEvents = 'none';
+            dropZone.style.opacity = '0.5';
+            photoInput.disabled = true;
+        }
+        return;
+    } else if (currentUser && currentUser.rol === 'Admin') {
+        dropZone.style.pointerEvents = 'auto';
+        dropZone.style.opacity = '1';
+        photoInput.disabled = false;
+    }
 
     // Tocar UI según modo
     if (mode === 'pos') {
@@ -637,7 +666,6 @@ photoPreview.addEventListener('click', () => {
 // Handle Photo Upload
 const dropZone = document.getElementById('photo-drop-zone');
 
-// Reset value when clicking input directly to allow selecting same file
 photoInput.addEventListener('click', () => {
     photoInput.value = '';
 });
@@ -651,6 +679,55 @@ dropZone.addEventListener('drop', (e) => {
     dropZone.style.borderColor = 'var(--glass-border)';
     if (e.dataTransfer.files.length) {
         photoInput.files = e.dataTransfer.files;
+        handleFileSelect();
+    }
+});
+
+// Soporte para pegar imagenes con Ctrl+V
+document.addEventListener('paste', (e) => {
+    const validateModal = document.getElementById('modal-validate');
+    if (!validateModal || !validateModal.classList.contains('active')) return;
+
+    // Evitar si es admin block (readonly)
+    if (currentUser && currentUser.rol !== 'Admin') return;
+
+    // Solo permitir si hay un tipo de validación seleccionado
+    const valType = document.querySelector('input[name="valType"]:checked');
+    if (!valType) {
+        Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'warning',
+            title: 'Seleccione un tipo (POS, Online, Efectivo) primero',
+            showConfirmButton: false,
+            timer: 3000
+        });
+        return;
+    }
+
+    // Si estamos escribiendo en un input, permitimos pegar texto normal
+    const tagName = e.target.tagName.toUpperCase();
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+        // Excepto si es el input del filtro (aunque no debería estar enfocado)
+        if (e.target.type === 'text' || e.target.type === 'number') return;
+    }
+
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    let imageFile = null;
+
+    for (let index in items) {
+        const item = items[index];
+        if (item.kind === 'file' && item.type.indexOf('image/') === 0) {
+            imageFile = item.getAsFile();
+            break;
+        }
+    }
+
+    if (imageFile) {
+        e.preventDefault();
+        const dt = new DataTransfer();
+        dt.items.add(imageFile);
+        photoInput.files = dt.files;
         handleFileSelect();
     }
 });
@@ -674,8 +751,13 @@ async function handleFileSelect() {
     // Update "Ver Original" button
     document.getElementById('view-full-photo').href = blobUrl;
 
-    // Start OCR
-    runOCR(file);
+    // Start OCR conditionally
+    const valType = document.querySelector('input[name="valType"]:checked')?.value;
+    if (valType === 'pos' || valType === 'online') {
+        runOCR(file);
+    } else {
+        valPhotoAmountInput.placeholder = '0.00';
+    }
 }
 
 document.getElementById('remove-photo-btn').addEventListener('click', (e) => {
@@ -683,42 +765,309 @@ document.getElementById('remove-photo-btn').addEventListener('click', (e) => {
     photoInput.click();
 });
 
-// OCR Logic with Preprocessing
+// Convert file to base64 (without data URI prefix)
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+// Parse voucher data logic from user
+function parseIziPayVoucherData(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+
+    let fecha = '';
+    let hora = '';
+    let monto = 0;
+    let tipoPago = 'TARJETA';
+
+    const fechaPatterns = [
+        /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/,
+        /(\d{2,4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/,
+        /\b(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})\b/i
+    ];
+
+    for (let line of lines) {
+        for (let pattern of fechaPatterns) {
+            const match = line.match(pattern);
+            if (match) {
+                fecha = match[0];
+                break;
+            }
+        }
+        if (fecha) break;
+    }
+    // format date to YYYY-MM-DD for input[type="date"] if possible, otherwise DD/MM/YYYY
+    // we use a text input for date so DD/MM/YYYY is fine
+
+    const horaPattern = /(\d{1,2}):(\d{2})(?::(\d{2}))?/;
+    for (let line of lines) {
+        const match = line.match(horaPattern);
+        if (match) {
+            const nums = line.match(/\d+/g);
+            if (nums && nums.length <= 3) {
+                hora = match[0];
+                break;
+            }
+        }
+    }
+
+    const montoPatterns = [
+        /S\/?\s*[.\s]*([\d,]+\.?\d{0,2})/i,
+        /Total\s*:?\s*S\/?\s*[.\s]*([\d,]+\.?\d{0,2})/i,
+        /Monto\s*:?\s*S\/?\s*[.\s]*([\d,]+\.?\d{0,2})/i,
+        /([\d,]+\.\d{2})\s*(?:PEN|S\/\.?|SOLES)/i,
+        /(?:PEN|S\/\.?|SOLES)\s*([\d,]+\.?\d{0,2})/i
+    ];
+
+    for (let line of lines) {
+        for (let pattern of montoPatterns) {
+            const match = line.match(pattern);
+            if (match) {
+                let valor = match[1] || match[0];
+                valor = valor.replace(/[^\d.,]/g, '').replace(',', '.');
+                if (parseFloat(valor) > 0) {
+                    monto = parseFloat(valor);
+                    break;
+                }
+            }
+        }
+        if (monto > 0) break;
+    }
+
+    const textLower = text.toLowerCase();
+    if (textLower.includes('qr')) {
+        tipoPago = 'QR';
+    } else {
+        tipoPago = 'TARJETA';
+    }
+
+    return { amount: monto, fecha, hora, tipoPago };
+}
+
+// Compare voucher runtime dates/times
+function processVoucherTimes(extractedFecha, extractedHora) {
+    const fechaInput = document.getElementById('val-fecha-entrega');
+    const horaInput = document.getElementById('val-hora-entrega');
+    const elapsedEl = document.getElementById('val-tiempo-transcurrido');
+
+    // Set UI values
+    fechaInput.value = extractedFecha || '';
+
+    // Convert hora "HH:MM:SS" or "HH:MM" to "HH:MM" for time input
+    if (extractedHora) {
+        const hm = extractedHora.split(':');
+        if (hm.length >= 2) {
+            horaInput.value = `${hm[0].padStart(2, '0')}:${hm[1].padStart(2, '0')}`;
+        } else {
+            horaInput.value = extractedHora;
+        }
+    } else {
+        horaInput.value = '';
+    }
+
+    if (!currentOrderForValidation.fecha) return;
+
+    // Compare date
+    try {
+        const orderDateStr = new Date(currentOrderForValidation.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        // basic string comparison for now if both are DD/MM/YYYY
+        if (extractedFecha && orderDateStr !== extractedFecha && orderDateStr !== extractedFecha.replace(/-/g, '/')) {
+            Swal.fire({
+                title: 'Atención con la Fecha',
+                html: `La fecha del voucher (<b>${extractedFecha}</b>) no parece coincidir con la fecha original del pedido (<b>${orderDateStr}</b>). Por favor revise la imagen.`,
+                icon: 'warning'
+            });
+        }
+    } catch (e) { }
+
+    // Calculate elapsed time
+    if (extractedHora && currentOrderForValidation.fecha) {
+        try {
+            const orderDate = new Date(currentOrderForValidation.fecha);
+
+            // Build JS Date for the voucher time, assuming it's today or same day as order
+            const voucherDate = new Date(orderDate);
+            const hm = extractedHora.split(':');
+            voucherDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
+
+            // If the time is before the order date, it might be the next day after midnight
+            if (voucherDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
+                voucherDate.setDate(voucherDate.getDate() + 1);
+            }
+
+            const diffMs = voucherDate - orderDate;
+            if (diffMs > 0) {
+                const diffMins = Math.floor(diffMs / 60000);
+                const h = Math.floor(diffMins / 60);
+                const m = diffMins % 60;
+                elapsedEl.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
+            } else {
+                elapsedEl.textContent = 'Hora anterior al pedido';
+            }
+        } catch (e) {
+            elapsedEl.textContent = '--';
+        }
+    }
+}
+
+// OCR Logic: Google Cloud Vision for POS, Gemini -> Tesseract for Online
 async function runOCR(file) {
     ocrOverlay.classList.remove('hidden');
     valPhotoAmountInput.value = '';
     valPhotoAmountInput.placeholder = 'Escaneando...';
+    document.getElementById('val-fecha-entrega').value = '';
+    document.getElementById('val-hora-entrega').value = '';
+    document.getElementById('val-tiempo-transcurrido').textContent = '--';
+
+    let bestData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA' };
+    let engine = '';
+    const valType = document.querySelector('input[name="valType"]:checked')?.value;
 
     try {
-        const worker = await Tesseract.createWorker();
-        await worker.loadLanguage('eng');
-        await worker.initialize('eng');
+        if (valType === 'pos') {
+            // === STRATEGY 0: Google Cloud Vision API for POS ===
+            let apiKey = localStorage.getItem('gcp_api_key');
+            if (!apiKey) {
+                const { value: key } = await Swal.fire({
+                    title: 'Api Key Requerida',
+                    input: 'password',
+                    inputLabel: 'Ingresa tu API Key de Google Cloud Vision',
+                    inputPlaceholder: 'AIzaSy...',
+                    showCancelButton: true
+                });
+                if (key) {
+                    localStorage.setItem('gcp_api_key', key);
+                    apiKey = key;
+                } else {
+                    ocrOverlay.classList.add('hidden');
+                    return;
+                }
+            }
 
-        // Pre-process (Scale Up 2x for better OCR)
-        const processedImage = await preprocessImage(file);
+            try {
+                engine = 'Google Cloud Vision';
+                console.log('[OCR] Trying Google Cloud Vision for POS...');
+                const base64 = await fileToBase64(file);
 
-        const ret = await worker.recognize(processedImage);
-        console.log("OCR Text:", ret.data.text);
+                const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requests: [{
+                            image: { content: base64 },
+                            features: [
+                                { type: 'TEXT_DETECTION' },
+                                { type: 'DOCUMENT_TEXT_DETECTION' }
+                            ]
+                        }]
+                    })
+                });
 
-        const extractedAmount = extractAmountFromText(ret.data.text);
+                const data = await response.json();
 
-        if (extractedAmount > 0) {
-            valPhotoAmountInput.value = extractedAmount.toFixed(2);
-            itemDetected(extractedAmount);
-            // ... (rest of UI logic)
+                if (data.error) throw new Error(data.error.message);
+
+                const textAnnotations = data.responses[0]?.textAnnotations;
+                if (!textAnnotations || textAnnotations.length === 0) throw new Error('No se detectó texto en la imagen');
+
+                const parsed = parseIziPayVoucherData(textAnnotations[0].description);
+                bestData = {
+                    amount: parsed.amount || 0,
+                    fecha: parsed.fecha || '',
+                    hora: parsed.hora || '',
+                    tipoPago: parsed.tipoPago || 'TARJETA'
+                };
+            } catch (err) {
+                console.error('[OCR] Google Cloud Vision error:', err);
+                if (err.message && err.message.includes('API key not valid')) {
+                    localStorage.removeItem('gcp_api_key');
+                    Swal.fire('API Key Inválida', 'La clave ingresada no es válida. Intente nuevamente.', 'error');
+                }
+                throw err;
+            }
+        } else {
+            // === STRATEGY 1: Gemini Vision via Google Apps Script backend for Online ===
+            if (API_URL) {
+                try {
+                    console.log('[OCR] Trying Gemini Vision via backend...');
+                    const base64 = await fileToBase64(file);
+                    const response = await fetchAPI('processVoucherOCR', {
+                        imageBase64: base64,
+                        mimeType: file.type || 'image/jpeg'
+                    });
+
+                    if (response.success && response.data) {
+                        const d = response.data;
+                        bestData = {
+                            amount: parseFloat(d.total) || 0,
+                            fecha: d.fecha || '',
+                            hora: d.hora || '',
+                            tipoPago: d.tipoPago || 'TARJETA'
+                        };
+                        engine = `Gemini (${d.model || 'AI'})`;
+                    }
+                } catch (geminiErr) {
+                    console.warn('[OCR] Gemini backend error:', geminiErr.message);
+                }
+            }
+
+            // === STRATEGY 2: Tesseract.js local fallback ===
+            if (bestData.amount <= 0) {
+                console.log('[OCR] Falling back to Tesseract.js...');
+                engine = 'Tesseract';
+
+                function mergeData(passData) {
+                    if (passData.amount > 0 && bestData.amount === 0) bestData.amount = passData.amount;
+                    if (passData.fecha && !bestData.fecha) bestData.fecha = passData.fecha;
+                    if (passData.hora && !bestData.hora) bestData.hora = passData.hora;
+                    if (passData.tipoPago === 'QR') bestData.tipoPago = 'QR';
+                }
+
+                const processedImage = await preprocessImage(file);
+                mergeData(await ocrPass(processedImage, { tessedit_char_whitelist: '0123456789SsTtOoAaLl/., :', tessedit_pageseg_mode: '6' }, 'Pass 1'));
+                if (bestData.amount <= 0 || !bestData.fecha || !bestData.hora) mergeData(await ocrPass(processedImage, { tessedit_pageseg_mode: '3' }, 'Pass 2'));
+            }
+        }
+
+
+
+        console.log('[OCR] Final Data:', bestData, 'via', engine);
+
+        if (bestData.amount > 0) {
+            valPhotoAmountInput.value = bestData.amount.toFixed(2);
+            itemDetected(bestData.amount);
+
+            // Set times UI and do validation
+            processVoucherTimes(bestData.fecha, bestData.hora);
+
+            // Auto-set POS type (QR or TARJETA)
+            if (valType === 'pos') {
+                setPosType(bestData.tipoPago);
+            }
+
+            // Show OCR-detected info chips
+            showOcrInfoChips(bestData);
+
             const Toast = Swal.mixin({
                 toast: true,
                 position: 'top-end',
                 showConfirmButton: false,
-                timer: 3000,
+                timer: 4000,
                 timerProgressBar: true,
             });
+            let detailParts = [`S/ ${bestData.amount.toFixed(2)}`];
+            if (bestData.fecha) detailParts.push(`📅 ${bestData.fecha}`);
+            if (bestData.hora) detailParts.push(`🕐 ${bestData.hora}`);
+            detailParts.push(bestData.tipoPago === 'QR' ? '📱 QR' : '💳 Tarjeta');
             Toast.fire({
                 icon: 'success',
-                title: `Detectado: S/ ${extractedAmount.toFixed(2)}`
+                title: `${engine}: ${detailParts.join(' | ')}`
             });
         } else {
-            // ... (rest of UI logic)
             const Toast = Swal.mixin({
                 toast: true,
                 position: 'top-end',
@@ -732,15 +1081,135 @@ async function runOCR(file) {
             valPhotoAmountInput.placeholder = '0.00';
             valPhotoAmountInput.focus();
         }
-
-        await worker.terminate();
     } catch (err) {
-        console.error(err);
+        console.error('OCR Error:', err);
         Swal.fire('Error OCR', 'No se pudo leer la imagen.', 'error');
     }
 
     ocrOverlay.classList.add('hidden');
     validateAmounts();
+}
+
+// Show OCR-detected info chips below the photo
+function showOcrInfoChips(data) {
+    let container = document.getElementById('ocr-info-chips');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'ocr-info-chips';
+        container.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; justify-content:center;';
+        const photoActions = document.getElementById('photo-actions');
+        if (photoActions) photoActions.parentNode.insertBefore(container, photoActions.nextSibling);
+    }
+    container.innerHTML = '';
+
+    const chipStyle = 'display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:16px; font-size:0.75em; font-weight:600; border:1px solid rgba(255,255,255,0.15);';
+
+    if (data.fecha) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(96,165,250,0.15); color:#60a5fa;"><i class="fa-solid fa-calendar"></i> ${data.fecha}</span>`;
+    }
+    if (data.hora) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(167,139,250,0.15); color:#a78bfa;"><i class="fa-solid fa-clock"></i> ${data.hora}</span>`;
+    }
+    container.innerHTML += `<span style="${chipStyle} background:rgba(74,222,128,0.15); color:#4ade80;"><i class="fa-solid fa-${data.tipoPago === 'QR' ? 'qrcode' : 'credit-card'}"></i> ${data.tipoPago}</span>`;
+}
+
+// Single OCR pass with given Tesseract parameters
+async function ocrPass(image, params, label) {
+    try {
+        const worker = await Tesseract.createWorker();
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+        await worker.setParameters(params);
+
+        const ret = await worker.recognize(image);
+        console.log(`[${label}] OCR Text:`, ret.data.text);
+        console.log(`[${label}] Confidence:`, ret.data.confidence);
+
+        await worker.terminate();
+
+        const data = extractVoucherData(ret.data.text);
+        console.log(`[${label}] Voucher Data:`, data);
+        return data;
+    } catch (err) {
+        console.warn(`[${label}] Failed:`, err.message);
+        return { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA' };
+    }
+}
+
+// Lighter preprocessing for full image (fallback pass)
+function preprocessImageFull(file) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            const scale = 2;
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Grayscale + high contrast
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            const grayVals = [];
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                grayVals.push(gray);
+                data[i] = gray; data[i + 1] = gray; data[i + 2] = gray;
+            }
+
+            // Binarize with Otsu
+            const t = otsuThreshold(grayVals);
+            for (let i = 0; i < data.length; i += 4) {
+                const val = data[i] > t ? 255 : 0;
+                data[i] = val; data[i + 1] = val; data[i + 2] = val;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+        };
+    });
+}
+
+// Soft preprocessing: Grayscale + high contrast WITHOUT binarization
+// Better for images with strong reflections/glare on POS screens
+function preprocessImageSoft(file) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Crop to Total zone (40%-85%)
+            const sourceY = Math.floor(img.height * 0.40);
+            const sourceEndY = Math.floor(img.height * 0.85);
+            const sourceHeight = sourceEndY - sourceY;
+
+            const scale = 3;
+            canvas.width = img.width * scale;
+            canvas.height = sourceHeight * scale;
+            ctx.drawImage(img, 0, sourceY, img.width, sourceHeight, 0, 0, canvas.width, canvas.height);
+
+            // Grayscale with HIGH contrast (no binarization)
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            const contrastFactor = 2.0;
+            const intercept = 128 * (1 - contrastFactor);
+
+            for (let i = 0; i < data.length; i += 4) {
+                let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                gray = gray * contrastFactor + intercept;
+                gray = Math.min(255, Math.max(0, gray));
+                data[i] = gray; data[i + 1] = gray; data[i + 2] = gray;
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            sharpenCanvas(canvas, ctx);
+            resolve(canvas.toDataURL('image/png'));
+        };
+    });
 }
 
 function preprocessImage(file) {
@@ -751,122 +1220,282 @@ function preprocessImage(file) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
-            // Layout Analysis: "Total" is usually in the bottom half.
-            // Crop top 35% to remove logos/headers interference
-            const sourceY = img.height * 0.35;
-            const sourceHeight = img.height * 0.65;
+            // --- STEP 1: Intelligent Crop ---
+            // On IziPay vouchers, "Total: S/ XX.XX" is between 40%-85% of image height
+            const sourceY = Math.floor(img.height * 0.40);
+            const sourceEndY = Math.floor(img.height * 0.85);
+            const sourceHeight = sourceEndY - sourceY;
 
-            // Scale up 2x
-            const scale = 2;
+            // Scale up 3x for better OCR resolution
+            const scale = 3;
             canvas.width = img.width * scale;
             canvas.height = sourceHeight * scale;
 
-            // Draw Cropped Image Scaled
+            // Draw Cropped & Scaled
             ctx.drawImage(img, 0, sourceY, img.width, sourceHeight, 0, 0, canvas.width, canvas.height);
 
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-
-            // Increase Contrast and Grayscale
-            const contrastFactor = 1.5; // Increase contrast amount
-            const intercept = 128 * (1 - contrastFactor);
+            // --- STEP 2: Grayscale ---
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let data = imageData.data;
+            const grayValues = [];
 
             for (let i = 0; i < data.length; i += 4) {
-                // Grayscale
-                let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                // Weighted grayscale (luminosity method - better for screens)
+                const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                data[i] = gray;
+                data[i + 1] = gray;
+                data[i + 2] = gray;
+                grayValues.push(gray);
+            }
+            ctx.putImageData(imageData, 0, 0);
 
-                // Contrast
-                avg = avg * contrastFactor + intercept;
+            // --- STEP 3: Otsu's Binarization ---
+            const threshold = otsuThreshold(grayValues);
+            console.log('OCR Otsu threshold:', threshold);
 
-                // Clamp
-                if (avg > 255) avg = 255;
-                if (avg < 0) avg = 0;
+            imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            data = imageData.data;
 
-                data[i] = avg;     // R
-                data[i + 1] = avg; // G
-                data[i + 2] = avg; // B
+            let darkPixels = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                const val = data[i] > threshold ? 255 : 0;
+                data[i] = val;
+                data[i + 1] = val;
+                data[i + 2] = val;
+                if (val === 0) darkPixels++;
+            }
+
+            // Auto-invert if dark background (more dark pixels than light)
+            const totalPixels = data.length / 4;
+            if (darkPixels > totalPixels * 0.6) {
+                for (let i = 0; i < data.length; i += 4) {
+                    data[i] = 255 - data[i];
+                    data[i + 1] = 255 - data[i + 1];
+                    data[i + 2] = 255 - data[i + 2];
+                }
+                console.log('OCR: Auto-inverted (dark background detected)');
             }
 
             ctx.putImageData(imageData, 0, 0);
-            resolve(canvas.toDataURL('image/jpeg', 0.9));
+
+            // --- STEP 4: Sharpen ---
+            sharpenCanvas(canvas, ctx);
+
+            resolve(canvas.toDataURL('image/png'));
         };
     });
 }
 
-function extractAmountFromText(text) {
-    console.log("Raw OCR:", text);
+// Otsu's method: calculate optimal binarization threshold
+function otsuThreshold(grayValues) {
+    const histogram = new Array(256).fill(0);
+    grayValues.forEach(v => histogram[Math.min(255, Math.max(0, v))]++);
 
-    // 1. Look for 'Total' keyword
-    const lines = text.split('\n');
-    let totalAmount = 0;
+    const total = grayValues.length;
+    let sum = 0;
+    for (let i = 0; i < 256; i++) sum += i * histogram[i];
 
-    // Regex for Amount: "S/ 143.86", "143.86", "S/. 143.86"
-    // Handles dots and commas
-    const amountRegex = /S\/?\.?\s?(\d+[.,]\d{2})|(\d+[.,]\d{2})/i;
+    let sumB = 0, wB = 0, wF = 0;
+    let maxVariance = 0, bestThreshold = 128;
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].toLowerCase();
-        if (line.includes('total')) {
-            // Look in this line
-            let match = line.match(/(\d+[.,]\d{2})/); // Simple Match number
-            if (match) {
-                totalAmount = parseFloat(match[0].replace(',', '.'));
+    for (let t = 0; t < 256; t++) {
+        wB += histogram[t];
+        if (wB === 0) continue;
+        wF = total - wB;
+        if (wF === 0) break;
+
+        sumB += t * histogram[t];
+        const mB = sumB / wB;
+        const mF = (sum - sumB) / wF;
+        const variance = wB * wF * (mB - mF) * (mB - mF);
+
+        if (variance > maxVariance) {
+            maxVariance = variance;
+            bestThreshold = t;
+        }
+    }
+    return bestThreshold;
+}
+
+// Sharpen using 3x3 convolution kernel
+function sharpenCanvas(canvas, ctx) {
+    const w = canvas.width, h = canvas.height;
+    const src = ctx.getImageData(0, 0, w, h);
+    const dst = ctx.createImageData(w, h);
+    const sd = src.data, dd = dst.data;
+
+    // Sharpening kernel
+    const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+
+    for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+            for (let c = 0; c < 3; c++) {
+                let val = 0;
+                for (let ky = -1; ky <= 1; ky++) {
+                    for (let kx = -1; kx <= 1; kx++) {
+                        const idx = ((y + ky) * w + (x + kx)) * 4 + c;
+                        val += sd[idx] * kernel[(ky + 1) * 3 + (kx + 1)];
+                    }
+                }
+                const idx = (y * w + x) * 4 + c;
+                dd[idx] = Math.min(255, Math.max(0, val));
+            }
+            dd[(y * w + x) * 4 + 3] = 255; // Alpha
+        }
+    }
+    ctx.putImageData(dst, 0, 0);
+}
+
+function extractVoucherData(text) {
+    console.log("Raw OCR Text:", text);
+
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const fullText = lines.join(' ');
+
+    // === EXTRACT FECHA ===
+    // Matches: "Fecha: 21/02/26", "Fecha 20/02/2026", "Fecha: 21-02-26"
+    let fecha = '';
+    const fechaPattern = /[Ff]echa:?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/;
+    const fechaMatch = fullText.match(fechaPattern);
+    if (fechaMatch) {
+        fecha = fechaMatch[1].replace(/-/g, '/');
+        console.log('Extracted Fecha:', fecha);
+    }
+
+    // === EXTRACT HORA ===
+    // Matches: "Hora: 15:03", "Hora: 09.26", "Hora 14:59"
+    let hora = '';
+    const horaPattern = /[Hh]ora:?\s*(\d{1,2}[:.]\d{2})/;
+    const horaMatch = fullText.match(horaPattern);
+    if (horaMatch) {
+        hora = horaMatch[1].replace('.', ':');
+        console.log('Extracted Hora:', hora);
+    }
+
+    // === DETECT TIPO PAGO ===
+    // If text contains "QR" or "realizada con QR" → QR, otherwise → TARJETA
+    let tipoPago = 'TARJETA';
+    if (/\bQR\b/i.test(fullText) || /realizada\s+con\s+QR/i.test(fullText)) {
+        tipoPago = 'QR';
+    }
+    // Also check for Yape/Plin patterns which indicate QR
+    if (/[Bb]illetera:?\s*(Yape|Plin|BBVA)/i.test(fullText)) {
+        tipoPago = 'QR';
+    }
+    console.log('Detected Tipo Pago:', tipoPago);
+
+    // === EXTRACT AMOUNT (3 strategies) ===
+    let amount = 0;
+
+    // Strategy 1: Look for "S/" pattern
+    const sPattern = /[Ss]\/?\.\?\s*(\d{1,3}(?:[,.]?\d{3})*[.,]\d{2})/;
+    for (const line of lines) {
+        const match = line.match(sPattern);
+        if (match) {
+            const val = parseMoneyString(match[1]);
+            if (val > 0 && val < 50000) {
+                amount = val;
+                console.log('Amount Strategy 1 (S/ anchor):', amount);
                 break;
             }
-            // Or next line
-            if (i + 1 < lines.length) {
-                match = lines[i + 1].match(/(\d+[.,]\d{2})/);
-                if (match) {
-                    totalAmount = parseFloat(match[0].replace(',', '.'));
-                    break;
+        }
+    }
+
+    // Strategy 2: Look for "Total" (fuzzy)
+    if (amount === 0) {
+        const totalPattern = /[Tt][o0][Tt]?[aAeE]?[lLiI1]/i;
+        for (let i = 0; i < lines.length; i++) {
+            if (totalPattern.test(lines[i])) {
+                for (let j = i; j < Math.min(i + 3, lines.length); j++) {
+                    const numMatch = lines[j].match(/(\d{1,3}(?:[,.]?\d{3})*[.,]\d{2})/);
+                    if (numMatch) {
+                        const val = parseMoneyString(numMatch[1]);
+                        if (val > 0 && val < 50000) {
+                            amount = val;
+                            console.log('Amount Strategy 2 (Total fuzzy):', amount);
+                            break;
+                        }
+                    }
+                }
+                if (amount > 0) break;
+            }
+        }
+    }
+
+    // Strategy 3: Bottom-weighted decimal numbers
+    if (amount === 0) {
+        const candidates = [];
+        for (let i = 0; i < lines.length; i++) {
+            const allMatches = lines[i].matchAll(/(\d{1,3}(?:[,.]?\d{3})*[.,]\d{2})/g);
+            for (const m of allMatches) {
+                const val = parseMoneyString(m[1]);
+                if (val > 0 && val < 50000) {
+                    candidates.push({ amount: val, lineIndex: i, lineTotal: lines.length });
                 }
             }
         }
-    }
-
-    if (totalAmount > 0) return totalAmount;
-
-    // 2. Fallback: Find largest number that looks like money
-    const cleanText = text.replace(/S\//gi, '').replace(/[^\d.,\n]/g, ' ');
-    const tokens = cleanText.split(/\s+/);
-    const candidates = [];
-
-    tokens.forEach(token => {
-        if (token.length < 3) return; // Skip small noise
-        // Normalize 1,200.50 -> 1200.50
-        // Or 143,86 -> 143.86
-        let numStr = token;
-
-        // Count dots and commas
-        const dots = (token.match(/\./g) || []).length;
-        const commas = (token.match(/,/g) || []).length;
-
-        if (dots === 0 && commas === 1) {
-            // 143,86 -> 143.86
-            numStr = token.replace(',', '.');
-        } else if (dots === 1 && commas === 0) {
-            // 143.86 -> 143.86
-        } else if (dots > 0 || commas > 0) {
-            // Mixed... try to keep last separator as decimal
-            numStr = token.replace(/[,.]/g, (m, offset) => {
-                return offset === token.lastIndexOf(',') || offset === token.lastIndexOf('.') ? '.' : '';
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+                const scoreA = a.lineIndex / a.lineTotal + (a.amount > 10 ? 0.1 : 0);
+                const scoreB = b.lineIndex / b.lineTotal + (b.amount > 10 ? 0.1 : 0);
+                return scoreB - scoreA;
             });
+            amount = candidates[0].amount;
+            console.log('Amount Strategy 3 (bottom-weighted):', amount);
         }
-
-        const val = parseFloat(numStr);
-        if (!isNaN(val) && val > 0 && val < 10000) {
-            // Look for decimal part presence
-            if (numStr.includes('.')) candidates.push(val);
-        }
-    });
-
-    if (candidates.length > 0) {
-        // Return largest
-        candidates.sort((a, b) => b - a);
-        return candidates[0];
     }
 
-    return 0;
+    const result = { amount, fecha, hora, tipoPago };
+    console.log('Voucher Data Extracted:', result);
+    return result;
+}
+
+// Backward-compatible wrapper (used by ocrPass)
+function extractAmountFromText(text) {
+    return extractVoucherData(text).amount;
+}
+
+// Parse money string handling various formats: "134.25", "134,25", "1,234.56", "1.234,56"
+function parseMoneyString(str) {
+    if (!str) return 0;
+
+    // Count separators
+    const dots = (str.match(/\./g) || []).length;
+    const commas = (str.match(/,/g) || []).length;
+
+    let cleaned = str;
+
+    if (dots === 1 && commas === 0) {
+        // 134.25 → 134.25
+        // already fine
+    } else if (dots === 0 && commas === 1) {
+        // 134,25 → 134.25
+        cleaned = str.replace(',', '.');
+    } else if (dots > 0 && commas > 0) {
+        // Figure out which is thousands and which is decimal
+        const lastDot = str.lastIndexOf('.');
+        const lastComma = str.lastIndexOf(',');
+        if (lastDot > lastComma) {
+            // 1,234.56 → 1234.56
+            cleaned = str.replace(/,/g, '');
+        } else {
+            // 1.234,56 → 1234.56
+            cleaned = str.replace(/\./g, '').replace(',', '.');
+        }
+    } else if (dots > 1) {
+        // 1.234.56 → keep last dot as decimal
+        const parts = str.split('.');
+        const decimal = parts.pop();
+        cleaned = parts.join('') + '.' + decimal;
+    } else if (commas > 1) {
+        // 1,234,56 → keep last comma as decimal
+        const parts = str.split(',');
+        const decimal = parts.pop();
+        cleaned = parts.join('') + '.' + decimal;
+    }
+
+    const val = parseFloat(cleaned);
+    return isNaN(val) ? 0 : val;
 }
 
 valPhotoAmountInput.addEventListener('input', validateAmounts);
@@ -943,6 +1572,8 @@ validateForm.addEventListener('submit', async (e) => {
             usuario: currentUser.usuario,
             tipo: tipoFinal,
             vuelto: (valType === 'efectivo') ? document.getElementById('val-vuelto-amount').value : '',
+            fechaEntrega: document.getElementById('val-fecha-entrega').value || '',
+            horaEntrega: document.getElementById('val-hora-entrega').value || '',
             archivo: fileData ? {
                 name: `pedido_${currentOrderForValidation.nro}_${Date.now()}.jpg`,
                 type: file ? file.type : 'image/jpeg',
@@ -1052,6 +1683,7 @@ function formatDate(dateStr) {
 function updateStats(data = orders) {
     let totalCount = 0, totalAmount = 0;
     let validCount = 0, validAmount = 0;
+    let validPOS = 0, validEfectivo = 0, validOnline = 0;
     let pendingCount = 0, pendingAmount = 0;
     let rejectedCount = 0, rejectedAmount = 0;
 
@@ -1068,6 +1700,10 @@ function updateStats(data = orders) {
         if (o.estado === 'Validado') {
             validCount++;
             validAmount += monto;
+            const t = (o.tipo_pago || '').toString().trim().toUpperCase();
+            if (['TARJETA', 'QR', 'POS'].includes(t)) validPOS += monto;
+            else if (t === 'EFECTIVO') validEfectivo += monto;
+            else if (t === 'ONLINE') validOnline += monto;
         } else if (o.estado === 'Pendiente') {
             pendingCount++;
             pendingAmount += monto;
@@ -1739,15 +2375,29 @@ document.getElementById('card-validated')?.addEventListener('click', () => {
     currentFilteredOrders.forEach(o => {
         if (o.estado === 'Validado') {
             const m = parseFloat(o.monto) || 0;
-            if (o.foto === 'PAGO-EFECTIVO') {
+            const t = (o.tipo_pago || '').toString().trim().toUpperCase();
+
+            if (['TARJETA', 'QR', 'POS'].includes(t)) {
+                voucher += m;
+                voucherCount++;
+            } else if (t === 'EFECTIVO') {
                 cash += m;
                 cashCount++;
-            } else if (o.foto === 'PAGO-ONLINE') {
+            } else if (t === 'ONLINE') {
                 online += m;
                 onlineCount++;
             } else {
-                voucher += m;
-                voucherCount++;
+                // Posibles casos sin tipo_pago pero con foto antigua, fallback:
+                if (o.foto === 'PAGO-EFECTIVO') {
+                    cash += m;
+                    cashCount++;
+                } else if (o.foto === 'PAGO-ONLINE') {
+                    online += m;
+                    onlineCount++;
+                } else {
+                    voucher += m;
+                    voucherCount++;
+                }
             }
         }
     });

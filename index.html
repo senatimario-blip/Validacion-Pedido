@@ -542,6 +542,24 @@
                                 Efectivo/Online).</small>
                         </div>
 
+                        <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div>
+                                <label>Fecha de Entrega</label>
+                                <input type="text" id="val-fecha-entrega" class="form-control" placeholder="DD/MM/YYYY">
+                            </div>
+                            <div>
+                                <label>Hora de Entrega</label>
+                                <input type="time" id="val-hora-entrega" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Tiempo Transcurrido</label>
+                            <div id="val-tiempo-transcurrido"
+                                style="padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; font-weight: bold; color: var(--accent); text-align: center;">
+                                --</div>
+                        </div>
+
                         <div class="modal-actions">
                             <button type="submit" class="btn-primary full-width" id="btn-save-validation">Confirmar
                                 Validación</button>
@@ -555,10 +573,13 @@
                     <div class="photo-upload-area" id="photo-drop-zone">
                         <input type="file" id="photo-input" accept="image/*" class="file-input-hidden">
                         <div class="upload-placeholder" id="upload-placeholder">
-                            <i class="fa-solid fa-cloud-arrow-up"></i>
-                            <p>Click o arrastra imagen aquí</p>
+                            <i class="fa-solid fa-cloud-arrow-up"
+                                style="margin-bottom: 8px; font-size: 2em; color: rgba(255,255,255,0.8);"></i>
+                            <p style="margin-bottom: 4px;">Click, arrastra imagen</p>
+                            <p>o presiona <strong>Ctrl+V</strong></p>
                         </div>
-                        <img id="photo-preview" class="photo-preview hidden" alt="Vista previa">
+                        <img id="photo-preview" class="photo-preview hidden" alt="Vista previa"
+                            style="max-height: 550px; width: 100%; object-fit: contain;">
                         <div class="ocr-scanning-overlay hidden" id="ocr-overlay">
                             <div class="scanner-line"></div>
                             <span>Escaneando monto...</span>

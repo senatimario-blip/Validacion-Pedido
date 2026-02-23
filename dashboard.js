@@ -123,10 +123,41 @@ function renderKPIs() {
     const montoVal = dashOrders.filter(o => o.estado === 'Validado').reduce((s, o) => s + (parseFloat(o.monto) || 0), 0);
     const fillRate = total > 0 ? (validados / total * 100).toFixed(1) : '0.0';
 
-    // SLA automático desde columna O
+    // SLA automático desde columna O — muestra cumplimiento (dentro de tiempo)
     const slaFuera = dashOrders.filter(o => o.sla_fuera && String(o.sla_fuera).trim() !== '').length;
     const slaBase = total - cancelados;
-    const slaRate = slaBase > 0 ? (slaFuera / slaBase * 100).toFixed(1) : '0.0';
+    const slaRate = slaBase > 0 ? ((1 - slaFuera / slaBase) * 100).toFixed(1) : '100.0';
+
+    // Cálculo TPE (Tiempo Promedio de Entrega)
+    let tpeTotalMins = 0;
+    let tpeCount = 0;
+
+    dashOrders.forEach(o => {
+        if (o.hora_entrega && o.fecha && o.estado !== 'Cancelado' && o.estado !== 'Rechazado') {
+            try {
+                const orderDate = new Date(o.fecha);
+                const deliveryDate = new Date(orderDate);
+                const hm = String(o.hora_entrega).split(':');
+                if (hm.length >= 2) {
+                    deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
+                    // Si la hora de entrega es < que la hora de pedido (ej pedido 23:00, entrega 01:00) sumamos 1 día
+                    if (deliveryDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
+                        deliveryDate.setDate(deliveryDate.getDate() + 1);
+                    }
+                    const diffMs = deliveryDate - orderDate;
+                    if (diffMs > 0) {
+                        tpeTotalMins += Math.floor(diffMs / 60000);
+                        tpeCount++;
+                    }
+                }
+            } catch (e) { }
+        }
+    });
+
+    // TPE General: Suma total de minutos / Cantidad de pedidos con tiempo válido
+    // (Opcionalmente el usuario dice "incluyendo cancelados", pero sin hora no hay TPE)
+    const tpeMins = tpeCount > 0 ? Math.round(tpeTotalMins / tpeCount) : 0;
+    const tpeString = tpeMins > 0 ? (tpeMins > 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`) : '--';
 
     setText('kpi-total', total);
     setText('kpi-validados', validados);
@@ -134,8 +165,9 @@ function renderKPIs() {
     setText('kpi-pendientes', pendientes);
     setText('kpi-monto', 'S/ ' + montoVal.toFixed(2));
     setText('kpi-fill', fillRate + '%');
+    setText('kpi-tpe', tpeString);
     setText('kpi-sla', slaRate + '%');
-    setText('kpi-sla-base', `${slaFuera} de ${slaBase} pedidos`);
+    setText('kpi-sla-base', `${slaFuera} fuera de ${slaBase} pedidos`);
 }
 
 function setText(id, val) {
@@ -283,22 +315,80 @@ function renderChartRepartidores() {
     destroyChart('repartidores');
     const validated = {};
     const cancelled = {};
+    const driverStats = {}; // To store TPE and Fill Rate data per driver
 
     dashOrders.filter(o => o.envio).forEach(o => {
         const d = o.envio;
+        if (!driverStats[d]) {
+            driverStats[d] = { total: 0, validados: 0, tpeMins: 0, tpeCount: 0 };
+        }
+
+        driverStats[d].total++;
+
         if (o.estado === 'Validado') {
             validated[d] = (validated[d] || 0) + 1;
+            driverStats[d].validados++;
+
+            // Calculate TPE for driver (now including cancelled in the average denominator)
+            if (o.hora_entrega && o.fecha) {
+                try {
+                    const orderDate = new Date(o.fecha);
+                    const deliveryDate = new Date(orderDate);
+                    const hm = String(o.hora_entrega).split(':');
+                    if (hm.length >= 2) {
+                        deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
+                        if (deliveryDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
+                            deliveryDate.setDate(deliveryDate.getDate() + 1);
+                        }
+                        const diffMs = deliveryDate - orderDate;
+                        if (diffMs > 0) {
+                            driverStats[d].tpeMins += Math.floor(diffMs / 60000);
+                        }
+                    }
+                } catch (e) { }
+            }
         } else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
             cancelled[d] = (cancelled[d] || 0) + 1;
+
+            // Also need to get times for cancelled orders if they have any recorded
+            if (o.hora_entrega && o.fecha) {
+                try {
+                    const orderDate = new Date(o.fecha);
+                    const deliveryDate = new Date(orderDate);
+                    const hm = String(o.hora_entrega).split(':');
+                    if (hm.length >= 2) {
+                        deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
+                        if (deliveryDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
+                            deliveryDate.setDate(deliveryDate.getDate() + 1);
+                        }
+                        const diffMs = deliveryDate - orderDate;
+                        if (diffMs > 0) {
+                            driverStats[d].tpeMins += Math.floor(diffMs / 60000);
+                        }
+                    }
+                } catch (e) { }
+            }
         }
     });
 
     // Unir todos los repartidores y ordenar por validados desc
     const allDrivers = [...new Set([...Object.keys(validated), ...Object.keys(cancelled)])];
     const sorted = allDrivers
-        .map(d => ({ name: d, val: validated[d] || 0, can: cancelled[d] || 0 }))
-        .sort((a, b) => b.val - a.val)
-        .slice(0, 10);
+        .map(d => {
+            const stats = driverStats[d];
+            const fillRate = stats.total > 0 ? Math.round((stats.validados / stats.total) * 100) : 0;
+            // TPE = Total mins of ALL records / Total orders (validados + cancelados)
+            const avgTpe = stats.total > 0 ? Math.round(stats.tpeMins / stats.total) : 0;
+            const tpeStr = avgTpe > 0 ? `${avgTpe}m` : '-';
+
+            return {
+                name: d,
+                val: validated[d] || 0,
+                can: cancelled[d] || 0,
+                labelExtra: ` (FR: ${fillRate}% | TPE: ${tpeStr})`
+            };
+        })
+        .sort((a, b) => b.val - a.val); // Quitamos el slice para verlos a todos
 
     const ctx = document.getElementById('chart-repartidores').getContext('2d');
     dashCharts.repartidores = new Chart(ctx, {
@@ -312,12 +402,59 @@ function renderChartRepartidores() {
         },
         options: baseOptions({
             indexAxis: 'y',
+            maintainAspectRatio: false, // Permitir escalar su altura
+            layout: {
+                padding: { right: 120 } // Espacio extra a la derecha para dibujar FR y TPE
+            },
             scales: {
                 x: { stacked: true, ticks: { color: 'rgba(255,255,255,0.6)', stepSize: 1 }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                y: { stacked: true, ticks: { color: 'rgba(255,255,255,0.8)' }, grid: { display: false } }
+                y: { stacked: true, ticks: { color: 'rgba(255,255,255,0.8)', autoSkip: false }, grid: { display: false } }
             },
             plugins: { legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.8)', padding: 12 } } }
-        })
+        }),
+        plugins: [{
+            id: 'customDataLabels',
+            afterDatasetsDraw(chart) {
+                const ctx = chart.ctx;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    if (!meta.hidden) {
+                        meta.data.forEach((element, index) => {
+                            const dataString = dataset.data[index].toString();
+                            if (dataString !== '0') {
+                                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                                ctx.font = '600 11px Inter';
+                                ctx.textAlign = 'left';
+                                ctx.textBaseline = 'middle';
+                                const position = element.tooltipPosition();
+                                ctx.fillText(dataString, position.x - 12 > 0 ? position.x - 12 : position.x + 5, position.y);
+                            }
+
+                            // Si es el último dataset (Cancelados) visible o si solo se muestra Validados, dibujar labels extra a la derecha
+                            if (i === chart.data.datasets.length - 1 || (i === 0 && chart.isDatasetVisible(0) && !chart.isDatasetVisible(1))) {
+                                const extraLabel = sorted[index].labelExtra;
+                                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                                ctx.font = '500 11px Inter';
+                                ctx.textAlign = 'left';
+
+                                // Calcular X máximo (la suma de las barras visibles)
+                                let totalX = 0;
+                                chart.data.datasets.forEach((d, j) => {
+                                    if (chart.isDatasetVisible(j)) {
+                                        const m = chart.getDatasetMeta(j);
+                                        if (m.data[index]) {
+                                            totalX = Math.max(totalX, m.data[index].tooltipPosition().x);
+                                        }
+                                    }
+                                });
+
+                                ctx.fillText(extraLabel, totalX + 5, element.tooltipPosition().y);
+                            }
+                        });
+                    }
+                });
+            }
+        }]
     });
 }
 
@@ -435,7 +572,7 @@ function getDashboardHTML() {
         <input type="date" id="dash-from" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px; color-scheme:dark;">
         <label style="font-size:0.85em; color:rgba(255,255,255,0.6);">Hasta</label>
         <input type="date" id="dash-to" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px; color-scheme:dark;">
-        <select id="dash-driver" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px;">
+        <select id="dash-driver" style="background-color:#1e293b; border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px;">
             <option value="">Todos los repartidores</option>
         </select>
         <button id="dash-filter-btn" class="btn-primary" style="padding:6px 16px;">Aplicar</button>
@@ -450,6 +587,7 @@ function getDashboardHTML() {
         ${kpiCard('kpi-pendientes', 'fa-hourglass-half', 'Pendientes', '0', COLORS.amarillo)}
         ${kpiCard('kpi-monto', 'fa-sack-dollar', 'Monto Validado', 'S/ 0.00', COLORS.cyan)}
         ${kpiCard('kpi-fill', 'fa-percent', 'Fill Rate', '0%', COLORS.naranja)}
+        ${kpiCard('kpi-tpe', 'fa-clock-rotate-left', 'TPE (Promedio)', '--', COLORS.verde)}
         <div class="glass-panel" style="padding:14px; border-radius:12px; border-left:3px solid ${COLORS.violeta}; text-align:center;">
             <div style="color:${COLORS.violeta}; font-size:1.3em; margin-bottom:4px;"><i class="fa-solid fa-stopwatch"></i></div>
             <div style="font-size:0.75em; color:rgba(255,255,255,0.55); margin-bottom:2px;">SLA 35 min</div>
@@ -474,7 +612,7 @@ function getDashboardHTML() {
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
         <div class="glass-panel" style="padding:16px; border-radius:12px;">
             <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">🚴 Ranking de Repartidores</h4>
-            <div style="height:240px;"><canvas id="chart-repartidores"></canvas></div>
+            <div style="height:450px;"><canvas id="chart-repartidores"></canvas></div>
         </div>
         <div class="glass-panel" style="padding:16px; border-radius:12px;">
             <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">❌ Motivos de Cancelación</h4>
