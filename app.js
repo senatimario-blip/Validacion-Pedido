@@ -1948,17 +1948,17 @@ window.rejectOrder = async (nro) => {
 
     const driverFieldHtml = order.envio
         ? `<div id="swal-driver-group" style="display:none; margin-top:10px;">
-               <label style="display:block; margin-bottom:5px;">Repartidor:</label>
-               <div style="padding:8px 12px; background:rgba(255,255,255,0.08); border-radius:8px; color:white; font-weight:600;">
+               <label style="display:block; margin-bottom:5px; color:white;">Repartidor:</label>
+               <div style="padding:8px 12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:white; font-weight:600;">
                    🏍️ ${order.envio}
                </div>
            </div>`
         : `<div id="swal-driver-group" style="display:none; margin-top:10px;">
-               <label style="display:block; margin-bottom:5px;">Nombre del Driver:</label>
-               <input id="swal-driver" class="swal2-input" placeholder="Driver..."
+               <label style="display:block; margin-bottom:5px; color:white;">Nombre del Driver:</label>
+               <input id="swal-driver" class="swal2-input" placeholder="Escribe o selecciona..."
                    list="drivers-list"
-                   style="margin: 0; width: 100%;">
-           </div>`;
+                   style="margin: 0; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.3); color: white !important; font-size: 1rem; border-radius: 8px;">
+           </div>`;;
 
     const { value: formValues, isConfirmed } = await Swal.fire({
         title: '¿Por qué se cancela el pedido?',
