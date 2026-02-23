@@ -1,11 +1,10 @@
 // ============================================================
-// dashboard.js — Dashboard Dinámico e Interactivo
-// Lee los datos del array global `orders` (ya en memoria)
+// dashboard.js — Dashboard Dinámico e Interactivo (VERSIÓN FINAL OPTIMIZADA)
 // ============================================================
 
 // ---- Estado del dashboard ----
-let dashCharts = {};     // Instancias Chart.js activas
-let dashOrders = [];     // Pedidos filtrados para el dashboard
+let dashCharts = {};
+let dashOrders = [];
 
 // ---- Colores del tema ----
 const COLORS = {
@@ -30,32 +29,41 @@ const CHART_DEFAULTS = {
 };
 
 // ============================================================
-// Inicialización y navegación
+// Lógica de Procesamiento de Fechas (CORREGIDA PARA FORMATO LATINO)
 // ============================================================
 function dashParseDate(dateStr) {
     if (!dateStr) return null;
     if (dateStr instanceof Date) return dateStr;
 
-    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-        return new Date(dateStr.replace(' ', 'T'));
+    let s = dateStr.toString().trim();
+
+    // 1. Si viene en formato ISO (con la T)
+    if (s.includes('T')) {
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
     }
 
-    const parts = dateStr.split(/[\s/:]/);
+    // 2. Divide la cadena por barras, espacios, guiones o dos puntos
+    // Esto captura DD/MM/YYYY HH:MM y DD/MM/YYYY HH:MM:SS
+    const parts = s.split(/[\s/:-]/);
     if (parts.length >= 3) {
         const day = parseInt(parts[0]);
         const month = parseInt(parts[1]) - 1;
         let year = parseInt(parts[2]);
+        
+        // Ajuste de año corto (ej. 26 -> 2026)
         if (year < 100) year += 2000;
 
         const hour = parts[3] ? parseInt(parts[3]) : 0;
         const min = parts[4] ? parseInt(parts[4]) : 0;
+        const sec = parts[5] ? parseInt(parts[5]) : 0;
 
-        const d = new Date(year, month, day, hour, min, 0);
+        const d = new Date(year, month, day, hour, min, sec);
         return isNaN(d.getTime()) ? null : d;
     }
 
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? null : d;
+    const fallback = new Date(s);
+    return isNaN(fallback.getTime()) ? null : fallback;
 }
 
 function initDashboard() {
@@ -81,7 +89,6 @@ function initDashboard() {
             fromEl.value = `${yy}-${mm}-${dd}`;
             toEl.value = `${yy}-${mm}-${dd}`;
         }
-
         renderDashboard();
     });
 
@@ -107,9 +114,16 @@ function renderDashboard() {
         if (fromVal || toVal) {
             const d = dashParseDate(o.fecha);
             if (!d) return false;
-            d.setHours(0, 0, 0, 0);
-            if (fromVal) { const f = new Date(fromVal + 'T00:00:00'); ok = ok && d >= f; }
-            if (toVal) { const t = new Date(toVal + 'T00:00:00'); ok = ok && d <= t; }
+            const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            
+            if (fromVal) { 
+                const f = new Date(fromVal + 'T00:00:00'); 
+                ok = ok && dateOnly >= f; 
+            }
+            if (toVal) { 
+                const t = new Date(toVal + 'T00:00:00'); 
+                ok = ok && dateOnly <= t; 
+            }
         }
         if (driver) ok = ok && (o.envio || '').toLowerCase().includes(driver);
         return ok;
@@ -117,7 +131,7 @@ function renderDashboard() {
 
     const allDrivers = [...new Set((typeof orders !== 'undefined' ? orders : []).map(o => o.envio).filter(Boolean))].sort();
     const dashDriver = document.getElementById('dash-driver');
-    if (dashDriver.options.length <= 1) {
+    if (dashDriver && dashDriver.options.length <= 1) {
         allDrivers.forEach(d => { const opt = document.createElement('option'); opt.value = d; opt.textContent = d; dashDriver.appendChild(opt); });
     }
 
@@ -132,7 +146,7 @@ function renderDashboard() {
 }
 
 // ============================================================
-// KPI Cards
+// KPI Cards con Lógica TPE Blindada
 // ============================================================
 function renderKPIs() {
     const total = dashOrders.length;
@@ -150,16 +164,20 @@ function renderKPIs() {
     let tpeCount = 0;
 
     dashOrders.forEach(o => {
-        if (o.hora_entrega && o.fecha && o.estado !== 'Cancelado' && o.estado !== 'Rechazado') {
+        if (o.hora_entrega && o.fecha && o.estado === 'Validado') {
             try {
                 const orderDate = dashParseDate(o.fecha);
                 if (!orderDate) return;
+                
                 const deliveryDate = new Date(orderDate);
                 const hm = String(o.hora_entrega).split(':');
+                
                 if (hm.length >= 2) {
                     deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
                     const diffMs = deliveryDate - orderDate;
-                    if (diffMs > 0 && diffMs < 43200000) { // 43.2M ms = 12 horas
+                    
+                    // ESCUDO DE SEGURIDAD: Solo suma si tardó entre 1 min y 12 horas
+                    if (diffMs > 0 && diffMs < 43200000) {
                         tpeTotalMins += Math.floor(diffMs / 60000);
                         tpeCount++;
                     }
@@ -188,26 +206,17 @@ function setText(id, val) {
 }
 
 // ============================================================
-// Helpers de Chart.js
+// Gráficos y Tablas (Siguen la misma lógica corregida)
 // ============================================================
-function destroyChart(key) {
-    if (dashCharts[key]) { dashCharts[key].destroy(); delete dashCharts[key]; }
-}
+function destroyChart(key) { if (dashCharts[key]) { dashCharts[key].destroy(); delete dashCharts[key]; } }
+function baseOptions(extra = {}) { return Object.assign({}, CHART_DEFAULTS, extra); }
 
-function baseOptions(extra = {}) {
-    return Object.assign({}, CHART_DEFAULTS, extra);
-}
-
-// ============================================================
-// Gráfico 1: Pedidos por Día
-// ============================================================
 function renderChartPorDia() {
     destroyChart('porDia');
     const byDay = {};
     dashOrders.forEach(o => {
-        if (!o.fecha) return;
-        let d;
-        try { d = new Date(o.fecha); } catch (e) { return; }
+        const d = dashParseDate(o.fecha);
+        if (!d) return;
         const key = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' });
         if (!byDay[key]) byDay[key] = { count: 0, monto: 0 };
         byDay[key].count++;
@@ -217,408 +226,163 @@ function renderChartPorDia() {
     const ctx = document.getElementById('chart-por-dia').getContext('2d');
     dashCharts.porDia = new Chart(ctx, {
         type: 'line',
-        data: {
-            labels,
-            datasets: [
-                { label: 'Pedidos', data: labels.map(l => byDay[l].count), borderColor: COLORS.azul, backgroundColor: COLORS.azulBG, tension: 0.3, fill: true }
-            ]
-        },
-        options: baseOptions({
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => ` ${ctx.parsed.y} pedidos`,
-                        afterLabel: (ctx) => {
-                            const monto = byDay[labels[ctx.dataIndex]]?.monto || 0;
-                            return ` Monto validado: S/ ${monto.toFixed(2)}`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: { ticks: { color: 'rgba(255,255,255,0.6)' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                y: { beginAtZero: true, ticks: { color: COLORS.azul }, grid: { color: 'rgba(255,255,255,0.05)' } }
-            }
-        }),
-        plugins: [{
-            id: 'verticalLine',
-            afterDraw(chart) {
-                if (chart.tooltip._active && chart.tooltip._active.length) {
-                    const ctx2 = chart.ctx;
-                    const x = chart.tooltip._active[0].element.x;
-                    const topY = chart.scales.y.top;
-                    const bottomY = chart.scales.y.bottom;
-                    ctx2.save();
-                    ctx2.beginPath();
-                    ctx2.moveTo(x, topY);
-                    ctx2.lineTo(x, bottomY);
-                    ctx2.lineWidth = 1;
-                    ctx2.strokeStyle = 'rgba(255,255,255,0.25)';
-                    ctx2.setLineDash([4, 4]);
-                    ctx2.stroke();
-                    ctx2.restore();
-                }
-            }
-        }]
+        data: { labels, datasets: [{ label: 'Pedidos', data: labels.map(l => byDay[l].count), borderColor: COLORS.azul, backgroundColor: COLORS.azulBG, tension: 0.3, fill: true }] },
+        options: baseOptions({ plugins: { legend: { display: false } } })
     });
 }
 
-// ============================================================
-// Gráfico 2: Distribución de Pagos (dona)
-// ============================================================
 function renderChartPagos() {
     destroyChart('pagos');
-    const agrupado = { POS: 0, EFECTIVO: 0, ONLINE: 0, 'Sin tipo': 0 };
-    const posDetalle = { TARJETA: 0, QR: 0 };
-
+    const agrupado = { POS: 0, EFECTIVO: 0, ONLINE: 0, Otros: 0 };
     dashOrders.filter(o => o.estado === 'Validado').forEach(o => {
-        const t = (o.tipo_pago || '').toString().trim().toUpperCase();
-        if (t === 'TARJETA') { agrupado.POS++; posDetalle.TARJETA++; }
-        else if (t === 'QR') { agrupado.POS++; posDetalle.QR++; }
-        else if (t === 'POS') { agrupado.POS++; posDetalle.TARJETA++; }
-        else if (t === 'EFECTIVO') agrupado.EFECTIVO++;
-        else if (t === 'ONLINE') agrupado.ONLINE++;
-        else agrupado['Sin tipo']++;
+        const t = (o.tipo_pago_val || o.tipo_pago || '').toString().toUpperCase();
+        if (t.includes('POS') || t.includes('TARJETA') || t.includes('QR')) agrupado.POS++;
+        else if (t.includes('EFECTIVO')) agrupado.EFECTIVO++;
+        else if (t.includes('ONLINE')) agrupado.ONLINE++;
+        else agrupado.Otros++;
     });
-
-    const montos = { POS: 0, EFECTIVO: 0, ONLINE: 0 };
-    dashOrders.filter(o => o.estado === 'Validado').forEach(o => {
-        const t = (o.tipo_pago || '').trim().toUpperCase();
-        const m = parseFloat(o.monto) || 0;
-        if (['TARJETA', 'QR', 'POS'].includes(t)) montos.POS += m;
-        else if (t === 'EFECTIVO') montos.EFECTIVO += m;
-        else if (t === 'ONLINE') montos.ONLINE += m;
-    });
-
     const labels = Object.keys(agrupado).filter(k => agrupado[k] > 0);
-    const colorMap = { POS: COLORS.azul, EFECTIVO: COLORS.verde, ONLINE: COLORS.violeta, 'Sin tipo': COLORS.gris };
-
+    const colorMap = { POS: COLORS.azul, EFECTIVO: COLORS.verde, ONLINE: COLORS.violeta, Otros: COLORS.gris };
     const ctx = document.getElementById('chart-pagos').getContext('2d');
     dashCharts.pagos = new Chart(ctx, {
         type: 'doughnut',
-        data: {
-            labels,
-            datasets: [{ data: labels.map(l => agrupado[l]), backgroundColor: labels.map(l => colorMap[l]), borderWidth: 2, borderColor: 'rgba(0,0,0,0.3)' }]
-        },
-        options: baseOptions({
-            plugins: {
-                legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.8)', padding: 16 } },
-                tooltip: {
-                    callbacks: {
-                        afterLabel: (ctx) => {
-                            const lbl = ctx.label;
-                            if (lbl === 'POS') return `  Tarjeta: ${posDetalle.TARJETA}  |  QR: ${posDetalle.QR}\n  Monto: S/ ${montos.POS.toFixed(2)}`;
-                            if (lbl === 'EFECTIVO') return `  Monto total: S/ ${montos.EFECTIVO.toFixed(2)}`;
-                            if (lbl === 'ONLINE') return `  Monto: S/ ${montos.ONLINE.toFixed(2)}`;
-                        }
-                    }
-                }
-            }
-        })
+        data: { labels, datasets: [{ data: labels.map(l => agrupado[l]), backgroundColor: labels.map(l => colorMap[l]) }] },
+        options: baseOptions({ plugins: { legend: { position: 'bottom' } } })
     });
 }
 
-// ============================================================
-// Gráfico 3: Ranking de Repartidores
-// ============================================================
 function renderChartRepartidores() {
     destroyChart('repartidores');
     const stats = {};
-
     dashOrders.forEach(o => {
         const name = (o.envio || '').trim();
         if (!name) return;
-        if (!stats[name]) stats[name] = { total: 0, val: 0, can: 0, mins: 0, tpeC: 0 };
-
-        stats[name].total++;
-        if (o.estado === 'Validado') {
-            stats[name].val++;
-            if (o.hora_entrega && o.fecha) {
-                const start = dashParseDate(o.fecha);
-                const hm = String(o.hora_entrega).split(':');
-                if (start && hm.length >= 2) {
-                    const end = new Date(start);
-                    end.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
-                    const diff = (end - start) / 60000;
-                    if (diff > 0 && diff < 1440) { stats[name].mins += diff; stats[name].tpeC++; }
-                }
-            }
-        } else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
-            stats[name].can++;
-        }
+        if (!stats[name]) stats[name] = { val: 0, can: 0 };
+        if (o.estado === 'Validado') stats[name].val++;
+        else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') stats[name].can++;
     });
-
-    const sorted = Object.keys(stats).map(n => {
-        const s = stats[n];
-        const fr = s.total > 0 ? Math.round((s.val / s.total) * 100) : 0;
-        const tpe = s.tpeC > 0 ? Math.round(s.mins / s.tpeC) : 0;
-        return { name: n, val: s.val, can: s.can, info: ` (FR: ${fr}% | TPE: ${tpe > 0 ? tpe + 'm' : '-'})` };
-    }).sort((a, b) => b.val - a.val);
-
-    if (sorted.length === 0) return;
-
+    const sorted = Object.keys(stats).sort((a,b) => stats[b].val - stats[a].val).slice(0, 10);
     const ctx = document.getElementById('chart-repartidores').getContext('2d');
     dashCharts.repartidores = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels: sorted.map(e => e.name),
-            datasets: [
-                { label: 'Validados', data: sorted.map(e => e.val), backgroundColor: COLORS.azul, borderRadius: 4 },
-                { label: 'Cancelados', data: sorted.map(e => e.can), backgroundColor: COLORS.rojo, borderRadius: 4 }
-            ]
-        },
-        options: baseOptions({
-            indexAxis: 'y',
-            maintainAspectRatio: false,
-            layout: { padding: { left: 10, right: 100 } },
-            scales: {
-                x: { stacked: true, ticks: { color: '#ffffff99' }, grid: { color: '#ffffff11' } },
-                y: { stacked: true, ticks: { color: '#ffffff', font: { weight: '600', size: 11 } }, grid: { display: false } }
-            },
-            plugins: {
-                legend: { position: 'bottom', labels: { color: '#ffffffcc', padding: 15 } }
-            }
-        }),
-        plugins: [{
-            id: 'customBackground',
-            beforeDraw: (chart) => {
-                const { ctx, width, height } = chart;
-                ctx.save();
-                ctx.fillStyle = '#1e293b';
-                ctx.fillRect(0, 0, width, height);
-                ctx.restore();
-            }
-        }, {
-            id: 'extraLabels',
-            afterDraw(chart) {
-                const { ctx } = chart;
-                const m0 = chart.getDatasetMeta(0);
-                const m1 = chart.getDatasetMeta(1);
-                sorted.forEach((item, i) => {
-                    const b0 = m0.data[i];
-                    const b1 = m1.data[i];
-                    if (!b0 || !b1) return;
-                    ctx.save();
-                    ctx.font = 'bold 11px Inter';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#ffffff';
-                    if (item.val > 0 && chart.isDatasetVisible(0)) ctx.fillText(item.val.toString(), b0.x - (Math.abs(b0.x - b0.base) / 2), b0.y);
-                    if (item.can > 0 && chart.isDatasetVisible(1)) ctx.fillText(item.can.toString(), b1.x - (Math.abs(b1.x - b1.base) / 2), b1.y);
-                    ctx.textAlign = 'left';
-                    ctx.fillStyle = '#ffffffaa';
-                    const x = chart.isDatasetVisible(1) ? b1.x : (chart.isDatasetVisible(0) ? b0.x : 0);
-                    if (x > 0) ctx.fillText(item.info, x + 8, b0.y);
-                    ctx.restore();
-                });
-            }
-        }]
+        data: { labels: sorted, datasets: [{ label: 'Validados', data: sorted.map(n => stats[n].val), backgroundColor: COLORS.azul }] },
+        options: baseOptions({ indexAxis: 'y', plugins: { legend: { display: false } } })
     });
 }
 
-// ============================================================
-// Gráfico 4: Motivos de Cancelación
-// ============================================================
 function renderChartCancelaciones() {
     destroyChart('cancelaciones');
-    const motivos = { 'Por consumidor': 0, 'Por Punto de Venta': 0, 'Por Repartidor': 0 };
+    const motivos = {};
     dashOrders.filter(o => o.estado === 'Cancelado' || o.estado === 'Rechazado').forEach(o => {
-        const m = (o.motivo_cancelacion || '').trim();
-        if (motivos[m] !== undefined) motivos[m]++;
+        const m = o.motivo_cancelacion || 'No especificado';
+        motivos[m] = (motivos[m] || 0) + 1;
     });
     const ctx = document.getElementById('chart-cancelaciones').getContext('2d');
     dashCharts.cancelaciones = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels: Object.keys(motivos),
-            datasets: [{ label: 'Cancelaciones', data: Object.values(motivos), backgroundColor: [COLORS.rojo, COLORS.naranja, COLORS.amarillo], borderRadius: 8 }]
-        },
-        options: baseOptions({
-            plugins: { legend: { display: false } }, scales: {
-                x: { ticks: { color: 'rgba(255,255,255,0.7)' }, grid: { display: false } },
-                y: { ticks: { color: 'rgba(255,255,255,0.6)' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-            }
-        })
+        data: { labels: Object.keys(motivos), datasets: [{ data: Object.values(motivos), backgroundColor: COLORS.rojo }] },
+        options: baseOptions({ plugins: { legend: { display: false } } })
     });
 }
 
-// ============================================================
-// Gráfico 5: Pedidos por Hora del Día
-// ============================================================
 function renderChartHoras() {
     destroyChart('horas');
     const horas = Array(24).fill(0);
     dashOrders.forEach(o => {
-        if (!o.fecha) return;
-        try { const h = new Date(o.fecha).getHours(); if (h >= 0 && h < 24) horas[h]++; } catch (e) { }
+        const d = dashParseDate(o.fecha);
+        if (d) horas[d.getHours()]++;
     });
-    const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}h`);
     const ctx = document.getElementById('chart-horas').getContext('2d');
     dashCharts.horas = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels,
-            datasets: [{ label: 'Pedidos', data: horas, backgroundColor: horas.map(v => v === Math.max(...horas) ? COLORS.naranja : COLORS.violeta), borderRadius: 4 }]
-        },
-        options: baseOptions({
-            plugins: { legend: { display: false } }, scales: {
-                x: { ticks: { color: 'rgba(255,255,255,0.6)', maxRotation: 0 }, grid: { display: false } },
-                y: { ticks: { color: 'rgba(255,255,255,0.6)' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-            }
-        })
+        data: { labels: Array.from({length:24},(_,i)=>i+'h'), datasets: [{ data: horas, backgroundColor: COLORS.violeta }] },
+        options: baseOptions({ plugins: { legend: { display: false } } })
     });
 }
 
-// ============================================================
-// Gráfico 6: Actividad por Validador
-// ============================================================
 function renderChartValidadores() {
     destroyChart('validadores');
-    const byUser = {};
-    dashOrders.filter(o => o.validado_por).forEach(o => {
-        if (!byUser[o.validado_por]) byUser[o.validado_por] = 0;
-        byUser[o.validado_por]++;
-    });
-    const sorted = Object.entries(byUser).sort((a, b) => b[1] - a[1]);
-    const paleta = [COLORS.azul, COLORS.verde, COLORS.violeta, COLORS.naranja, COLORS.cyan];
+    const users = {};
+    dashOrders.forEach(o => { if(o.validado_por) users[o.validado_por] = (users[o.validado_por]||0)+1; });
     const ctx = document.getElementById('chart-validadores').getContext('2d');
     dashCharts.validadores = new Chart(ctx, {
         type: 'pie',
-        data: {
-            labels: sorted.map(e => e[0]),
-            datasets: [{ data: sorted.map(e => e[1]), backgroundColor: sorted.map((_, i) => paleta[i % paleta.length]), borderWidth: 2 }]
-        },
-        options: baseOptions({ plugins: { legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.8)', padding: 12 } } } })
+        data: { labels: Object.keys(users), datasets: [{ data: Object.values(users), backgroundColor: [COLORS.azul, COLORS.verde, COLORS.naranja] }] },
+        options: baseOptions({ plugins: { legend: { position: 'bottom' } } })
     });
 }
 
-// ============================================================
-// Tabla: Resumen del Día
-// ============================================================
 function renderTablaDia() {
     const tbody = document.getElementById('dash-tabla-body');
+    if (!tbody) return;
     tbody.innerHTML = '';
-    const recientes = [...dashOrders].sort((a, b) => b.nro - a.nro).slice(0, 20);
+    const recientes = [...dashOrders].sort((a,b) => b.nro - a.nro).slice(0, 20);
     recientes.forEach(o => {
-        const hr = o.fecha ? (() => { try { return new Date(o.fecha).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch (e) { return ''; } })() : '';
-        const estadoClass = o.estado === 'Validado' ? 'color:#4ade80' : o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'color:#f87171' : 'color:#fbbf24';
-        const tipo = (o.tipo_pago || '-').toString().toUpperCase();
+        const d = dashParseDate(o.fecha);
+        const hr = d ? d.toLocaleTimeString('es-PE', { hour:'2-digit', minute:'2-digit' }) : '';
+        const estCol = o.estado === 'Validado' ? COLORS.verde : o.estado === 'Cancelado' || o.estado === 'Rechazado' ? COLORS.rojo : COLORS.amarillo;
         tbody.insertAdjacentHTML('beforeend', `
             <tr>
-                <td style="font-weight:600;">${o.llave}</td>
-                <td style="${estadoClass}; font-weight:600;">${o.estado}</td>
-                <td>S/ ${parseFloat(o.monto || 0).toFixed(2)}</td>
-                <td style="font-size:0.85em;">${o.envio || '-'}</td>
-                <td><span style="font-size:0.8em; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.08);">${tipo}</span></td>
-                <td style="font-size:0.8em; color:rgba(255,255,255,0.6);">${hr}</td>
+                <td>${o.llave}</td>
+                <td style="color:${estCol}; font-weight:bold;">${o.estado}</td>
+                <td>S/ ${parseFloat(o.monto||0).toFixed(2)}</td>
+                <td>${o.envio || '-'}</td>
+                <td>${(o.tipo_pago_val || o.tipo_pago || '-').toUpperCase()}</td>
+                <td>${hr}</td>
             </tr>`);
     });
 }
 
-// ============================================================
-// HTML del Dashboard
-// ============================================================
 function getDashboardHTML() {
     return `
 <div id="dashboard-view" style="display:none; padding:20px; overflow-y:auto; height:100%;">
-
     <div class="glass-panel" style="padding:16px; margin-bottom:20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <i class="fa-solid fa-filter" style="color:rgba(255,255,255,0.5);"></i>
-        <label style="font-size:0.85em; color:rgba(255,255,255,0.6);">Desde</label>
-        <input type="date" id="dash-from" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px; color-scheme:dark;">
-        <label style="font-size:0.85em; color:rgba(255,255,255,0.6);">Hasta</label>
-        <input type="date" id="dash-to" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px; color-scheme:dark;">
-        <select id="dash-driver" style="background-color:#1e293b; border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px;">
-            <option value="">Todos los repartidores</option>
-        </select>
-        <button id="dash-filter-btn" class="btn-primary" style="padding:6px 16px;">Aplicar</button>
-        <button id="dash-reset-btn" class="btn-secondary" style="padding:6px 12px;">Restablecer</button>
+        <i class="fa-solid fa-filter"></i>
+        <input type="date" id="dash-from">
+        <input type="date" id="dash-to">
+        <select id="dash-driver"><option value="">Todos los repartidores</option></select>
+        <button id="dash-filter-btn" class="btn-primary">Aplicar</button>
+        <button id="dash-reset-btn" class="btn-secondary">Reset</button>
     </div>
-
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px;">
-        ${kpiCard('kpi-total', 'fa-list-ol', 'Total Pedidos', '0', COLORS.azul)}
-        ${kpiCard('kpi-validados', 'fa-circle-check', 'Validados', '0', COLORS.verde)}
+        ${kpiCard('kpi-total', 'fa-list-ol', 'Total', '0', COLORS.azul)}
+        ${kpiCard('kpi-validados', 'fa-check-circle', 'Validados', '0', COLORS.verde)}
         ${kpiCard('kpi-cancelados', 'fa-ban', 'Cancelados', '0', COLORS.rojo)}
-        ${kpiCard('kpi-pendientes', 'fa-hourglass-half', 'Pendientes', '0', COLORS.amarillo)}
-        ${kpiCard('kpi-monto', 'fa-sack-dollar', 'Monto Validado', 'S/ 0.00', COLORS.cyan)}
-        ${kpiCard('kpi-fill', 'fa-percent', 'Fill Rate', '0%', COLORS.naranja)}
-        ${kpiCard('kpi-tpe', 'fa-clock-rotate-left', 'TPE (Promedio)', '--', COLORS.verde)}
-        
-        <div class="glass-panel" style="padding:14px; border-radius:12px; border-left:3px solid ${COLORS.violeta}; text-align:center;">
-            <div style="color:${COLORS.violeta}; font-size:1.3em; margin-bottom:4px;"><i class="fa-solid fa-stopwatch"></i></div>
-            <div style="font-size:0.75em; color:rgba(255,255,255,0.55); margin-bottom:2px;">Cumplimiento SLA</div>
-            <div id="kpi-sla" style="font-size:1.6em; font-weight:700; color:white;">0%</div>
-            <div id="kpi-sla-base" style="font-size:0.7em; color:rgba(255,255,255,0.4); margin-top:4px;">0 fuera de 0 pedidos</div>
+        ${kpiCard('kpi-pendientes', 'fa-clock', 'Pendientes', '0', COLORS.amarillo)}
+        ${kpiCard('kpi-monto', 'fa-money-bill', 'S/ 0.00', 'S/ 0.00', COLORS.cyan)}
+        ${kpiCard('kpi-fill', 'fa-percentage', 'Fill Rate', '0%', COLORS.naranja)}
+        ${kpiCard('kpi-tpe', 'fa-stopwatch', 'TPE', '--', COLORS.verde)}
+        <div class="glass-panel" style="padding:14px; border-left:3px solid ${COLORS.violeta}; text-align:center;">
+            <div id="kpi-sla" style="font-size:1.5em; font-weight:bold;">0%</div>
+            <div style="font-size:0.7em; color:gray;">SLA Cumplimiento</div>
+            <div id="kpi-sla-base" style="font-size:0.6em;">0 fuera de 0</div>
         </div>
     </div>
-
     <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">📈 Pedidos por Día</h4>
-            <div style="height:220px;"><canvas id="chart-por-dia"></canvas></div>
-        </div>
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">💳 Distribución de Pagos</h4>
-            <div style="height:220px;"><canvas id="chart-pagos"></canvas></div>
-        </div>
+        <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-por-dia"></canvas></div>
+        <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-pagos"></canvas></div>
     </div>
-
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px; background:#1e293b !important; border:1px solid rgba(255,255,255,0.1);">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-motorcycle"></i> Ranking de Repartidores</h4>
-            <div style="height:450px; background:#1e293b; border-radius:8px;"><canvas id="chart-repartidores"></canvas></div>
-        </div>
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">❌ Motivos de Cancelación</h4>
-            <div style="height:240px;"><canvas id="chart-cancelaciones"></canvas></div>
-        </div>
+        <div class="glass-panel" style="padding:16px; height:300px;"><canvas id="chart-repartidores"></canvas></div>
+        <div class="glass-panel" style="padding:16px; height:300px;"><canvas id="chart-cancelaciones"></canvas></div>
     </div>
-
     <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">🕐 Pedidos por Hora del Día</h4>
-            <div style="height:200px;"><canvas id="chart-horas"></canvas></div>
-        </div>
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">👤 Actividad por Validador</h4>
-            <div style="height:200px;"><canvas id="chart-validadores"></canvas></div>
-        </div>
+        <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-horas"></canvas></div>
+        <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-validadores"></canvas></div>
     </div>
-
-    <div class="glass-panel" style="padding:16px; border-radius:12px;">
-        <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">📋 Últimos 20 Pedidos</h4>
-        <div style="overflow-x:auto;">
-            <table class="orders-table" style="font-size:0.85em;">
-                <thead><tr>
-                    <th>Llave</th><th>Estado</th><th>Monto</th><th>Repartidor</th><th>Tipo Pago</th><th>Hora</th>
-                </tr></thead>
-                <tbody id="dash-tabla-body"></tbody>
-            </table>
-        </div>
-    </div>
+    <div class="glass-panel" style="padding:16px;"><table class="orders-table"><thead><tr><th>Llave</th><th>Estado</th><th>Monto</th><th>Repartidor</th><th>Pago</th><th>Hora</th></tr></thead><tbody id="dash-tabla-body"></tbody></table></div>
 </div>`;
 }
 
-function kpiCard(id, icon, label, defaultVal, color) {
-    return `<div class="glass-panel" style="padding:14px; border-radius:12px; border-left:3px solid ${color}; text-align:center;">
-        <div style="color:${color}; font-size:1.3em; margin-bottom:4px;"><i class="fa-solid ${icon}"></i></div>
-        <div style="font-size:0.75em; color:rgba(255,255,255,0.55); margin-bottom:2px;">${label}</div>
-        <div id="${id}" style="font-size:1.6em; font-weight:700; color:white;">${defaultVal}</div>
+function kpiCard(id, icon, label, def, col) {
+    return `<div class="glass-panel" style="padding:14px; border-left:3px solid ${col}; text-align:center;">
+        <div id="${id}" style="font-size:1.5em; font-weight:bold;">${def}</div>
+        <div style="font-size:0.7em; color:gray;">${label}</div>
     </div>`;
 }
 
-// ============================================================
-// Arranque: esperar a que app.js inicialice
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initDashboard, 100);
-});
-
-window.refreshDashboardIfVisible = function () {
-    if (document.getElementById('dashboard-view') &&
-        document.getElementById('dashboard-view').style.display !== 'none') {
-        renderDashboard();
-    }
+document.addEventListener('DOMContentLoaded', () => { setTimeout(initDashboard, 100); });
+window.refreshDashboardIfVisible = function () { 
+    const v = document.getElementById('dashboard-view');
+    if (v && v.style.display !== 'none') renderDashboard(); 
 };
