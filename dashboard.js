@@ -172,7 +172,7 @@ function renderDashboard() {
                 
                 let deliveryDate;
                 
-                // Prioridad 1: Usar la Fecha de Entrega de la Base de Datos
+                // Prioridad 1: Fecha de Entrega de la Base de Datos
                 if (o.fecha_entrega && String(o.fecha_entrega).trim() !== '') {
                     deliveryDate = dashParseDate(o.fecha_entrega);
                 } else {
@@ -182,44 +182,52 @@ function renderDashboard() {
 
                 if (!deliveryDate) return;
 
-                // NUEVO: Lector universal de horas (protección contra fechas 1899 de Sheets)
-                let h = 0, m = 0;
-                let horaValida = false;
+                // EL "TRADUCTOR UNIVERSAL" DE HORAS
                 const horaStr = String(o.hora_entrega).trim();
+                let posiblesHoras = [];
 
                 if (horaStr.includes('T')) {
-                    // Si llega el formato fantasma de Google "1899-12-30T15:10:00.000Z"
+                    // Si llega el formato ISO de Google (ej. 1899-12-30T15:10:00.000Z)
                     const dTime = new Date(horaStr);
                     if (!isNaN(dTime.getTime())) {
-                        h = dTime.getHours();
-                        m = dTime.getMinutes();
-                        horaValida = true;
+                        posiblesHoras.push({ h: dTime.getHours(), m: dTime.getMinutes() }); // Probar Hora Local
+                        posiblesHoras.push({ h: dTime.getUTCHours(), m: dTime.getUTCMinutes() }); // Probar Hora UTC
                     }
                 } else {
-                    // Si llega el formato normal "10:10"
+                    // Si llega como texto normal "10:10"
                     const parts = horaStr.split(':');
                     if (parts.length >= 2) {
-                        h = parseInt(parts[0], 10);
-                        m = parseInt(parts[1], 10);
-                        horaValida = (!isNaN(h) && !isNaN(m));
+                        posiblesHoras.push({ h: parseInt(parts[0], 10), m: parseInt(parts[1], 10) });
                     }
                 }
 
-                if (horaValida) {
-                    deliveryDate.setHours(h, m, 0, 0);
-                    let diffMs = deliveryDate - orderDate;
+                let mejorDiferencia = null;
+
+                // Probamos las configuraciones horarias para evadir el desfase de Sheets
+                for (let t of posiblesHoras) {
+                    let tempDate = new Date(deliveryDate.getTime());
+                    tempDate.setHours(t.h, t.m, 0, 0);
                     
+                    let diffMs = tempDate - orderDate;
+
                     // Ajuste de cruce de medianoche
-                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) {
-                        deliveryDate.setDate(deliveryDate.getDate() + 1);
-                        diffMs = deliveryDate - orderDate;
+                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
+                        tempDate.setDate(tempDate.getDate() + 1);
+                        diffMs = tempDate - orderDate;
                     }
-                    
-                    // ESCUDO DE SEGURIDAD: 1 minuto a 12 horas (43,200,000 ms)
+
+                    // Escudo de Seguridad: Solo aceptamos si el tiempo es entre 1 min y 12 horas
                     if (diffMs > 0 && diffMs <= 43200000) {
-                        tpeTotalMins += Math.floor(diffMs / 60000);
-                        tpeCount++;
+                        // Nos quedamos con la menor diferencia lógica
+                        if (mejorDiferencia === null || diffMs < mejorDiferencia) {
+                            mejorDiferencia = diffMs;
+                        }
                     }
+                }
+
+                if (mejorDiferencia !== null) {
+                    tpeTotalMins += Math.floor(mejorDiferencia / 60000);
+                    tpeCount++;
                 }
             } catch (e) {
                 console.error("Error calculando TPE:", e);
@@ -228,8 +236,6 @@ function renderDashboard() {
     });
 
     const tpeMins = tpeCount > 0 ? Math.round(tpeTotalMins / tpeCount) : 0;
-    
-    // Si no hay datos, muestra "0 min"
     const tpeString = tpeCount > 0 
         ? (tpeMins >= 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`) 
         : '0 min';
