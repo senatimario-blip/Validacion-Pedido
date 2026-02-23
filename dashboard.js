@@ -159,7 +159,7 @@ function renderKPIs() {
                 if (hm.length >= 2) {
                     deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
                     const diffMs = deliveryDate - orderDate;
-                    if (diffMs > 0) {
+                    if (diffMs > 0 && diffMs < 43200000) { // 43.2M ms = 12 horas
                         tpeTotalMins += Math.floor(diffMs / 60000);
                         tpeCount++;
                     }
