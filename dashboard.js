@@ -182,52 +182,44 @@ function renderDashboard() {
 
                 if (!deliveryDate) return;
 
-                // EL "TRADUCTOR UNIVERSAL" DE HORAS
+                // Lector Estricto de Horas
+                let h = 0, m = 0;
+                let horaValida = false;
                 const horaStr = String(o.hora_entrega).trim();
-                let posiblesHoras = [];
 
                 if (horaStr.includes('T')) {
-                    // Si llega el formato ISO de Google (ej. 1899-12-30T15:10:00.000Z)
+                    // Formato ISO de Google (ej. 1899-12-30T15:10:00.000Z)
                     const dTime = new Date(horaStr);
                     if (!isNaN(dTime.getTime())) {
-                        posiblesHoras.push({ h: dTime.getHours(), m: dTime.getMinutes() }); // Probar Hora Local
-                        posiblesHoras.push({ h: dTime.getUTCHours(), m: dTime.getUTCMinutes() }); // Probar Hora UTC
+                        h = dTime.getHours(); // Extrae la hora exacta que tipeó el usuario
+                        m = dTime.getMinutes();
+                        horaValida = true;
                     }
                 } else {
-                    // Si llega como texto normal "10:10"
+                    // Formato de texto simple "10:10"
                     const parts = horaStr.split(':');
                     if (parts.length >= 2) {
-                        posiblesHoras.push({ h: parseInt(parts[0], 10), m: parseInt(parts[1], 10) });
+                        h = parseInt(parts[0], 10);
+                        m = parseInt(parts[1], 10);
+                        horaValida = (!isNaN(h) && !isNaN(m));
                     }
                 }
 
-                let mejorDiferencia = null;
-
-                // Probamos las configuraciones horarias para evadir el desfase de Sheets
-                for (let t of posiblesHoras) {
-                    let tempDate = new Date(deliveryDate.getTime());
-                    tempDate.setHours(t.h, t.m, 0, 0);
+                if (horaValida) {
+                    deliveryDate.setHours(h, m, 0, 0);
+                    let diffMs = deliveryDate - orderDate;
                     
-                    let diffMs = tempDate - orderDate;
-
                     // Ajuste de cruce de medianoche
                     if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
-                        tempDate.setDate(tempDate.getDate() + 1);
-                        diffMs = tempDate - orderDate;
+                        deliveryDate.setDate(deliveryDate.getDate() + 1);
+                        diffMs = deliveryDate - orderDate;
                     }
-
-                    // Escudo de Seguridad: Solo aceptamos si el tiempo es entre 1 min y 12 horas
+                    
+                    // ESCUDO DE SEGURIDAD ESTRICTO: 1 min a 12 horas.
                     if (diffMs > 0 && diffMs <= 43200000) {
-                        // Nos quedamos con la menor diferencia lógica
-                        if (mejorDiferencia === null || diffMs < mejorDiferencia) {
-                            mejorDiferencia = diffMs;
-                        }
+                        tpeTotalMins += Math.floor(diffMs / 60000);
+                        tpeCount++;
                     }
-                }
-
-                if (mejorDiferencia !== null) {
-                    tpeTotalMins += Math.floor(mejorDiferencia / 60000);
-                    tpeCount++;
                 }
             } catch (e) {
                 console.error("Error calculando TPE:", e);
@@ -251,11 +243,6 @@ function renderDashboard() {
     setText('kpi-tpe', tpeString);
     setText('kpi-sla', slaRate + '%');
     setText('kpi-sla-base', `${slaFuera} fuera de ${slaBase} pedidos`);
-}
-
-function setText(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
 }
 
 // ============================================================
