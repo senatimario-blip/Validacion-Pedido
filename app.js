@@ -1948,17 +1948,17 @@ window.rejectOrder = async (nro) => {
 
     const driverFieldHtml = order.envio
         ? `<div id="swal-driver-group" style="display:none; margin-top:15px; text-align:left;">
-               <label style="display:block; margin-bottom:6px; color:#cbd5e1; font-size:0.95em;">Repartidor asignado:</label>
-               <div style="padding:12px 15px; background-color: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); border-radius:8px; display:flex; align-items:center; gap:10px;">
-                   <i class="fa-solid fa-motorcycle" style="color:#60a5fa; font-size:1.2em;"></i> 
-                   <span style="color: #ffffff !important; font-weight: 700; font-size: 1.1em;">${order.envio}</span>
+               <label style="display:block; margin-bottom:6px; color:#475569; font-weight: 600; font-size:0.95em;">Repartidor asignado:</label>
+               <div style="padding:10px 15px; background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius:8px; display:flex; align-items:center; gap:10px;">
+                   <i class="fa-solid fa-motorcycle" style="color:#3b82f6; font-size:1.2em;"></i> 
+                   <span style="color: #0f172a !important; font-weight: 700; font-size: 1.1em;">${order.envio}</span>
                </div>
            </div>`
-        : `<div id="swal-driver-group" style="display:none; margin-top:10px; text-align:left;">
-               <label style="display:block; margin-bottom:5px; color:white;">Nombre del Driver:</label>
+        : `<div id="swal-driver-group" style="display:none; margin-top:15px; text-align:left;">
+               <label style="display:block; margin-bottom:6px; color:#475569; font-weight: 600; font-size:0.95em;">Nombre del Driver:</label>
                <input id="swal-driver" class="swal2-input" placeholder="Escribe o selecciona..."
                    list="drivers-list"
-                   style="margin: 0; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.3); color: white !important; font-size: 1rem; border-radius: 8px;">
+                   style="margin: 0; width: 100%; box-sizing: border-box; background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a !important; font-size: 1rem; border-radius: 8px;">
            </div>`;
 
     const { value: formValues, isConfirmed } = await Swal.fire({
