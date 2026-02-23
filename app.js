@@ -1600,7 +1600,8 @@ validateForm.addEventListener('submit', async (e) => {
         fileData = await toBase64(file);
     }
 
-    const driverName = (document.getElementById('val-driver-name').value || '').trim();
+    document.getElementById('val-driver-name').blur();
+    const driverName = (document.getElementById('val-driver-name').value || '').trim();    
     if (!driverName) {
         Swal.fire('Error', 'Debes consignar el nombre del Driver antes de validar.', 'warning');
         return;
