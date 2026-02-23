@@ -1057,7 +1057,29 @@ function processVoucherTimes(extractedFecha, extractedHora) {
     const horaInput = document.getElementById('val-hora-entrega');
     const elapsedEl = document.getElementById('val-tiempo-transcurrido');
 
-    fechaInput.value = extractedFecha || '';
+    // 1. NORMALIZAR LA FECHA (Convertir DD/MM/YY a DD/MM/YYYY)
+    let fechaNormalizada = extractedFecha || '';
+    if (fechaNormalizada) {
+        // Reemplazar guiones o puntos por barras en caso de que el OCR lea 23-02-26
+        fechaNormalizada = fechaNormalizada.replace(/[\-\.]/g, '/');
+        const partes = fechaNormalizada.split('/');
+        
+        if (partes.length === 3) {
+            let dia = partes[0].padStart(2, '0');
+            let mes = partes[1].padStart(2, '0');
+            let anio = partes[2];
+            
+            // Si el año tiene 2 dígitos (ej. "26"), convertir a 4 dígitos ("2026")
+            if (anio.length === 2) {
+                anio = '20' + anio;
+            }
+            
+            fechaNormalizada = `${dia}/${mes}/${anio}`;
+        }
+    }
+
+    // Asignar al input la fecha ya corregida
+    fechaInput.value = fechaNormalizada;
 
     if (extractedHora) {
         const hm = extractedHora.split(':');
@@ -1074,10 +1096,12 @@ function processVoucherTimes(extractedFecha, extractedHora) {
 
     try {
         const orderDateStr = new Date(currentOrderForValidation.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        if (extractedFecha && orderDateStr !== extractedFecha && orderDateStr !== extractedFecha.replace(/-/g, '/')) {
+        
+        // Comparamos usando la fecha normalizada
+        if (fechaNormalizada && orderDateStr !== fechaNormalizada) {
             Swal.fire({
                 title: 'Atención con la Fecha',
-                html: `La fecha del voucher (<b>${extractedFecha}</b>) no parece coincidir con la fecha original del pedido (<b>${orderDateStr}</b>). Por favor revise la imagen.`,
+                html: `La fecha del voucher (<b>${fechaNormalizada}</b>) no parece coincidir con la fecha original del pedido (<b>${orderDateStr}</b>). Por favor revise la imagen.`,
                 icon: 'warning'
             });
         }
