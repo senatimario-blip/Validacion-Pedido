@@ -36,22 +36,18 @@ function dashParseDate(dateStr) {
     if (!dateStr) return null;
     if (dateStr instanceof Date) return dateStr;
 
-    // Si ya viene en formato ISO YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
         return new Date(dateStr.replace(' ', 'T'));
     }
 
-    // Formato DD/MM/YYYY HH:MM:SS
     const parts = dateStr.split(/[\s/:]/);
     if (parts.length >= 3) {
         const day = parseInt(parts[0]);
         const month = parseInt(parts[1]) - 1;
         let year = parseInt(parts[2]);
         if (year < 100) year += 2000;
-
         const hour = parts[3] ? parseInt(parts[3]) : 0;
         const min = parts[4] ? parseInt(parts[4]) : 0;
-
         const d = new Date(year, month, day, hour, min, 0);
         return isNaN(d.getTime()) ? null : d;
     }
@@ -61,12 +57,10 @@ function dashParseDate(dateStr) {
 }
 
 function initDashboard() {
-    // Inyectar el HTML del dashboard en el main si no existe
     if (!document.getElementById('dashboard-view')) {
         document.querySelector('.main-content').insertAdjacentHTML('beforeend', getDashboardHTML());
     }
 
-    // Nav: click en "Dashboard"
     document.getElementById('nav-dashboard').addEventListener('click', (e) => {
         e.preventDefault();
         document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
@@ -75,7 +69,6 @@ function initDashboard() {
         document.getElementById('reports-content').style.display = 'none';
         document.getElementById('dashboard-view').style.display = 'block';
 
-        // Por defecto: filtrar por hoy si aún no hay fechas puestas
         const fromEl = document.getElementById('dash-from');
         const toEl = document.getElementById('dash-to');
         if (!fromEl.value && !toEl.value) {
@@ -90,7 +83,6 @@ function initDashboard() {
         renderDashboard();
     });
 
-    // Filtros del dashboard
     document.getElementById('dash-filter-btn').addEventListener('click', renderDashboard);
     document.getElementById('dash-reset-btn').addEventListener('click', () => {
         document.getElementById('dash-from').value = '';
@@ -98,8 +90,6 @@ function initDashboard() {
         document.getElementById('dash-driver').value = '';
         renderDashboard();
     });
-
-    // Contador SLA: quitado (ahora es automático desde columna O)
 }
 
 // ============================================================
@@ -110,7 +100,6 @@ function renderDashboard() {
     const toVal = document.getElementById('dash-to').value;
     const driver = (document.getElementById('dash-driver').value || '').toLowerCase().trim();
 
-    // Filtrar pedidos
     dashOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
         let ok = true;
         if (fromVal || toVal) {
@@ -124,7 +113,6 @@ function renderDashboard() {
         return ok;
     });
 
-    // Poblar selector de repartidores
     const allDrivers = [...new Set((typeof orders !== 'undefined' ? orders : []).map(o => o.envio).filter(Boolean))].sort();
     const dashDriver = document.getElementById('dash-driver');
     if (dashDriver.options.length <= 1) {
@@ -152,12 +140,12 @@ function renderKPIs() {
     const montoVal = dashOrders.filter(o => o.estado === 'Validado').reduce((s, o) => s + (parseFloat(o.monto) || 0), 0);
     const fillRate = total > 0 ? (validados / total * 100).toFixed(1) : '0.0';
 
-    // SLA automático desde columna O — muestra cumplimiento (dentro de tiempo)
+    // SLA: contador manual desde columna O
     const slaFuera = dashOrders.filter(o => o.sla_fuera && String(o.sla_fuera).trim() !== '').length;
     const slaBase = total - cancelados;
     const slaRate = slaBase > 0 ? ((1 - slaFuera / slaBase) * 100).toFixed(1) : '100.0';
 
-    // Cálculo TPE (Tiempo Promedio de Entrega)
+    // TPE: diferencia simple entre hora registro y hora entrega — sin regla de madrugada
     let tpeTotalMins = 0;
     let tpeCount = 0;
 
@@ -170,10 +158,7 @@ function renderKPIs() {
                 const hm = String(o.hora_entrega).split(':');
                 if (hm.length >= 2) {
                     deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
-                    // Si la hora de entrega es < que la hora de pedido (ej pedido 23:00, entrega 01:00) sumamos 1 día
-                    if (deliveryDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
-                        deliveryDate.setDate(deliveryDate.getDate() + 1);
-                    }
+                    // ✅ CORREGIDO: Solo suma la diferencia simple, sin ajuste de madrugada
                     const diffMs = deliveryDate - orderDate;
                     if (diffMs > 0) {
                         tpeTotalMins += Math.floor(diffMs / 60000);
@@ -184,8 +169,6 @@ function renderKPIs() {
         }
     });
 
-    // TPE General: Suma total de minutos / Cantidad de pedidos con tiempo válido
-    // (Opcionalmente el usuario dice "incluyendo cancelados", pero sin hora no hay TPE)
     const tpeMins = tpeCount > 0 ? Math.round(tpeTotalMins / tpeCount) : 0;
     const tpeString = tpeMins > 0 ? (tpeMins > 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`) : '--';
 
@@ -295,7 +278,7 @@ function renderChartPagos() {
         const t = (o.tipo_pago || '').toString().trim().toUpperCase();
         if (t === 'TARJETA') { agrupado.POS++; posDetalle.TARJETA++; }
         else if (t === 'QR') { agrupado.POS++; posDetalle.QR++; }
-        else if (t === 'POS') { agrupado.POS++; posDetalle.TARJETA++; } // POS genérico va a Tarjeta
+        else if (t === 'POS') { agrupado.POS++; posDetalle.TARJETA++; }
         else if (t === 'EFECTIVO') agrupado.EFECTIVO++;
         else if (t === 'ONLINE') agrupado.ONLINE++;
         else agrupado['Sin tipo']++;
@@ -359,7 +342,7 @@ function renderChartRepartidores() {
                 if (start && hm.length >= 2) {
                     const end = new Date(start);
                     end.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
-                    if (end < start && (start.getHours() > 20 && parseInt(hm[0]) < 5)) end.setDate(end.getDate() + 1);
+                    // ✅ CORREGIDO: Sin regla de madrugada — diferencia simple
                     const diff = (end - start) / 60000;
                     if (diff > 0 && diff < 1440) { stats[name].mins += diff; stats[name].tpeC++; }
                 }
@@ -436,7 +419,6 @@ function renderChartRepartidores() {
         }]
     });
 }
-
 
 // ============================================================
 // Gráfico 4: Motivos de Cancelación
@@ -549,103 +531,4 @@ function getDashboardHTML() {
         <i class="fa-solid fa-filter" style="color:rgba(255,255,255,0.5);"></i>
         <label style="font-size:0.85em; color:rgba(255,255,255,0.6);">Desde</label>
         <input type="date" id="dash-from" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px; color-scheme:dark;">
-        <label style="font-size:0.85em; color:rgba(255,255,255,0.6);">Hasta</label>
-        <input type="date" id="dash-to" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px; color-scheme:dark;">
-        <select id="dash-driver" style="background-color:#1e293b; border:1px solid rgba(255,255,255,0.15); color:white; border-radius:8px; padding:6px 10px;">
-            <option value="">Todos los repartidores</option>
-        </select>
-        <button id="dash-filter-btn" class="btn-primary" style="padding:6px 16px;">Aplicar</button>
-        <button id="dash-reset-btn" class="btn-secondary" style="padding:6px 12px;">Restablecer</button>
-    </div>
-
-    <!-- KPI Cards -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px;">
-        ${kpiCard('kpi-total', 'fa-list-ol', 'Total Pedidos', '0', COLORS.azul)}
-        ${kpiCard('kpi-validados', 'fa-circle-check', 'Validados', '0', COLORS.verde)}
-        ${kpiCard('kpi-cancelados', 'fa-ban', 'Cancelados', '0', COLORS.rojo)}
-        ${kpiCard('kpi-pendientes', 'fa-hourglass-half', 'Pendientes', '0', COLORS.amarillo)}
-        ${kpiCard('kpi-monto', 'fa-sack-dollar', 'Monto Validado', 'S/ 0.00', COLORS.cyan)}
-        ${kpiCard('kpi-fill', 'fa-percent', 'Fill Rate', '0%', COLORS.naranja)}
-        ${kpiCard('kpi-tpe', 'fa-clock-rotate-left', 'TPE (Promedio)', '--', COLORS.verde)}
-        <div class="glass-panel" style="padding:14px; border-radius:12px; border-left:3px solid ${COLORS.violeta}; text-align:center;">
-            <div style="color:${COLORS.violeta}; font-size:1.3em; margin-bottom:4px;"><i class="fa-solid fa-stopwatch"></i></div>
-            <div style="font-size:0.75em; color:rgba(255,255,255,0.55); margin-bottom:2px;">SLA 35 min</div>
-            <div id="kpi-sla" style="font-size:1.6em; font-weight:700; color:white;">0%</div>
-            <div id="kpi-sla-base" style="font-size:0.7em; color:rgba(255,255,255,0.4); margin-top:4px;">0 de 0 pedidos</div>
-        </div>
-    </div>
-
-    <!-- Fila 1: Línea de pedidos/día + Dona de pagos -->
-    <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">📈 Pedidos por Día</h4>
-            <div style="height:220px;"><canvas id="chart-por-dia"></canvas></div>
-        </div>
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">💳 Distribución de Pagos</h4>
-            <div style="height:220px;"><canvas id="chart-pagos"></canvas></div>
-        </div>
-    </div>
-
-    <!-- Fila 2: Repartidores + Cancelaciones -->
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px; background:#1e293b !important; border:1px solid rgba(255,255,255,0.1);">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-motorcycle"></i> Ranking de Repartidores</h4>
-            <div style="height:450px; background:#1e293b; border-radius:8px;"><canvas id="chart-repartidores"></canvas></div>
-        </div>
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">❌ Motivos de Cancelación</h4>
-            <div style="height:240px;"><canvas id="chart-cancelaciones"></canvas></div>
-        </div>
-    </div>
-
-    <!-- Fila 3: Horas + Validadores -->
-    <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">🕐 Pedidos por Hora del Día</h4>
-            <div style="height:200px;"><canvas id="chart-horas"></canvas></div>
-        </div>
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">👤 Actividad por Validador</h4>
-            <div style="height:200px;"><canvas id="chart-validadores"></canvas></div>
-        </div>
-    </div>
-
-    <!-- Tabla de Últimos Pedidos -->
-    <div class="glass-panel" style="padding:16px; border-radius:12px;">
-        <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">📋 Últimos 20 Pedidos</h4>
-        <div style="overflow-x:auto;">
-            <table class="orders-table" style="font-size:0.85em;">
-                <thead><tr>
-                    <th>Llave</th><th>Estado</th><th>Monto</th><th>Repartidor</th><th>Tipo Pago</th><th>Hora</th>
-                </tr></thead>
-                <tbody id="dash-tabla-body"></tbody>
-            </table>
-        </div>
-    </div>
-</div>`;
-}
-
-function kpiCard(id, icon, label, defaultVal, color) {
-    return `<div class="glass-panel" style="padding:14px; border-radius:12px; border-left:3px solid ${color}; text-align:center;">
-        <div style="color:${color}; font-size:1.3em; margin-bottom:4px;"><i class="fa-solid ${icon}"></i></div>
-        <div style="font-size:0.75em; color:rgba(255,255,255,0.55); margin-bottom:2px;">${label}</div>
-        <div id="${id}" style="font-size:1.6em; font-weight:700; color:white;">${defaultVal}</div>
-    </div>`;
-}
-
-// ============================================================
-// Arranque: esperar a que app.js inicialice
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    // Espera breve a que app.js termine de registrar sus listeners
-    setTimeout(initDashboard, 100);
-});
-
-// Exponer para que app.js pueda llamar após loadOrders
-window.refreshDashboardIfVisible = function () {
-    if (document.getElementById('dashboard-view') &&
-        document.getElementById('dashboard-view').style.display !== 'none') {
-        renderDashboard();
-    }
-};
+        <label style="font-size:0.85em; color:rgba(255,255,255,
