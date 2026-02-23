@@ -126,12 +126,11 @@ navReportes.addEventListener('click', (e) => {
     navPedidos.classList.remove('active');
     document.getElementById('nav-dashboard').classList.remove('active');
     contentPedidos.style.display = 'none';
-    contentReportes.style.display = ''; // Limpiar inline style puesto por Dashboard
+    contentReportes.style.display = '';
     contentReportes.classList.remove('hidden');
     const dv = document.getElementById('dashboard-view');
     if (dv) dv.style.display = 'none';
 
-    // Siempre mostrar la fecha de hoy al entrar a Reportes
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -162,10 +161,9 @@ async function loadOrders() {
 
 function renderOrders(data) {
     ordersTableBody.innerHTML = '';
-    const totalOrders = data.length; // Total de registros filtrados
+    const totalOrders = data.length;
 
     data.forEach((order, index) => {
-        // Correlativo Dinámico Descendente: Total, Total-1, ..., 1
         const dynamicCorrelative = totalOrders - index;
 
         const tr = document.createElement('tr');
@@ -214,7 +212,7 @@ window.toggleSLA = async (nro) => {
     try {
         const res = await fetchAPI('marcarSLAFuera', { nro, usuario: currentUser.usuario });
         if (res.success) {
-            loadOrders(); // Recarga tabla y dashboard
+            loadOrders();
         } else {
             Swal.fire('Error', res.message, 'error');
         }
@@ -231,7 +229,6 @@ document.getElementById('btn-print-report').addEventListener('click', () => {
 });
 
 function getDayName(dateString) {
-    // We adjust for timezone offset assuming dateString is YYYY-MM-DD
     const d = new Date(dateString + 'T12:00:00');
     const dias = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
     return dias[d.getDay()];
@@ -245,13 +242,11 @@ function renderReportsTable() {
 
     if (!reportDate) return;
 
-    // Set Dynamic Title
-    const parts = reportDate.split('-'); // 2026-02-20
-    const formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`; // 20/02/2026
+    const parts = reportDate.split('-');
+    const formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
     const dayName = getDayName(reportDate);
     title.textContent = `TADA ATE - VALIDACION DE COBROS [${dayName} ${formattedDate}]`;
 
-    // Filter by exact date
     const targetDateObj = new Date(reportDate + 'T12:00:00');
     const filteredForReport = orders.filter(o => {
         if (!o.fecha) return false;
@@ -268,23 +263,19 @@ function renderReportsTable() {
         return;
     }
 
-    // Sort Chronologically for the report: Earliest orders first (opposite of main view)
-    // We sort by 'nro' ascending because 'nro' is the incremental ID from the DB
     filteredForReport.sort((a, b) => a.nro - b.nro);
 
     filteredForReport.forEach((order, index) => {
         const correlativeCode = String(index + 1).padStart(2, '0');
 
-        // 1. Hora
         let horaFormat = '-';
         if (order.fecha) {
             try {
                 horaFormat = new Date(order.fecha).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
-                horaFormat = horaFormat.toLowerCase().replace(' ', ''); // 11:20am
+                horaFormat = horaFormat.toLowerCase().replace(' ', '');
             } catch (e) { }
         }
 
-        // 2. Tipo Pago — Read directly from column L (tipo_pago)
         let tipoDisplay = '-';
         if (order.tipo_pago && String(order.tipo_pago).trim() !== '') {
             tipoDisplay = String(order.tipo_pago).trim().toUpperCase();
@@ -292,7 +283,6 @@ function renderReportsTable() {
             tipoDisplay = '-';
         }
 
-        // 3. Validacion Tick / Motivo Cancelación
         let validTick = order.estado === 'Validado' ? '✓' : '';
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = order.motivo_cancelacion || '';
@@ -302,7 +292,6 @@ function renderReportsTable() {
             else if (motivo) validTick = motivo;
         }
 
-        // 4. Vuelto — Read directly from column M (vuelto)
         let vueltoDisplay = '';
         if (tipoDisplay === 'EFECTIVO' && order.vuelto !== '' && order.vuelto !== null && order.vuelto !== undefined) {
             const v = parseFloat(order.vuelto);
@@ -311,7 +300,6 @@ function renderReportsTable() {
             }
         }
 
-        // Ensure dash if no driver exists
         let envioDisplay = order.envio ? order.envio : '-';
 
         const tr = document.createElement('tr');
@@ -332,7 +320,6 @@ function renderReportsTable() {
 // --- Modals & Forms ---
 
 newOrderBtn.addEventListener('click', () => {
-    // 1. Correlativo Historial (Máximo ID + 1)
     let maxNro = 0;
     if (orders && orders.length > 0) {
         maxNro = orders.reduce((max, o) => {
@@ -341,7 +328,6 @@ newOrderBtn.addEventListener('click', () => {
         }, 0);
     }
 
-    // Safety fallback: si hay pedidos pero max es 0 (ej. error de parsing), usar la longitud total
     if (orders.length > 0 && maxNro === 0) {
         console.warn("MaxNro falló. Usando longitud del array.", orders);
         maxNro = orders.length;
@@ -349,13 +335,10 @@ newOrderBtn.addEventListener('click', () => {
 
     document.getElementById('new-nro').value = maxNro + 1;
 
-    // 2. Correlativo Visual (Filtro Activo + 1)
     const currentCount = currentFilteredOrders ? currentFilteredOrders.length : 0;
     document.getElementById('new-correlative-display').value = `# ${currentCount + 1}`;
 
-    // --- DETALLE DEL FILTRO ACTIVO ---
     let dateText = '';
-    // Helper simple para fecha (reutilizando fmt si es visible o redefiniendo)
     const fmtLocal = (s) => s.split('-').reverse().join('/');
 
     if (dateRange.start && dateRange.end) {
@@ -365,21 +348,17 @@ newOrderBtn.addEventListener('click', () => {
         dateText = singleDate ? fmtLocal(singleDate) : 'Todas las fechas';
     }
 
-    // Obtener texto del botón de estado activo
     const activeTabObj = document.querySelector('.filter-tab.active');
     const statusText = activeTabObj ? activeTabObj.textContent.trim() : 'Todos';
 
     document.getElementById('active-filter-details').textContent = `(${dateText} | ${statusText})`;
-    // ---------------------------------
 
-    // 3. Fecha Hoy (Bloqueada)
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
     document.getElementById('new-date').value = `${yyyy}-${mm}-${dd}`;
 
-    // Limpiar campo hora para mostrar placeholder
     document.getElementById('new-time').value = '';
 
     document.getElementById('modal-new-order').classList.add('active');
@@ -391,7 +370,6 @@ document.querySelectorAll('.close-modal').forEach(btn => {
     });
 });
 
-// Force Uppercase Key
 document.getElementById('new-key').addEventListener('input', function () {
     this.value = this.value.toUpperCase();
 });
@@ -399,21 +377,19 @@ document.getElementById('new-key').addEventListener('input', function () {
 newOrderForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    // Separate Date + Time
     const datePart = document.getElementById('new-date').value;
     const timePart = document.getElementById('new-time').value;
 
     const data = {
         nro: document.getElementById('new-nro').value,
-        fecha: datePart, // Send YYYY-MM-DD cleanly
-        hora: timePart,  // Send HH:mm separately
+        fecha: datePart,
+        hora: timePart,
         llave: document.getElementById('new-key').value,
         envio: document.getElementById('new-envio').value,
         monto: document.getElementById('new-amount').value,
         usuario: currentUser.usuario
     };
 
-    // Check availability locally first (optional UI enhancement)
     const exists = orders.find(o => o.nro == data.nro);
     if (exists && exists.estado !== 'Reservado') {
         Swal.fire('Atención', `El pedido #${data.nro} ya existe.`, 'warning');
@@ -440,7 +416,6 @@ newOrderForm.addEventListener('submit', async (e) => {
 
 let currentOrderForValidation = null;
 
-// Helper function to get unique driver names from orders
 function getUniqueDrivers() {
     const drivers = new Set();
     orders.forEach(order => {
@@ -451,7 +426,6 @@ function getUniqueDrivers() {
     return Array.from(drivers).sort();
 }
 
-// Function to populate the datalist for drivers
 function updateDriversDatalist() {
     const datalist = document.getElementById('drivers-list');
     if (!datalist) return;
@@ -469,7 +443,6 @@ window.openValidateModal = (nro) => {
     document.getElementById('val-amount-display').textContent = formatMoney(order.monto);
     document.getElementById('val-id').value = order.nro;
 
-    // Populate Extra Info Chips (Envio, Hora, Pago)
     const extraInfoDiv = document.getElementById('val-extra-info');
     extraInfoDiv.innerHTML = '';
     const chipStyle = 'display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:0.78em; font-weight:600; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.85);';
@@ -489,7 +462,6 @@ window.openValidateModal = (nro) => {
     }
 
     photoInput.value = '';
-    // Reset image transform state
     currentZoom = 1;
     currentRotation = 0;
     translateX = 0;
@@ -501,11 +473,9 @@ window.openValidateModal = (nro) => {
     document.getElementById('photo-actions').classList.add('hidden');
     valPhotoAmountInput.value = '';
 
-    // Población de Driver y Datalist
     updateDriversDatalist();
     document.getElementById('val-driver-name').value = order.envio || '';
 
-    // Set initial delivery date/time if available, otherwise clear
     const valFechaEntrega = document.getElementById('val-fecha-entrega');
     const valHoraEntrega = document.getElementById('val-hora-entrega');
 
@@ -524,15 +494,13 @@ window.openValidateModal = (nro) => {
     } else {
         valHoraEntrega.value = '';
     }
-    calculateLiveElapsedTime(); // Calculate initial elapsed time
+    calculateLiveElapsedTime();
 
-    // Reset Validation Mode Default (Uncheck all)
+    // ✅ CORREGIDO: Sin selección por defecto — el usuario elige
     document.querySelectorAll('input[name="valType"]').forEach(r => r.checked = false);
     updateValidationMode(null);
 
-    // If order already has photo/validation
     const cleanUrl = extractPhotoUrl(order.foto);
-    // Pre-fill validation type from tipo_pago (column L) — clean data
     const tipoPago = (order.tipo_pago || '').toString().trim().toUpperCase();
     if (tipoPago === 'EFECTIVO') {
         document.querySelector('input[name="valType"][value="efectivo"]').checked = true;
@@ -553,10 +521,9 @@ window.openValidateModal = (nro) => {
         updateValidationMode('pos');
     } else if (tipoPago === 'POS') {
         document.querySelector('input[name="valType"][value="pos"]').checked = true;
-        setPosType('TARJETA'); // Default to Tarjeta when POS is generic
+        setPosType('TARJETA');
         updateValidationMode('pos');
     } else if (order.foto) {
-        // Backward compatibility: fallback to parsing foto string for old records
         if (order.foto.includes('EFECTIVO')) {
             document.querySelector('input[name="valType"][value="efectivo"]').checked = true;
             updateValidationMode('efectivo');
@@ -576,7 +543,6 @@ window.openValidateModal = (nro) => {
         }
     }
 
-    // Load Image Preview if URL exists
     if (cleanUrl) {
         photoPreview.src = cleanUrl;
         photoPreview.classList.remove('hidden');
@@ -585,10 +551,8 @@ window.openValidateModal = (nro) => {
         document.getElementById('view-full-photo').href = cleanUrl;
     }
 
-    // Set status
     updateValidationUI(order.monto_foto, order.monto);
 
-    // Read Only Mode for Non-Admins
     const saveBtn = document.getElementById('btn-save-validation');
     const dropZone = document.getElementById('photo-drop-zone');
 
@@ -598,11 +562,10 @@ window.openValidateModal = (nro) => {
         dropZone.style.opacity = '0.7';
         valPhotoAmountInput.disabled = true;
         document.querySelectorAll('input[name="valType"]').forEach(r => r.disabled = true);
-        document.getElementById('val-driver-name').disabled = true; // Disable driver input
-        valFechaEntrega.disabled = true; // Disable date input
-        valHoraEntrega.disabled = true; // Disable time input
+        document.getElementById('val-driver-name').disabled = true;
+        valFechaEntrega.disabled = true;
+        valHoraEntrega.disabled = true;
 
-        // Show Read Only Badge
         const title = document.querySelector('#modal-validate h3');
         if (!document.getElementById('readonly-badge')) {
             const badge = document.createElement('span');
@@ -617,16 +580,15 @@ window.openValidateModal = (nro) => {
             title.appendChild(badge);
         }
 
-        // Hide Change Photo
         const removeBtn = document.getElementById('remove-photo-btn');
         if (removeBtn) removeBtn.style.display = 'none';
     } else {
         saveBtn.style.display = 'block';
         valPhotoAmountInput.disabled = false;
         document.querySelectorAll('input[name="valType"]').forEach(r => r.disabled = false);
-        document.getElementById('val-driver-name').disabled = false; // Enable driver input
-        valFechaEntrega.disabled = false; // Enable date input
-        valHoraEntrega.disabled = false; // Enable time input
+        document.getElementById('val-driver-name').disabled = false;
+        valFechaEntrega.disabled = false;
+        valHoraEntrega.disabled = false;
 
         const isTypeSelected = document.querySelector('input[name="valType"]:checked');
         if (isTypeSelected) {
@@ -642,7 +604,6 @@ window.openValidateModal = (nro) => {
         const badge = document.getElementById('readonly-badge');
         if (badge) badge.remove();
 
-        // Show Change Photo
         const removeBtn = document.getElementById('remove-photo-btn');
         if (removeBtn) removeBtn.style.display = 'inline-block';
     }
@@ -657,7 +618,6 @@ valTypeRadios.forEach(radio => {
     });
 });
 
-// Helper to calculate elapsed time in real-time
 function calculateLiveElapsedTime() {
     if (!currentOrderForValidation || !currentOrderForValidation.fecha) return;
 
@@ -671,7 +631,6 @@ function calculateLiveElapsedTime() {
     }
 
     try {
-        // Validar formato básico DD/MM/YYYY antes de intentar procesar
         const dateParts = fechaEntrega.split('/');
         if (dateParts.length !== 3 || dateParts[2].length !== 4) {
             display.textContent = '--';
@@ -699,15 +658,12 @@ function calculateLiveElapsedTime() {
     }
 }
 
-// Attach listeners for live calculation
 document.getElementById('val-fecha-entrega')?.addEventListener('input', calculateLiveElapsedTime);
 document.getElementById('val-hora-entrega')?.addEventListener('input', calculateLiveElapsedTime);
 document.getElementById('val-fecha-entrega')?.addEventListener('change', calculateLiveElapsedTime);
 document.getElementById('val-hora-entrega')?.addEventListener('change', calculateLiveElapsedTime);
 
-// Trigger on modal click as per user request to ensure refresh when clicking away from inputs
 document.getElementById('modal-validate')?.addEventListener('click', (e) => {
-    // Solo si el click NO fue dentro de los inputs para no interrumpir la escritura
     if (!e.target.closest('input')) {
         calculateLiveElapsedTime();
     }
@@ -718,7 +674,6 @@ function updateValidationMode(mode) {
     const ocrBtn = document.getElementById('ocr-trigger-btn');
     const helperParams = document.getElementById('ocr-helper-text');
 
-    // Default Date only for EFECTIVO
     if (mode === 'efectivo') {
         const dateInput = document.getElementById('val-fecha-entrega');
         if (!dateInput.value) {
@@ -730,12 +685,10 @@ function updateValidationMode(mode) {
         }
     }
 
-    // Elements to toggle
     const posOptions = document.getElementById('pos-options');
     const efectivoOptions = document.getElementById('efectivo-options');
     const onlineOptions = document.getElementById('online-options');
 
-    // Reset Defaults
     posOptions.style.display = 'none';
     efectivoOptions.style.display = 'none';
     onlineOptions.style.display = 'none';
@@ -756,22 +709,20 @@ function updateValidationMode(mode) {
         photoInput.disabled = false;
     }
 
-    // Tocar UI según modo
     if (mode === 'pos') {
         posOptions.style.display = 'block';
         ocrBtn.style.display = 'inline-block';
         helperParams.textContent = 'Sube la foto del voucher POS para leer monto.';
     } else if (mode === 'efectivo') {
         efectivoOptions.style.display = 'block';
-        ocrBtn.style.display = 'none'; // No escaneamos billetes
+        ocrBtn.style.display = 'none';
         helperParams.textContent = 'Sube una foto del billete/monedas (Obligatorio). Ingrese monto manualmente.';
     } else if (mode === 'online') {
         onlineOptions.style.display = 'block';
-        ocrBtn.style.display = 'none'; // No escaneamos pantallas de yape
+        ocrBtn.style.display = 'none';
         helperParams.textContent = 'Sube captura de pantalla de la transferencia (Obligatorio). Ingrese monto manualmente.';
     }
 
-    // Sugerir monto si no es POS
     if (mode !== 'pos') {
         if (!valPhotoAmountInput.value && currentOrderForValidation) {
             valPhotoAmountInput.value = parseFloat(currentOrderForValidation.monto).toFixed(2);
@@ -779,15 +730,13 @@ function updateValidationMode(mode) {
         }
     } else {
         if (currentOrderForValidation && valPhotoAmountInput.value === parseFloat(currentOrderForValidation.monto).toFixed(2)) {
-            valPhotoAmountInput.value = ''; // clear auto suggestion for POS
+            valPhotoAmountInput.value = '';
             validateAmounts();
         }
     }
 }
 
-// Enable zoom on click (only if not dragged)
 photoPreview.addEventListener('click', (e) => {
-    // Si hubo un movimiento significativo, ignoramos el click
     if (photoPreview.dataset.wasDragged === 'true') {
         photoPreview.dataset.wasDragged = 'false';
         return;
@@ -798,7 +747,6 @@ photoPreview.addEventListener('click', (e) => {
     }
 });
 
-// Handle Photo Upload
 const dropZone = document.getElementById('photo-drop-zone');
 
 photoInput.addEventListener('click', () => {
@@ -818,15 +766,12 @@ dropZone.addEventListener('drop', (e) => {
     }
 });
 
-// Soporte para pegar imagenes con Ctrl+V
 document.addEventListener('paste', (e) => {
     const validateModal = document.getElementById('modal-validate');
     if (!validateModal || !validateModal.classList.contains('active')) return;
 
-    // Evitar si es admin block (readonly)
     if (currentUser && currentUser.rol !== 'Admin') return;
 
-    // Solo permitir si hay un tipo de validación seleccionado
     const valType = document.querySelector('input[name="valType"]:checked');
     if (!valType) {
         Swal.fire({
@@ -840,10 +785,8 @@ document.addEventListener('paste', (e) => {
         return;
     }
 
-    // Si estamos escribiendo en un input, permitimos pegar texto normal
     const tagName = e.target.tagName.toUpperCase();
     if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
-        // Excepto si es el input del filtro (aunque no debería estar enfocado)
         if (e.target.type === 'text' || e.target.type === 'number') return;
     }
 
@@ -870,7 +813,7 @@ document.addEventListener('paste', (e) => {
 let currentZoom = 1;
 let currentRotation = 0;
 let isDragging = false;
-let dragMoveThreshold = 5; // píxeles para considerar que fue un arrastre
+let dragMoveThreshold = 5;
 let startX, startY;
 let initialMouseX, initialMouseY;
 let translateX = 0;
@@ -900,13 +843,12 @@ window.addEventListener('mousemove', (e) => {
     translateX = e.clientX - startX;
     translateY = e.clientY - startY;
 
-    // Marcar como arrastrado si se mueve más allá del umbral
     const dist = Math.sqrt(Math.pow(e.clientX - initialMouseX, 2) + Math.pow(e.clientY - initialMouseY, 2));
     if (dist > dragMoveThreshold) {
         photoPreview.dataset.wasDragged = 'true';
     }
 
-    updatePhotoTransform(false); // Sin transición durante el arrastre
+    updatePhotoTransform(false);
 });
 
 window.addEventListener('mouseup', () => {
@@ -957,11 +899,9 @@ async function handleFileSelect() {
         return;
     }
 
-    // Use Blob URL for preview (allows opening in new tab)
     const blobUrl = URL.createObjectURL(file);
     photoPreview.src = blobUrl;
     photoPreview.classList.remove('hidden');
-    // Reset position, zoom and rotation on new image
     currentZoom = 1;
     currentRotation = 0;
     translateX = 0;
@@ -971,7 +911,6 @@ async function handleFileSelect() {
     uploadPlaceholder.classList.add('hidden');
     document.getElementById('photo-actions').classList.remove('hidden');
 
-    // Efecto de scroll automático al cargar la imagen
     const dropZone = document.getElementById('photo-drop-zone');
     photoPreview.onload = () => {
         setTimeout(() => {
@@ -979,15 +918,11 @@ async function handleFileSelect() {
                 top: dropZone.scrollHeight,
                 behavior: 'smooth'
             });
-            // Esperar un momento y volver arriba o simplemente dejarlo ahí
-            // El usuario suele querer ver el total que está abajo
         }, 500);
     };
 
-    // Update "Ver Original" button
     document.getElementById('view-full-photo').href = blobUrl;
 
-    // Start OCR conditionally
     const valType = document.querySelector('input[name="valType"]:checked')?.value;
     if (valType === 'pos' || valType === 'online') {
         runOCR(file, currentRotation);
@@ -1032,7 +967,6 @@ document.getElementById('remove-photo-btn').addEventListener('click', (e) => {
     photoInput.click();
 });
 
-// Convert file to base64 (without data URI prefix)
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1042,7 +976,6 @@ function fileToBase64(file) {
     });
 }
 
-// Parse voucher data logic from user
 function parseIziPayVoucherData(text) {
     const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
@@ -1067,8 +1000,6 @@ function parseIziPayVoucherData(text) {
         }
         if (fecha) break;
     }
-    // format date to YYYY-MM-DD for input[type="date"] if possible, otherwise DD/MM/YYYY
-    // we use a text input for date so DD/MM/YYYY is fine
 
     const horaPattern = /(\d{1,2}):(\d{2})(?::(\d{2}))?/;
     for (let line of lines) {
@@ -1115,16 +1046,13 @@ function parseIziPayVoucherData(text) {
     return { amount: monto, fecha, hora, tipoPago };
 }
 
-// Compare voucher runtime dates/times
 function processVoucherTimes(extractedFecha, extractedHora) {
     const fechaInput = document.getElementById('val-fecha-entrega');
     const horaInput = document.getElementById('val-hora-entrega');
     const elapsedEl = document.getElementById('val-tiempo-transcurrido');
 
-    // Set UI values
     fechaInput.value = extractedFecha || '';
 
-    // Convert hora "HH:MM:SS" or "HH:MM" to "HH:MM" for time input
     if (extractedHora) {
         const hm = extractedHora.split(':');
         if (hm.length >= 2) {
@@ -1138,10 +1066,8 @@ function processVoucherTimes(extractedFecha, extractedHora) {
 
     if (!currentOrderForValidation.fecha) return;
 
-    // Compare date
     try {
         const orderDateStr = new Date(currentOrderForValidation.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        // basic string comparison for now if both are DD/MM/YYYY
         if (extractedFecha && orderDateStr !== extractedFecha && orderDateStr !== extractedFecha.replace(/-/g, '/')) {
             Swal.fire({
                 title: 'Atención con la Fecha',
@@ -1151,17 +1077,13 @@ function processVoucherTimes(extractedFecha, extractedHora) {
         }
     } catch (e) { }
 
-    // Calculate elapsed time
     if (extractedHora && currentOrderForValidation.fecha) {
         try {
             const orderDate = new Date(currentOrderForValidation.fecha);
-
-            // Build JS Date for the voucher time, assuming it's today or same day as order
             const voucherDate = new Date(orderDate);
             const hm = extractedHora.split(':');
             voucherDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
 
-            // If the time is before the order date, it might be the next day after midnight
             if (voucherDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
                 voucherDate.setDate(voucherDate.getDate() + 1);
             }
@@ -1181,7 +1103,6 @@ function processVoucherTimes(extractedFecha, extractedHora) {
     }
 }
 
-// OCR Logic: Google Cloud Vision for POS, Gemini -> Tesseract for Online
 async function runOCR(file, rotation = 0) {
     ocrOverlay.classList.remove('hidden');
     valPhotoAmountInput.value = '';
@@ -1196,7 +1117,6 @@ async function runOCR(file, rotation = 0) {
 
     try {
         if (valType === 'pos') {
-            // === STRATEGY 0: Google Cloud Vision API for POS ===
             let apiKey = localStorage.getItem('gcp_api_key');
             if (!apiKey) {
                 const { value: key } = await Swal.fire({
@@ -1217,7 +1137,6 @@ async function runOCR(file, rotation = 0) {
 
             try {
                 engine = 'Google Cloud Vision';
-                console.log(`[OCR] Trying Google Cloud Vision for POS (Rotation: ${rotation})...`);
                 const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
 
                 const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
@@ -1257,10 +1176,8 @@ async function runOCR(file, rotation = 0) {
                 throw err;
             }
         } else {
-            // === STRATEGY 1: Gemini Vision via Google Apps Script backend for Online ===
             if (API_URL) {
                 try {
-                    console.log(`[OCR] Trying Gemini Vision via backend... (Rotation: ${rotation})`);
                     const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
                     const response = await fetchAPI('processVoucherOCR', {
                         imageBase64: base64,
@@ -1282,9 +1199,7 @@ async function runOCR(file, rotation = 0) {
                 }
             }
 
-            // === STRATEGY 2: Tesseract.js local fallback ===
             if (bestData.amount <= 0) {
-                console.log('[OCR] Falling back to Tesseract.js...');
                 engine = 'Tesseract';
 
                 function mergeData(passData) {
@@ -1300,23 +1215,15 @@ async function runOCR(file, rotation = 0) {
             }
         }
 
-
-
-        console.log('[OCR] Final Data:', bestData, 'via', engine);
-
         if (bestData.amount > 0) {
             valPhotoAmountInput.value = bestData.amount.toFixed(2);
             itemDetected(bestData.amount);
-
-            // Set times UI and do validation
             processVoucherTimes(bestData.fecha, bestData.hora);
 
-            // Auto-set POS type (QR or TARJETA)
             if (valType === 'pos') {
                 setPosType(bestData.tipoPago);
             }
 
-            // Show OCR-detected info chips
             showOcrInfoChips(bestData);
 
             const Toast = Swal.mixin({
@@ -1357,7 +1264,6 @@ async function runOCR(file, rotation = 0) {
     validateAmounts();
 }
 
-// Show OCR-detected info chips below the photo
 function showOcrInfoChips(data) {
     let container = document.getElementById('ocr-info-chips');
     if (!container) {
@@ -1380,7 +1286,6 @@ function showOcrInfoChips(data) {
     container.innerHTML += `<span style="${chipStyle} background:rgba(74,222,128,0.15); color:#4ade80;"><i class="fa-solid fa-${data.tipoPago === 'QR' ? 'qrcode' : 'credit-card'}"></i> ${data.tipoPago}</span>`;
 }
 
-// Single OCR pass with given Tesseract parameters
 async function ocrPass(image, params, label) {
     try {
         const worker = await Tesseract.createWorker();
@@ -1389,94 +1294,14 @@ async function ocrPass(image, params, label) {
         await worker.setParameters(params);
 
         const ret = await worker.recognize(image);
-        console.log(`[${label}] OCR Text:`, ret.data.text);
-        console.log(`[${label}] Confidence:`, ret.data.confidence);
-
         await worker.terminate();
 
         const data = extractVoucherData(ret.data.text);
-        console.log(`[${label}] Voucher Data:`, data);
         return data;
     } catch (err) {
         console.warn(`[${label}] Failed:`, err.message);
         return { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA' };
     }
-}
-
-// Lighter preprocessing for full image (fallback pass)
-function preprocessImageFull(file) {
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-
-            const scale = 2;
-            canvas.width = img.width * scale;
-            canvas.height = img.height * scale;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-            // Grayscale + high contrast
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            const grayVals = [];
-            for (let i = 0; i < data.length; i += 4) {
-                const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-                grayVals.push(gray);
-                data[i] = gray; data[i + 1] = gray; data[i + 2] = gray;
-            }
-
-            // Binarize with Otsu
-            const t = otsuThreshold(grayVals);
-            for (let i = 0; i < data.length; i += 4) {
-                const val = data[i] > t ? 255 : 0;
-                data[i] = val; data[i + 1] = val; data[i + 2] = val;
-            }
-            ctx.putImageData(imageData, 0, 0);
-            resolve(canvas.toDataURL('image/png'));
-        };
-    });
-}
-
-// Soft preprocessing: Grayscale + high contrast WITHOUT binarization
-// Better for images with strong reflections/glare on POS screens
-function preprocessImageSoft(file) {
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-
-            // Crop to Total zone (40%-85%)
-            const sourceY = Math.floor(img.height * 0.40);
-            const sourceEndY = Math.floor(img.height * 0.85);
-            const sourceHeight = sourceEndY - sourceY;
-
-            const scale = 3;
-            canvas.width = img.width * scale;
-            canvas.height = sourceHeight * scale;
-            ctx.drawImage(img, 0, sourceY, img.width, sourceHeight, 0, 0, canvas.width, canvas.height);
-
-            // Grayscale with HIGH contrast (no binarization)
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            const contrastFactor = 2.0;
-            const intercept = 128 * (1 - contrastFactor);
-
-            for (let i = 0; i < data.length; i += 4) {
-                let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-                gray = gray * contrastFactor + intercept;
-                gray = Math.min(255, Math.max(0, gray));
-                data[i] = gray; data[i + 1] = gray; data[i + 2] = gray;
-            }
-
-            ctx.putImageData(imageData, 0, 0);
-            sharpenCanvas(canvas, ctx);
-            resolve(canvas.toDataURL('image/png'));
-        };
-    });
 }
 
 function preprocessImage(file) {
@@ -1487,27 +1312,21 @@ function preprocessImage(file) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
-            // --- STEP 1: Intelligent Crop ---
-            // On IziPay vouchers, "Total: S/ XX.XX" is between 40%-85% of image height
             const sourceY = Math.floor(img.height * 0.40);
             const sourceEndY = Math.floor(img.height * 0.85);
             const sourceHeight = sourceEndY - sourceY;
 
-            // Scale up 3x for better OCR resolution
             const scale = 3;
             canvas.width = img.width * scale;
             canvas.height = sourceHeight * scale;
 
-            // Draw Cropped & Scaled
             ctx.drawImage(img, 0, sourceY, img.width, sourceHeight, 0, 0, canvas.width, canvas.height);
 
-            // --- STEP 2: Grayscale ---
             let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             let data = imageData.data;
             const grayValues = [];
 
             for (let i = 0; i < data.length; i += 4) {
-                // Weighted grayscale (luminosity method - better for screens)
                 const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
                 data[i] = gray;
                 data[i + 1] = gray;
@@ -1516,9 +1335,7 @@ function preprocessImage(file) {
             }
             ctx.putImageData(imageData, 0, 0);
 
-            // --- STEP 3: Otsu's Binarization ---
             const threshold = otsuThreshold(grayValues);
-            console.log('OCR Otsu threshold:', threshold);
 
             imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             data = imageData.data;
@@ -1532,7 +1349,6 @@ function preprocessImage(file) {
                 if (val === 0) darkPixels++;
             }
 
-            // Auto-invert if dark background (more dark pixels than light)
             const totalPixels = data.length / 4;
             if (darkPixels > totalPixels * 0.6) {
                 for (let i = 0; i < data.length; i += 4) {
@@ -1540,20 +1356,15 @@ function preprocessImage(file) {
                     data[i + 1] = 255 - data[i + 1];
                     data[i + 2] = 255 - data[i + 2];
                 }
-                console.log('OCR: Auto-inverted (dark background detected)');
             }
 
             ctx.putImageData(imageData, 0, 0);
-
-            // --- STEP 4: Sharpen ---
             sharpenCanvas(canvas, ctx);
-
             resolve(canvas.toDataURL('image/png'));
         };
     });
 }
 
-// Otsu's method: calculate optimal binarization threshold
 function otsuThreshold(grayValues) {
     const histogram = new Array(256).fill(0);
     grayValues.forEach(v => histogram[Math.min(255, Math.max(0, v))]++);
@@ -1584,14 +1395,12 @@ function otsuThreshold(grayValues) {
     return bestThreshold;
 }
 
-// Sharpen using 3x3 convolution kernel
 function sharpenCanvas(canvas, ctx) {
     const w = canvas.width, h = canvas.height;
     const src = ctx.getImageData(0, 0, w, h);
     const dst = ctx.createImageData(w, h);
     const sd = src.data, dd = dst.data;
 
-    // Sharpening kernel
     const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
 
     for (let y = 1; y < h - 1; y++) {
@@ -1607,54 +1416,40 @@ function sharpenCanvas(canvas, ctx) {
                 const idx = (y * w + x) * 4 + c;
                 dd[idx] = Math.min(255, Math.max(0, val));
             }
-            dd[(y * w + x) * 4 + 3] = 255; // Alpha
+            dd[(y * w + x) * 4 + 3] = 255;
         }
     }
     ctx.putImageData(dst, 0, 0);
 }
 
 function extractVoucherData(text) {
-    console.log("Raw OCR Text:", text);
-
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     const fullText = lines.join(' ');
 
-    // === EXTRACT FECHA ===
-    // Matches: "Fecha: 21/02/26", "Fecha 20/02/2026", "Fecha: 21-02-26"
     let fecha = '';
     const fechaPattern = /[Ff]echa:?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/;
     const fechaMatch = fullText.match(fechaPattern);
     if (fechaMatch) {
         fecha = fechaMatch[1].replace(/-/g, '/');
-        console.log('Extracted Fecha:', fecha);
     }
 
-    // === EXTRACT HORA ===
-    // Matches: "Hora: 15:03", "Hora: 09.26", "Hora 14:59"
     let hora = '';
     const horaPattern = /[Hh]ora:?\s*(\d{1,2}[:.]\d{2})/;
     const horaMatch = fullText.match(horaPattern);
     if (horaMatch) {
         hora = horaMatch[1].replace('.', ':');
-        console.log('Extracted Hora:', hora);
     }
 
-    // === DETECT TIPO PAGO ===
-    // If text contains "QR" or "realizada con QR" → QR, otherwise → TARJETA
     let tipoPago = 'TARJETA';
     if (/\bQR\b/i.test(fullText) || /realizada\s+con\s+QR/i.test(fullText)) {
         tipoPago = 'QR';
     }
-    // Also check for Yape/Plin patterns which indicate QR
     if (/[Bb]illetera:?\s*(Yape|Plin|BBVA)/i.test(fullText)) {
         tipoPago = 'QR';
     }
-    console.log('Detected Tipo Pago:', tipoPago);
 
-    // === EXTRACT AMOUNT (3 strategies) ===
     let amount = 0;
 
-    // Strategy 1: Look for "S/" pattern
     const sPattern = /[Ss]\/?\.\?\s*(\d{1,3}(?:[,.]?\d{3})*[.,]\d{2})/;
     for (const line of lines) {
         const match = line.match(sPattern);
@@ -1662,13 +1457,11 @@ function extractVoucherData(text) {
             const val = parseMoneyString(match[1]);
             if (val > 0 && val < 50000) {
                 amount = val;
-                console.log('Amount Strategy 1 (S/ anchor):', amount);
                 break;
             }
         }
     }
 
-    // Strategy 2: Look for "Total" (fuzzy)
     if (amount === 0) {
         const totalPattern = /[Tt][o0][Tt]?[aAeE]?[lLiI1]/i;
         for (let i = 0; i < lines.length; i++) {
@@ -1679,7 +1472,6 @@ function extractVoucherData(text) {
                         const val = parseMoneyString(numMatch[1]);
                         if (val > 0 && val < 50000) {
                             amount = val;
-                            console.log('Amount Strategy 2 (Total fuzzy):', amount);
                             break;
                         }
                     }
@@ -1689,7 +1481,6 @@ function extractVoucherData(text) {
         }
     }
 
-    // Strategy 3: Bottom-weighted decimal numbers
     if (amount === 0) {
         const candidates = [];
         for (let i = 0; i < lines.length; i++) {
@@ -1708,54 +1499,41 @@ function extractVoucherData(text) {
                 return scoreB - scoreA;
             });
             amount = candidates[0].amount;
-            console.log('Amount Strategy 3 (bottom-weighted):', amount);
         }
     }
 
-    const result = { amount, fecha, hora, tipoPago };
-    console.log('Voucher Data Extracted:', result);
-    return result;
+    return { amount, fecha, hora, tipoPago };
 }
 
-// Backward-compatible wrapper (used by ocrPass)
 function extractAmountFromText(text) {
     return extractVoucherData(text).amount;
 }
 
-// Parse money string handling various formats: "134.25", "134,25", "1,234.56", "1.234,56"
 function parseMoneyString(str) {
     if (!str) return 0;
 
-    // Count separators
     const dots = (str.match(/\./g) || []).length;
     const commas = (str.match(/,/g) || []).length;
 
     let cleaned = str;
 
     if (dots === 1 && commas === 0) {
-        // 134.25 → 134.25
         // already fine
     } else if (dots === 0 && commas === 1) {
-        // 134,25 → 134.25
         cleaned = str.replace(',', '.');
     } else if (dots > 0 && commas > 0) {
-        // Figure out which is thousands and which is decimal
         const lastDot = str.lastIndexOf('.');
         const lastComma = str.lastIndexOf(',');
         if (lastDot > lastComma) {
-            // 1,234.56 → 1234.56
             cleaned = str.replace(/,/g, '');
         } else {
-            // 1.234,56 → 1234.56
             cleaned = str.replace(/\./g, '').replace(',', '.');
         }
     } else if (dots > 1) {
-        // 1.234.56 → keep last dot as decimal
         const parts = str.split('.');
         const decimal = parts.pop();
         cleaned = parts.join('') + '.' + decimal;
     } else if (commas > 1) {
-        // 1,234,56 → keep last comma as decimal
         const parts = str.split(',');
         const decimal = parts.pop();
         cleaned = parts.join('') + '.' + decimal;
@@ -1814,7 +1592,6 @@ validateForm.addEventListener('submit', async (e) => {
     let fileData = null;
 
     if (!file && !currentOrderForValidation.foto) {
-        // En esta nueva versión TODO obliga foto a menos que ya existía una.
         Swal.fire('Error', 'Debe subir una foto o captura de pantalla como evidencia.', 'warning');
         return;
     }
@@ -1830,14 +1607,15 @@ validateForm.addEventListener('submit', async (e) => {
     }
 
     const startUpload = async () => {
-        Swal.fire({ title: `Guardando (${driverName})...`, didOpen: () => Swal.showLoading() });
+        // ✅ CORREGIDO: Mensaje simple sin nombre del driver
+        Swal.fire({ title: 'Guardando...', didOpen: () => Swal.showLoading() });
+
         const montoFoto = parseFloat(valPhotoAmountInput.value);
 
-        // Extraer valores adicionales de la UI
         let tipoFinal = 'FOTO';
         if (valType === 'pos') {
-            const posType = document.getElementById('val-pos-type').value; // TARJETA o QR
-            tipoFinal = posType; // Envía directamente TARJETA o QR
+            const posType = document.getElementById('val-pos-type').value;
+            tipoFinal = posType;
         } else if (valType === 'online') {
             tipoFinal = 'ONLINE';
         } else if (valType === 'efectivo') {
@@ -1863,7 +1641,7 @@ validateForm.addEventListener('submit', async (e) => {
         try {
             const res = await fetchAPI('validarPedido', payload);
             if (res.success) {
-                Swal.close(); // Cierra el "Guardando..."
+                Swal.close();
                 document.getElementById('modal-validate').classList.remove('active');
                 loadOrders();
             } else {
@@ -1879,16 +1657,12 @@ validateForm.addEventListener('submit', async (e) => {
 
 // --- Utilities ---
 
-// Toggle POS type buttons (Tarjeta / QR)
 function setPosType(tipo) {
     document.getElementById('val-pos-type').value = tipo;
     const btnTarjeta = document.getElementById('btn-pos-tarjeta');
     const btnQR = document.getElementById('btn-pos-qr');
     if (!btnTarjeta || !btnQR) return;
-    const activeStyle = 'background:var(--accent); color:white; border-color:var(--accent);';
-    const inactiveStyle = 'background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.2);';
     if (tipo === 'TARJETA') {
-        btnTarjeta.style.cssText = btnTarjeta.style.cssText.replace(/background:[^;]+;|color:[^;]+;|border-color:[^;]+;/g, '');
         Object.assign(btnTarjeta.style, { background: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' });
         Object.assign(btnQR.style, { background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)', borderColor: 'rgba(255,255,255,0.2)' });
     } else {
@@ -1900,7 +1674,7 @@ function setPosType(tipo) {
 async function fetchAPI(action, data = {}) {
     const response = await fetch(API_URL, {
         method: 'POST',
-        mode: 'cors', // Important for GAS
+        mode: 'cors',
         body: JSON.stringify({ action, ...data })
     });
     return await response.json();
@@ -1909,7 +1683,7 @@ async function fetchAPI(action, data = {}) {
 const toBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result.split(',')[1]); // Remove header
+    reader.onload = () => resolve(reader.result.split(',')[1]);
     reader.onerror = error => reject(error);
 });
 
@@ -1919,14 +1693,11 @@ function setLoading(active) {
 
 function extractPhotoUrl(fotoStr) {
     if (!fotoStr || typeof fotoStr !== 'string') return '';
-    if (fotoStr.startsWith('PAGO-')) return ''; // Casos legacy o manuales sin link
+    if (fotoStr.startsWith('PAGO-')) return '';
 
-    // El link de drive termina cuando empieza un espacio (donde inyectamos el tipo)
     let url = fotoStr.split(' ')[0];
 
-    // Si es un link de Drive estándar, convertirlo a link directo para <img>
     if (url.includes('drive.google.com')) {
-        // Buscar el ID del archivo
         const idMatch = url.match(/\/d\/(.+?)\//) || url.match(/id=(.+?)(&|$)/);
         if (idMatch) {
             return `https://lh3.googleusercontent.com/d/${idMatch[1]}`;
@@ -1945,12 +1716,9 @@ function formatDate(dateStr) {
 
     try {
         const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return String(dateStr); // Si falla, devuelve el original
+        if (isNaN(d.getTime())) return String(dateStr);
 
-        // Fecha: DD/MM/YYYY
         const datePart = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
-        // Hora: HH:mm am/pm
         const timePart = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
         return `<div>${datePart}</div><div style="font-size:0.75em; color:rgba(255,255,255,0.6);">${timePart}</div>`;
@@ -1962,7 +1730,6 @@ function formatDate(dateStr) {
 function updateStats(data = orders) {
     let totalCount = 0, totalAmount = 0;
     let validCount = 0, validAmount = 0;
-    let validPOS = 0, validEfectivo = 0, validOnline = 0;
     let pendingCount = 0, pendingAmount = 0;
     let rejectedCount = 0, rejectedAmount = 0;
 
@@ -1971,18 +1738,12 @@ function updateStats(data = orders) {
 
         const monto = parseFloat(o.monto) || 0;
 
-        // Total
         totalCount++;
         totalAmount += monto;
 
-        // By Status
         if (o.estado === 'Validado') {
             validCount++;
             validAmount += monto;
-            const t = (o.tipo_pago || '').toString().trim().toUpperCase();
-            if (['TARJETA', 'QR', 'POS'].includes(t)) validPOS += monto;
-            else if (t === 'EFECTIVO') validEfectivo += monto;
-            else if (t === 'ONLINE') validOnline += monto;
         } else if (o.estado === 'Pendiente') {
             pendingCount++;
             pendingAmount += monto;
@@ -1992,7 +1753,6 @@ function updateStats(data = orders) {
         }
     });
 
-    // Update UI
     document.getElementById('stat-total-amount').textContent = `S/ ${formatMoney(totalAmount)}`;
     document.getElementById('stat-total-count').textContent = `${totalCount} pedidos`;
 
@@ -2006,13 +1766,10 @@ function updateStats(data = orders) {
     document.getElementById('stat-rejected-count').textContent = `${rejectedCount} pedidos`;
 }
 
-// Search
-// Search & Filter
 function applyFilters() {
     const term = searchInput.value.toLowerCase();
     const filterDate = document.getElementById('date-filter').value;
 
-    // Validar si existe rango activo
     const hasRange = dateRange.start && dateRange.end;
 
     const filtered = orders.filter(o => {
@@ -2029,16 +1786,13 @@ function applyFilters() {
 
         if (o.fecha) {
             const d = new Date(o.fecha);
-            // Normalizar a medianoche para comparar solo fecha
             d.setHours(0, 0, 0, 0);
 
             if (hasRange) {
-                // Lógica de rango
-                const start = new Date(dateRange.start + 'T00:00:00'); // Asegurar local time
+                const start = new Date(dateRange.start + 'T00:00:00');
                 const end = new Date(dateRange.end + 'T00:00:00');
                 dateMatch = d >= start && d <= end;
             } else if (filterDate) {
-                // Lógica de fecha única
                 const year = d.getFullYear();
                 const month = String(d.getMonth() + 1).padStart(2, '0');
                 const day = String(d.getDate()).padStart(2, '0');
@@ -2055,14 +1809,12 @@ function applyFilters() {
 }
 
 searchInput.addEventListener('input', applyFilters);
-// Limpiar rango si se usa el selector individual
 document.getElementById('date-filter').addEventListener('change', () => {
     dateRange = { start: null, end: null };
     document.getElementById('range-display-text').textContent = '';
     applyFilters();
 });
 
-// Range Modal Logic
 const modalRange = document.getElementById('modal-date-range');
 const btnDateRange = document.getElementById('btn-date-range');
 
@@ -2070,7 +1822,6 @@ btnDateRange.addEventListener('click', () => {
     modalRange.classList.add('active');
 });
 
-// Forzar apertura de calendario al hacer click en el input
 ['range-start', 'range-end'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('click', () => {
@@ -2087,10 +1838,8 @@ document.getElementById('range-form').addEventListener('submit', (e) => {
 
     if (start && end) {
         dateRange = { start, end };
-        // Limpiar visualmente el date-picker simple para indicar que manda el rango
         document.getElementById('date-filter').value = '';
 
-        // Función auxiliar local para formatear YYYY-MM-DD -> DD/MM/YYYY sin UTC
         const fmt = (s) => {
             if (!s) return '';
             const [y, m, d] = s.split('-');
@@ -2107,7 +1856,6 @@ document.getElementById('btn-clear-range').addEventListener('click', () => {
     dateRange = { start: null, end: null };
     document.getElementById('range-form').reset();
 
-    // Restaurar fecha hoy por defecto
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -2188,6 +1936,7 @@ window.rejectOrder = async (nro) => {
         }
     }
 }
+
 // --- Bulk Import Logic ---
 
 let allParsedOrders = [];
@@ -2202,7 +1951,6 @@ document.getElementById('import-btn').addEventListener('click', () => {
     allParsedOrders = [];
 });
 
-// Make sure input is clickable without double trigger
 document.getElementById('import-file').addEventListener('click', (e) => e.stopPropagation());
 
 document.getElementById('import-drop-zone').addEventListener('click', () => document.getElementById('import-file').click());
@@ -2212,7 +1960,6 @@ async function handleImportFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Show Loading
     document.getElementById('import-preview-container').classList.remove('hidden');
     document.getElementById('import-table-body').innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">Leyendo archivo CSV...</td></tr>';
 
@@ -2222,11 +1969,9 @@ async function handleImportFileSelect(e) {
         allParsedOrders = extractedOrders;
         renderImportTable(extractedOrders);
     } catch (err) {
-        console.error(err);
         Swal.fire('Error', 'No se pudo leer el archivo: ' + err.message, 'error');
         document.getElementById('import-preview-container').classList.add('hidden');
     }
-    // Clear value to allow re-upload same file
     e.target.value = '';
 }
 
@@ -2234,33 +1979,25 @@ function parseCSV(csvText) {
     const lines = csvText.split(/\r?\n/);
     const ordersFound = [];
 
-    // Expected Format: "Fecha Registro,Llave,Monto"
-    // "17/02/2026,F2FQSKVDG,S/46.90"
-
     lines.forEach((line, index) => {
         if (!line.trim()) return;
 
-        // Simple CSV Split
         const parts = line.split(',');
 
         if (parts.length < 3) return;
 
-        // Skip Header
         if (parts[0].toLowerCase().includes('fecha') && parts[1].toLowerCase().includes('llave')) return;
 
-        const rawDate = parts[0].trim(); // "17/02/2026"
+        const rawDate = parts[0].trim();
         const key = parts[1].trim().toUpperCase();
-        let amountStr = parts[2].trim(); // "S/46.90"
-        let envio = parts[3] ? parts[3].trim().replace(/\r/g, '') : ""; // "Yeiser G."
+        let amountStr = parts[2].trim();
+        let envio = parts[3] ? parts[3].trim().replace(/\r/g, '') : "";
 
-        // Clean Amount (remove S/, space)
         amountStr = amountStr.replace(/S\//gi, '').replace(/\s/g, '');
 
-        // Validate Amount
         const amount = parseFloat(amountStr);
         if (isNaN(amount)) return;
 
-        // Parse Date
         const isoDate = parseSpanishDate(rawDate);
         const finalDate = isoDate || rawDate;
 
@@ -2273,28 +2010,20 @@ function parseCSV(csvText) {
         });
     });
 
-    // Importante: Invertimos el orden aquí para que al enviarse a BD:
-    // 1. El último del archivo (más antiguo) se procese primero -> ID menor
-    // 2. El primero del archivo (más reciente) se procese al final -> ID mayor
-    // Resultado visual final (DESC): ID mayor (Reciente) queda ARRIBA.
     return ordersFound.reverse();
 }
 
-// Helper function for parseCSV to convert Spanish date strings to ISO format
 function parseSpanishDate(dateString) {
     const months = {
         'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
         'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
     };
 
-    // Format "19/02/2026 10:08" (Prioridad para tu nuevo formato)
     const dateTimeMatch = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
     if (dateTimeMatch) {
-        // Return as is, Google Script will parse it with the new logic
         return dateString;
     }
 
-    // Format "18 feb. 2026" or "18 feb 2026"
     const match = dateString.match(/(\d{1,2})\s+([a-zA-Z]{3})\.?\s+(\d{4})/i);
     if (match) {
         const day = match[1].padStart(2, '0');
@@ -2306,7 +2035,6 @@ function parseSpanishDate(dateString) {
         }
     }
 
-    // Format "17/02/2026" (Sin hora)
     const slashMatch = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if (slashMatch) {
         const day = slashMatch[1].padStart(2, '0');
@@ -2315,14 +2043,13 @@ function parseSpanishDate(dateString) {
         return `${year}-${month}-${day}`;
     }
 
-    return null; // Return null if format is not recognized
+    return null;
 }
 
 function renderImportTable(importedOrders) {
     const tbody = document.getElementById('import-table-body');
     tbody.innerHTML = '';
 
-    // Feedback Logic
     if (importedOrders.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No se encontraron pedidos legibles en el PDF.</td></tr>';
         document.getElementById('btn-confirm-import').disabled = true;
@@ -2334,7 +2061,6 @@ function renderImportTable(importedOrders) {
     document.getElementById('btn-confirm-import').disabled = false;
 
     importedOrders.forEach((order, index) => {
-        // Check duplicate local
         const isDupe = orders.some(o => o.llave === order.llave);
         const status = isDupe ? '<span class="badge Rechazado">Duplicado</span>' : '<span class="badge Pendiente">Nuevo</span>';
 
@@ -2415,13 +2141,11 @@ function resetImportTextModal() {
     btnConfirmImportText.disabled = true;
     allParsedTextOrders = [];
 
-    // Enfocar el drop zone para que pueda capturar el evento de pegar (Ctrl+V)
     setTimeout(() => {
         importTextDropZone.focus();
     }, 100);
 }
 
-// Interceptar el Ctrl+V en la zona designada
 importTextDropZone.addEventListener('paste', (e) => {
     e.preventDefault();
     const pastedText = (e.clipboardData || window.clipboardData).getData('text');
@@ -2435,7 +2159,6 @@ function processPastedText(text) {
     const extractedOrders = parseRawCopiedText(text);
     allParsedTextOrders = extractedOrders;
 
-    // Ocultar placeholder y mostrar tabla
     importTextPlaceholder.style.display = 'none';
     renderImportTextTable(extractedOrders);
 }
@@ -2443,35 +2166,18 @@ function processPastedText(text) {
 function parseRawCopiedText(text) {
     const ordersFound = [];
 
-    // Separar por líneas y eliminar las que están 100% vacías
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
 
-    // La llave tiene 9 caracteres (alfanuméricos)
     const keyRegex = /^[A-Z0-9]{9}$/;
-
-    // Expresión para Fecha: "20 feb. 2026"
     const dateRegex = /(\d{1,2})\s+([a-zA-Z]{3})\.?\s+(\d{4})/;
-    // Expresión para Hora: "11:20 a. m." o "9:47 a. m."
     const timeRegex = /(\d{1,2}):(\d{2})\s+([ap]\.?\s*m\.?)/i;
 
     let i = 0;
     while (i < lines.length) {
         let line = lines[i];
 
-        // 1. Encontrar el inicio de un bloque: La Llave
         if (keyRegex.test(line)) {
             const llave = line;
-
-            // Hemos encontrado el inicio de un pedido.
-            // Según el bloque de ejemplo proporcionado:
-            // Línea actual (i): Llave (Ej: G7N4S4TIC)
-            // Línea i+1: Consumidor (ignoramos)
-            // Línea i+2 (a veces, tras saltos vacíos filtrados): Fecha (Ej: 20 feb. 2026)
-            // Línea i+3: Hora (Ej: 11:20 a. m.)
-            // Línea i+4: Estado (Terminado o Cancelado...)
-            // Línea i+5: Nombre de Envío (Ej: Yeiser G. o Ivan n.)
-            // Línea i+6: Monto (Ej: S/ 56.29)
-            // Línea i+7: Método de pago (ignoramos)
 
             let fechaStr = '';
             let horaStr = '';
@@ -2479,10 +2185,8 @@ function parseRawCopiedText(text) {
             let envio = '';
             let monto = 0;
 
-            // Avanzar cursor para buscar los datos secuencialmente
             i++;
 
-            // Buscar fecha
             while (i < lines.length && !dateRegex.test(lines[i])) { i++; }
             if (i < lines.length && dateRegex.test(lines[i])) {
                 const dMatch = lines[i].match(dateRegex);
@@ -2491,10 +2195,9 @@ function parseRawCopiedText(text) {
                     const [y, m, d] = dtIso.split('-');
                     fechaStr = `${d}/${m}/${y}`;
                 }
-                i++; // Avanzar a hora
+                i++;
             }
 
-            // Conseguir hora
             if (i < lines.length && timeRegex.test(lines[i])) {
                 const tMatch = lines[i].match(timeRegex);
                 let hour = parseInt(tMatch[1]);
@@ -2503,28 +2206,23 @@ function parseRawCopiedText(text) {
                 if (ampm.includes('p') && hour < 12) hour += 12;
                 if (ampm.includes('a') && hour === 12) hour = 0;
                 horaStr = `${String(hour).padStart(2, '0')}:${min}`;
-                i++; // Avanzar a estado
+                i++;
             }
 
-            // Estado (ej. Terminado)
             if (i < lines.length) {
                 status = lines[i];
                 i++;
             }
 
-            // Lógica Inteligente para Envío y Monto:
-            // Si la línea actual empieza con "S/", es el monto y el envío estaba vacío.
             if (i < lines.length) {
                 if (lines[i].startsWith('S/')) {
                     const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
                     monto = parseFloat(amountClean).toFixed(2);
-                    envio = ''; // Estaba vacío en el texto copiado
+                    envio = '';
                     i++;
                 } else {
-                    // Si no empieza con "S/", es el nombre del repartidor
                     envio = lines[i];
                     i++;
-                    // La siguiente línea debería ser el monto
                     if (i < lines.length && lines[i].startsWith('S/')) {
                         const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
                         monto = parseFloat(amountClean).toFixed(2);
@@ -2533,11 +2231,9 @@ function parseRawCopiedText(text) {
                 }
             }
 
-            // Re-armar Fecha y Hora
             let finalDate = fechaStr;
             if (fechaStr && horaStr) finalDate = `${fechaStr} ${horaStr}`;
 
-            // Método de Pago (línea siguiente después del monto)
             let pago = '';
             if (i < lines.length && !keyRegex.test(lines[i])) {
                 pago = lines[i];
@@ -2554,12 +2250,10 @@ function parseRawCopiedText(text) {
             });
 
         } else {
-            // No es llave, seguimos buscando
             i++;
         }
     }
 
-    // Mantener el mismo orden en que fueron copiados de la web superior a inferior (Más recientes primero)
     return ordersFound;
 }
 
@@ -2577,7 +2271,6 @@ function renderImportTextTable(importedOrders) {
     document.getElementById('import-text-count').textContent = importedOrders.length;
     btnConfirmImportText.disabled = false;
 
-    // Check All handler
     const checkAllBox = document.getElementById('import-text-check-all');
     checkAllBox.checked = true;
     checkAllBox.onchange = (e) => {
@@ -2603,7 +2296,6 @@ function renderImportTextTable(importedOrders) {
             <td>${statusHTML}</td>
         `;
         importTextTableBody.appendChild(tr);
-        // Save order data attached to checkbox for import
         tr.querySelector('.import-text-check').orderData = order;
     });
 }
@@ -2629,8 +2321,6 @@ btnConfirmImportText.addEventListener('click', async () => {
         }
     });
 
-    // Reverse the batch so the oldest items are inserted first in the DB
-    // and thus get a lower 'nro' than the newer ones in the same batch.
     selectedOrders.reverse();
 
     Swal.fire({
@@ -2658,15 +2348,12 @@ btnConfirmImportText.addEventListener('click', async () => {
     }
 });
 
-
-
 // Validated Card Breakdown Interaction
 document.getElementById('card-validated')?.addEventListener('click', () => {
     let cash = 0, cashCount = 0;
     let online = 0, onlineCount = 0;
     let voucher = 0, voucherCount = 0;
 
-    // Safety check just in case orders is not loaded
     if (!currentFilteredOrders) return;
 
     currentFilteredOrders.forEach(o => {
@@ -2684,7 +2371,6 @@ document.getElementById('card-validated')?.addEventListener('click', () => {
                 online += m;
                 onlineCount++;
             } else {
-                // Posibles casos sin tipo_pago pero con foto antigua, fallback:
                 if (o.foto === 'PAGO-EFECTIVO') {
                     cash += m;
                     cashCount++;
@@ -2706,7 +2392,6 @@ document.getElementById('card-validated')?.addEventListener('click', () => {
                 <div style="margin-bottom: 15px; text-align: center; color: var(--success); font-weight: bold;">
                     Total: S/ ${formatMoney(cash + online + voucher)}
                 </div>
-                
                 <div style="display: flex; justify-content: space-between; margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px;">
                      <span><i class="fa-solid fa-camera"></i> Voucher</span>
                      <span>S/ ${formatMoney(voucher)} <small>(${voucherCount})</small></span>
