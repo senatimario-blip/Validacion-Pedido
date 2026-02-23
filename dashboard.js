@@ -148,7 +148,7 @@ function renderDashboard() {
 // ============================================================
 // KPI Cards con Lógica TPE Blindada
 // ============================================================
-function renderKPIs() {
+    function renderKPIs() {
     const total = dashOrders.length;
     const validados = dashOrders.filter(o => o.estado === 'Validado').length;
     const cancelados = dashOrders.filter(o => o.estado === 'Cancelado' || o.estado === 'Rechazado').length;
@@ -160,35 +160,61 @@ function renderKPIs() {
     const slaBase = total - cancelados;
     const slaRate = slaBase > 0 ? ((1 - slaFuera / slaBase) * 100).toFixed(1) : '100.0';
 
+    // --- INÍCIO DO CÁLCULO DE TPE CORRIGIDO ---
     let tpeTotalMins = 0;
     let tpeCount = 0;
 
     dashOrders.forEach(o => {
-        if (o.hora_entrega && o.fecha && o.estado === 'Validado') {
+        // Apenas processa pedidos validados que tenham hora_entrega e fecha de registro
+        if (o.estado === 'Validado' && o.hora_entrega && o.fecha) {
             try {
                 const orderDate = dashParseDate(o.fecha);
                 if (!orderDate) return;
                 
-                const deliveryDate = new Date(orderDate);
+                let deliveryDate;
+                
+                // Prioridade 1: Usar a Fecha de Entrega real da base de dados (Coluna P)
+                if (o.fecha_entrega && String(o.fecha_entrega).trim() !== '') {
+                    deliveryDate = dashParseDate(o.fecha_entrega);
+                } else {
+                    // Prioridade 2: Fallback para a data do pedido se não houver fecha_entrega
+                    deliveryDate = new Date(orderDate);
+                }
+
+                if (!deliveryDate) return;
+
                 const hm = String(o.hora_entrega).split(':');
                 
                 if (hm.length >= 2) {
                     deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
-                    const diffMs = deliveryDate - orderDate;
+                    let diffMs = deliveryDate - orderDate;
                     
-                    // ESCUDO DE SEGURIDAD: Solo suma si tardó entre 1 min y 12 horas
-                    if (diffMs > 0 && diffMs < 43200000) {
+                    // Ajuste para virada de noite (Ex: pedido feito 23:50, entregue 00:20)
+                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) {
+                        deliveryDate.setDate(deliveryDate.getDate() + 1);
+                        diffMs = deliveryDate - orderDate;
+                    }
+                    
+                    // ESCUDO DE SEGURANÇA: Só soma se demorou entre 1 min e 12 horas (43.200.000 ms)
+                    if (diffMs > 0 && diffMs <= 43200000) {
                         tpeTotalMins += Math.floor(diffMs / 60000);
                         tpeCount++;
                     }
                 }
-            } catch (e) { }
+            } catch (e) {
+                console.error("Erro calculando TPE:", e);
+            }
         }
     });
 
     const tpeMins = tpeCount > 0 ? Math.round(tpeTotalMins / tpeCount) : 0;
-    const tpeString = tpeMins > 0 ? (tpeMins > 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`) : '--';
+    // Se não houver dados válidos, exibe "0 min" em vez de "--"
+    const tpeString = tpeCount > 0 
+        ? (tpeMins >= 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`) 
+        : '0 min';
+    // --- FIM DO CÁLCULO DE TPE CORRIGIDO ---
 
+    // Atualiza o DOM
     setText('kpi-total', total);
     setText('kpi-validados', validados);
     setText('kpi-cancelados', cancelados);
@@ -197,7 +223,7 @@ function renderKPIs() {
     setText('kpi-fill', fillRate + '%');
     setText('kpi-tpe', tpeString);
     setText('kpi-sla', slaRate + '%');
-    setText('kpi-sla-base', `${slaFuera} fuera de ${slaBase} pedidos`);
+    setText('kpi-sla-base', `${slaFuera} fora de ${slaBase} pedidos`);
 }
 
 function setText(id, val) {
