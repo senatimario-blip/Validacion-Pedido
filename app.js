@@ -1600,8 +1600,7 @@ validateForm.addEventListener('submit', async (e) => {
         fileData = await toBase64(file);
     }
 
-    document.getElementById('val-driver-name').blur();
-    const driverName = (document.getElementById('val-driver-name').value || '').trim();    
+    const driverName = (document.getElementById('val-driver-name').value || '').trim();
     if (!driverName) {
         Swal.fire('Error', 'Debes consignar el nombre del Driver antes de validar.', 'warning');
         return;
@@ -1885,6 +1884,18 @@ window.rejectOrder = async (nro) => {
 
     updateDriversDatalist();
 
+    // El campo driver solo se muestra si el motivo es "Por Repartidor"
+    // Si ya tiene nombre en J, aparece por defecto
+    const driverFieldHtml = `
+        <div id="swal-driver-group" style="display:none; margin-top:10px;">
+            <label style="display:block; margin-bottom:5px;">Nombre del Driver:</label>
+            <input id="swal-driver" class="swal2-input" placeholder="Driver..." 
+                list="drivers-list" 
+                value="${order.envio || ''}" 
+                style="margin: 0; width: 100%;">
+        </div>
+    `;
+
     const { value: formValues, isConfirmed } = await Swal.fire({
         title: '¿Por qué se cancela el pedido?',
         icon: 'warning',
@@ -1896,8 +1907,7 @@ window.rejectOrder = async (nro) => {
                     <label style="display:block; margin-bottom:5px;"><input type="radio" name="swal-motivo" value="Por Punto de Venta"> 🏪 Por Punto de Venta</label>
                     <label style="display:block; margin-bottom:5px;"><input type="radio" name="swal-motivo" value="Por Repartidor"> 🚴 Por Repartidor</label>
                 </div>
-                <label style="display:block; margin-bottom:5px;">Nombre del Driver:</label>
-                <input id="swal-driver" class="swal2-input" placeholder="Driver..." list="drivers-list" value="${order.envio || ''}" style="margin: 0; width: 100%;">
+                ${driverFieldHtml}
             </div>
         `,
         showCancelButton: true,
@@ -1905,14 +1915,34 @@ window.rejectOrder = async (nro) => {
         cancelButtonColor: '#666',
         confirmButtonText: '<i class="fa-solid fa-ban"></i> Cancelar Pedido',
         cancelButtonText: 'Volver',
+        didOpen: () => {
+            // Mostrar/ocultar campo driver según motivo seleccionado
+            document.querySelectorAll('input[name="swal-motivo"]').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    const driverGroup = document.getElementById('swal-driver-group');
+                    if (driverGroup) {
+                        driverGroup.style.display = e.target.value === 'Por Repartidor' ? 'block' : 'none';
+                    }
+                });
+            });
+        },
         preConfirm: () => {
             const motivo = document.querySelector('input[name="swal-motivo"]:checked').value;
-            const driver = document.getElementById('swal-driver').value;
-            if (!driver) {
-                Swal.showValidationMessage('Debes consignar el nombre del Driver');
-                return false;
+
+            // Solo Por Repartidor requiere y graba el driver
+            if (motivo === 'Por Repartidor') {
+                const driverInput = document.getElementById('swal-driver');
+                driverInput?.blur(); // ✅ Soltar desplegable antes de leer valor
+                const driver = (driverInput?.value || '').trim();
+                if (!driver) {
+                    Swal.showValidationMessage('Debes consignar el nombre del Driver');
+                    return false;
+                }
+                return { motivo, driver };
             }
-            return { motivo, driver };
+
+            // Por consumidor / Por Punto de Venta → J queda vacía
+            return { motivo, driver: '' };
         }
     });
 
@@ -1924,7 +1954,7 @@ window.rejectOrder = async (nro) => {
                 nro,
                 usuario: currentUser.usuario,
                 motivo: motivo,
-                envio: driver
+                envio: driver  // Solo tiene valor si es Por Repartidor
             });
             if (res.success) {
                 Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong>`, 'success');
