@@ -1884,17 +1884,22 @@ window.rejectOrder = async (nro) => {
 
     updateDriversDatalist();
 
-    // El campo driver solo se muestra si el motivo es "Por Repartidor"
-    // Si ya tiene nombre en J, aparece por defecto
-    const driverFieldHtml = `
-        <div id="swal-driver-group" style="display:none; margin-top:10px;">
-            <label style="display:block; margin-bottom:5px;">Nombre del Driver:</label>
-            <input id="swal-driver" class="swal2-input" placeholder="Driver..." 
-                list="drivers-list" 
-                value="${order.envio || ''}" 
-                style="margin: 0; width: 100%;">
-        </div>
-    `;
+    // Campo driver para "Por Repartidor":
+    // - Si J ya tiene nombre → solo se muestra (no editable)
+    // - Si J está vacía → se muestra desplegable para elegir
+    const driverFieldHtml = order.envio
+        ? `<div id="swal-driver-group" style="display:none; margin-top:10px;">
+               <label style="display:block; margin-bottom:5px;">Repartidor:</label>
+               <div style="padding:8px 12px; background:rgba(255,255,255,0.08); border-radius:8px; color:white; font-weight:600;">
+                   🏍️ ${order.envio}
+               </div>
+           </div>`
+        : `<div id="swal-driver-group" style="display:none; margin-top:10px;">
+               <label style="display:block; margin-bottom:5px;">Nombre del Driver:</label>
+               <input id="swal-driver" class="swal2-input" placeholder="Driver..."
+                   list="drivers-list"
+                   style="margin: 0; width: 100%;">
+           </div>`;
 
     const { value: formValues, isConfirmed } = await Swal.fire({
         title: '¿Por qué se cancela el pedido?',
@@ -1916,7 +1921,7 @@ window.rejectOrder = async (nro) => {
         confirmButtonText: '<i class="fa-solid fa-ban"></i> Cancelar Pedido',
         cancelButtonText: 'Volver',
         didOpen: () => {
-            // Mostrar/ocultar campo driver según motivo seleccionado
+            // Mostrar/ocultar campo driver solo cuando se elige "Por Repartidor"
             document.querySelectorAll('input[name="swal-motivo"]').forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     const driverGroup = document.getElementById('swal-driver-group');
@@ -1929,10 +1934,14 @@ window.rejectOrder = async (nro) => {
         preConfirm: () => {
             const motivo = document.querySelector('input[name="swal-motivo"]:checked').value;
 
-            // Solo Por Repartidor requiere y graba el driver
             if (motivo === 'Por Repartidor') {
+                // Si J ya tenía nombre, usarlo directamente
+                if (order.envio) {
+                    return { motivo, driver: order.envio };
+                }
+                // Si J estaba vacía, leer del input
                 const driverInput = document.getElementById('swal-driver');
-                driverInput?.blur(); // ✅ Soltar desplegable antes de leer valor
+                driverInput?.blur();
                 const driver = (driverInput?.value || '').trim();
                 if (!driver) {
                     Swal.showValidationMessage('Debes consignar el nombre del Driver');
