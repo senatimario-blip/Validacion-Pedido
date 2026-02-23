@@ -496,7 +496,6 @@ window.openValidateModal = (nro) => {
     }
     calculateLiveElapsedTime();
 
-    // ✅ CORREGIDO: Sin selección por defecto — el usuario elige
     document.querySelectorAll('input[name="valType"]').forEach(r => r.checked = false);
     updateValidationMode(null);
 
@@ -627,6 +626,7 @@ function calculateLiveElapsedTime() {
 
     if (!fechaEntrega || !horaEntrega) {
         display.textContent = '--';
+        display.style.color = 'var(--accent)'; 
         return;
     }
 
@@ -650,9 +650,15 @@ function calculateLiveElapsedTime() {
         const diffMs = entrega - registro;
         const diffMin = Math.round(diffMs / 60000);
 
-        const label = diffMin > 35 ? '⚠️ Fuera de SLA' : '✅ En tiempo';
-        display.textContent = `${diffMin} min (${label})`;
-        display.style.color = diffMin > 35 ? '#f87171' : '#4ade80';
+        if (diffMin >= 0) {
+            const h = Math.floor(diffMin / 60);
+            const m = diffMin % 60;
+            display.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
+            display.style.color = '#60a5fa';
+        } else {
+            display.textContent = 'Hora anterior al registro';
+            display.style.color = '#f87171'; 
+        }
     } catch (e) {
         display.textContent = '--';
     }
@@ -1084,18 +1090,16 @@ function processVoucherTimes(extractedFecha, extractedHora) {
             const hm = extractedHora.split(':');
             voucherDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
 
-            if (voucherDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
-                voucherDate.setDate(voucherDate.getDate() + 1);
-            }
-
             const diffMs = voucherDate - orderDate;
             if (diffMs > 0) {
                 const diffMins = Math.floor(diffMs / 60000);
                 const h = Math.floor(diffMins / 60);
                 const m = diffMins % 60;
                 elapsedEl.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
+                elapsedEl.style.color = '#60a5fa';
             } else {
                 elapsedEl.textContent = 'Hora anterior al pedido';
+                elapsedEl.style.color = '#f87171';
             }
         } catch (e) {
             elapsedEl.textContent = '--';
@@ -1606,8 +1610,42 @@ validateForm.addEventListener('submit', async (e) => {
         return;
     }
 
+    // --- NUEVA VALIDACIÓN ESTRICTA DE FECHA Y HORA ---
+    const fechaEntregaInput = document.getElementById('val-fecha-entrega').value;
+    const horaEntregaInput = document.getElementById('val-hora-entrega').value;
+
+    if (!fechaEntregaInput || !horaEntregaInput) {
+        Swal.fire('Error', 'La Fecha y Hora de entrega son obligatorias.', 'warning');
+        return;
+    }
+
+    try {
+        const orderDateStr = new Date(currentOrderForValidation.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        
+        if (fechaEntregaInput !== orderDateStr && fechaEntregaInput !== orderDateStr.replace(/-/g, '/')) {
+            Swal.fire('Fecha Inválida', `La fecha de entrega (${fechaEntregaInput}) debe ser exactamente igual a la fecha de creación del pedido (${orderDateStr}).`, 'error');
+            return;
+        }
+
+        const dateParts = fechaEntregaInput.split('/');
+        const [d, m, y] = dateParts;
+        const isoEntrega = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${horaEntregaInput}:00`;
+        const dateEntrega = new Date(isoEntrega);
+        const dateRegistro = new Date(currentOrderForValidation.fecha);
+
+        if (dateEntrega < dateRegistro) {
+            const horaRegistroStr = dateRegistro.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
+            Swal.fire('Hora Inválida', `La hora de entrega (${horaEntregaInput}) no puede ser anterior a la hora en que se registró el pedido (${horaRegistroStr}).`, 'error');
+            return;
+        }
+    } catch (err) {
+        Swal.fire('Error', 'Formato de fecha u hora incorrecto.', 'error');
+        return;
+    }
+    // --- FIN NUEVA VALIDACIÓN ---
+
+
     const startUpload = async () => {
-        // ✅ CORREGIDO: Mensaje simple sin nombre del driver
         Swal.fire({ title: 'Guardando...', didOpen: () => Swal.showLoading() });
 
         const montoFoto = parseFloat(valPhotoAmountInput.value);
@@ -1884,9 +1922,6 @@ window.rejectOrder = async (nro) => {
 
     updateDriversDatalist();
 
-    // Campo driver para "Por Repartidor":
-    // - Si J ya tiene nombre → solo se muestra (no editable)
-    // - Si J está vacía → se muestra desplegable para elegir
     const driverFieldHtml = order.envio
         ? `<div id="swal-driver-group" style="display:none; margin-top:10px;">
                <label style="display:block; margin-bottom:5px;">Repartidor:</label>
@@ -1921,7 +1956,6 @@ window.rejectOrder = async (nro) => {
         confirmButtonText: '<i class="fa-solid fa-ban"></i> Cancelar Pedido',
         cancelButtonText: 'Volver',
         didOpen: () => {
-            // Mostrar/ocultar campo driver solo cuando se elige "Por Repartidor"
             document.querySelectorAll('input[name="swal-motivo"]').forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     const driverGroup = document.getElementById('swal-driver-group');
@@ -1935,11 +1969,9 @@ window.rejectOrder = async (nro) => {
             const motivo = document.querySelector('input[name="swal-motivo"]:checked').value;
 
             if (motivo === 'Por Repartidor') {
-                // Si J ya tenía nombre, usarlo directamente
                 if (order.envio) {
                     return { motivo, driver: order.envio };
                 }
-                // Si J estaba vacía, leer del input
                 const driverInput = document.getElementById('swal-driver');
                 driverInput?.blur();
                 const driver = (driverInput?.value || '').trim();
@@ -1950,7 +1982,6 @@ window.rejectOrder = async (nro) => {
                 return { motivo, driver };
             }
 
-            // Por consumidor / Por Punto de Venta → J queda vacía
             return { motivo, driver: '' };
         }
     });
@@ -1963,7 +1994,7 @@ window.rejectOrder = async (nro) => {
                 nro,
                 usuario: currentUser.usuario,
                 motivo: motivo,
-                envio: driver  // Solo tiene valor si es Por Repartidor
+                envio: driver 
             });
             if (res.success) {
                 Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong>`, 'success');
