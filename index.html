@@ -286,7 +286,7 @@
                 </div>
                 <div class="form-group">
                     <label>Responsable Envío</label>
-                    <input type="text" id="new-envio" placeholder="Opcional">
+                    <input type="text" id="new-envio" placeholder="Opcional" list="drivers-list" autocomplete="off">
                 </div>
                 <div class="form-group">
                     <label>Monto (S/) <span class="required">*</span></label>
@@ -530,6 +530,12 @@
                         </div>
 
                         <div class="form-group">
+                            <label>Nombre del Driver (Repartidor)</label>
+                            <input type="text" id="val-driver-name" class="form-control"
+                                placeholder="Nombre del repartidor..." list="drivers-list" autocomplete="off">
+                        </div>
+
+                        <div class="form-group">
                             <label id="lbl-monto-val">Monto Pagado</label>
                             <div class="input-with-ocr">
                                 <input type="number" id="val-photo-amount" step="0.01" placeholder="0.00">
@@ -597,6 +603,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Datalist for Driver Suggestions -->
+    <datalist id="drivers-list"></datalist>
 
     <script src="app.js"></script>
     <script src="dashboard.js"></script>

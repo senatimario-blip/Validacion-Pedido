@@ -32,6 +32,34 @@ const CHART_DEFAULTS = {
 // ============================================================
 // Inicialización y navegación
 // ============================================================
+function dashParseDate(dateStr) {
+    if (!dateStr) return null;
+    if (dateStr instanceof Date) return dateStr;
+
+    // Si ya viene en formato ISO YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+        return new Date(dateStr.replace(' ', 'T'));
+    }
+
+    // Formato DD/MM/YYYY HH:MM:SS
+    const parts = dateStr.split(/[\s/:]/);
+    if (parts.length >= 3) {
+        const day = parseInt(parts[0]);
+        const month = parseInt(parts[1]) - 1;
+        let year = parseInt(parts[2]);
+        if (year < 100) year += 2000;
+
+        const hour = parts[3] ? parseInt(parts[3]) : 0;
+        const min = parts[4] ? parseInt(parts[4]) : 0;
+
+        const d = new Date(year, month, day, hour, min, 0);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+}
+
 function initDashboard() {
     // Inyectar el HTML del dashboard en el main si no existe
     if (!document.getElementById('dashboard-view')) {
@@ -86,7 +114,8 @@ function renderDashboard() {
     dashOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
         let ok = true;
         if (fromVal || toVal) {
-            const d = new Date(o.fecha);
+            const d = dashParseDate(o.fecha);
+            if (!d) return false;
             d.setHours(0, 0, 0, 0);
             if (fromVal) { const f = new Date(fromVal + 'T00:00:00'); ok = ok && d >= f; }
             if (toVal) { const t = new Date(toVal + 'T00:00:00'); ok = ok && d <= t; }
@@ -135,7 +164,8 @@ function renderKPIs() {
     dashOrders.forEach(o => {
         if (o.hora_entrega && o.fecha && o.estado !== 'Cancelado' && o.estado !== 'Rechazado') {
             try {
-                const orderDate = new Date(o.fecha);
+                const orderDate = dashParseDate(o.fecha);
+                if (!orderDate) return;
                 const deliveryDate = new Date(orderDate);
                 const hm = String(o.hora_entrega).split(':');
                 if (hm.length >= 2) {
@@ -313,82 +343,40 @@ function renderChartPagos() {
 // ============================================================
 function renderChartRepartidores() {
     destroyChart('repartidores');
-    const validated = {};
-    const cancelled = {};
-    const driverStats = {}; // To store TPE and Fill Rate data per driver
+    const stats = {};
 
-    dashOrders.filter(o => o.envio).forEach(o => {
-        const d = o.envio;
-        if (!driverStats[d]) {
-            driverStats[d] = { total: 0, validados: 0, tpeMins: 0, tpeCount: 0 };
-        }
+    dashOrders.forEach(o => {
+        const name = (o.envio || '').trim();
+        if (!name) return;
+        if (!stats[name]) stats[name] = { total: 0, val: 0, can: 0, mins: 0, tpeC: 0 };
 
-        driverStats[d].total++;
-
+        stats[name].total++;
         if (o.estado === 'Validado') {
-            validated[d] = (validated[d] || 0) + 1;
-            driverStats[d].validados++;
-
-            // Calculate TPE for driver (now including cancelled in the average denominator)
+            stats[name].val++;
             if (o.hora_entrega && o.fecha) {
-                try {
-                    const orderDate = new Date(o.fecha);
-                    const deliveryDate = new Date(orderDate);
-                    const hm = String(o.hora_entrega).split(':');
-                    if (hm.length >= 2) {
-                        deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
-                        if (deliveryDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
-                            deliveryDate.setDate(deliveryDate.getDate() + 1);
-                        }
-                        const diffMs = deliveryDate - orderDate;
-                        if (diffMs > 0) {
-                            driverStats[d].tpeMins += Math.floor(diffMs / 60000);
-                        }
-                    }
-                } catch (e) { }
+                const start = dashParseDate(o.fecha);
+                const hm = String(o.hora_entrega).split(':');
+                if (start && hm.length >= 2) {
+                    const end = new Date(start);
+                    end.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
+                    if (end < start && (start.getHours() > 20 && parseInt(hm[0]) < 5)) end.setDate(end.getDate() + 1);
+                    const diff = (end - start) / 60000;
+                    if (diff > 0 && diff < 1440) { stats[name].mins += diff; stats[name].tpeC++; }
+                }
             }
         } else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
-            cancelled[d] = (cancelled[d] || 0) + 1;
-
-            // Also need to get times for cancelled orders if they have any recorded
-            if (o.hora_entrega && o.fecha) {
-                try {
-                    const orderDate = new Date(o.fecha);
-                    const deliveryDate = new Date(orderDate);
-                    const hm = String(o.hora_entrega).split(':');
-                    if (hm.length >= 2) {
-                        deliveryDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
-                        if (deliveryDate < orderDate && (orderDate.getHours() > 20 && parseInt(hm[0]) < 4)) {
-                            deliveryDate.setDate(deliveryDate.getDate() + 1);
-                        }
-                        const diffMs = deliveryDate - orderDate;
-                        if (diffMs > 0) {
-                            driverStats[d].tpeMins += Math.floor(diffMs / 60000);
-                        }
-                    }
-                } catch (e) { }
-            }
+            stats[name].can++;
         }
     });
 
-    // Unir todos los repartidores y ordenar por validados desc
-    const allDrivers = [...new Set([...Object.keys(validated), ...Object.keys(cancelled)])];
-    const sorted = allDrivers
-        .map(d => {
-            const stats = driverStats[d];
-            const fillRate = stats.total > 0 ? Math.round((stats.validados / stats.total) * 100) : 0;
-            // TPE = Total mins of ALL records / Total orders (validados + cancelados)
-            const avgTpe = stats.total > 0 ? Math.round(stats.tpeMins / stats.total) : 0;
-            const tpeStr = avgTpe > 0 ? `${avgTpe}m` : '-';
+    const sorted = Object.keys(stats).map(n => {
+        const s = stats[n];
+        const fr = s.total > 0 ? Math.round((s.val / s.total) * 100) : 0;
+        const tpe = s.tpeC > 0 ? Math.round(s.mins / s.tpeC) : 0;
+        return { name: n, val: s.val, can: s.can, info: ` (FR: ${fr}% | TPE: ${tpe > 0 ? tpe + 'm' : '-'})` };
+    }).sort((a, b) => b.val - a.val);
 
-            return {
-                name: d,
-                val: validated[d] || 0,
-                can: cancelled[d] || 0,
-                labelExtra: ` (FR: ${fillRate}% | TPE: ${tpeStr})`
-            };
-        })
-        .sort((a, b) => b.val - a.val); // Quitamos el slice para verlos a todos
+    if (sorted.length === 0) return;
 
     const ctx = document.getElementById('chart-repartidores').getContext('2d');
     dashCharts.repartidores = new Chart(ctx, {
@@ -402,56 +390,47 @@ function renderChartRepartidores() {
         },
         options: baseOptions({
             indexAxis: 'y',
-            maintainAspectRatio: false, // Permitir escalar su altura
-            layout: {
-                padding: { right: 120 } // Espacio extra a la derecha para dibujar FR y TPE
-            },
+            maintainAspectRatio: false,
+            layout: { padding: { left: 10, right: 100 } },
             scales: {
-                x: { stacked: true, ticks: { color: 'rgba(255,255,255,0.6)', stepSize: 1 }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                y: { stacked: true, ticks: { color: 'rgba(255,255,255,0.8)', autoSkip: false }, grid: { display: false } }
+                x: { stacked: true, ticks: { color: '#ffffff99' }, grid: { color: '#ffffff11' } },
+                y: { stacked: true, ticks: { color: '#ffffff', font: { weight: '600', size: 11 } }, grid: { display: false } }
             },
-            plugins: { legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.8)', padding: 12 } } }
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#ffffffcc', padding: 15 } }
+            }
         }),
         plugins: [{
-            id: 'customDataLabels',
-            afterDatasetsDraw(chart) {
-                const ctx = chart.ctx;
-                chart.data.datasets.forEach((dataset, i) => {
-                    const meta = chart.getDatasetMeta(i);
-                    if (!meta.hidden) {
-                        meta.data.forEach((element, index) => {
-                            const dataString = dataset.data[index].toString();
-                            if (dataString !== '0') {
-                                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-                                ctx.font = '600 11px Inter';
-                                ctx.textAlign = 'left';
-                                ctx.textBaseline = 'middle';
-                                const position = element.tooltipPosition();
-                                ctx.fillText(dataString, position.x - 12 > 0 ? position.x - 12 : position.x + 5, position.y);
-                            }
-
-                            // Si es el último dataset (Cancelados) visible o si solo se muestra Validados, dibujar labels extra a la derecha
-                            if (i === chart.data.datasets.length - 1 || (i === 0 && chart.isDatasetVisible(0) && !chart.isDatasetVisible(1))) {
-                                const extraLabel = sorted[index].labelExtra;
-                                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                                ctx.font = '500 11px Inter';
-                                ctx.textAlign = 'left';
-
-                                // Calcular X máximo (la suma de las barras visibles)
-                                let totalX = 0;
-                                chart.data.datasets.forEach((d, j) => {
-                                    if (chart.isDatasetVisible(j)) {
-                                        const m = chart.getDatasetMeta(j);
-                                        if (m.data[index]) {
-                                            totalX = Math.max(totalX, m.data[index].tooltipPosition().x);
-                                        }
-                                    }
-                                });
-
-                                ctx.fillText(extraLabel, totalX + 5, element.tooltipPosition().y);
-                            }
-                        });
-                    }
+            id: 'customBackground',
+            beforeDraw: (chart) => {
+                const { ctx, width, height } = chart;
+                ctx.save();
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(0, 0, width, height);
+                ctx.restore();
+            }
+        }, {
+            id: 'extraLabels',
+            afterDraw(chart) {
+                const { ctx } = chart;
+                const m0 = chart.getDatasetMeta(0);
+                const m1 = chart.getDatasetMeta(1);
+                sorted.forEach((item, i) => {
+                    const b0 = m0.data[i];
+                    const b1 = m1.data[i];
+                    if (!b0 || !b1) return;
+                    ctx.save();
+                    ctx.font = 'bold 11px Inter';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#ffffff';
+                    if (item.val > 0 && chart.isDatasetVisible(0)) ctx.fillText(item.val.toString(), b0.x - (Math.abs(b0.x - b0.base) / 2), b0.y);
+                    if (item.can > 0 && chart.isDatasetVisible(1)) ctx.fillText(item.can.toString(), b1.x - (Math.abs(b1.x - b1.base) / 2), b1.y);
+                    ctx.textAlign = 'left';
+                    ctx.fillStyle = '#ffffffaa';
+                    const x = chart.isDatasetVisible(1) ? b1.x : (chart.isDatasetVisible(0) ? b0.x : 0);
+                    if (x > 0) ctx.fillText(item.info, x + 8, b0.y);
+                    ctx.restore();
                 });
             }
         }]
@@ -610,9 +589,9 @@ function getDashboardHTML() {
 
     <!-- Fila 2: Repartidores + Cancelaciones -->
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-        <div class="glass-panel" style="padding:16px; border-radius:12px;">
-            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">🚴 Ranking de Repartidores</h4>
-            <div style="height:450px;"><canvas id="chart-repartidores"></canvas></div>
+        <div class="glass-panel" style="padding:16px; border-radius:12px; background:#1e293b !important; border:1px solid rgba(255,255,255,0.1);">
+            <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-motorcycle"></i> Ranking de Repartidores</h4>
+            <div style="height:450px; background:#1e293b; border-radius:8px;"><canvas id="chart-repartidores"></canvas></div>
         </div>
         <div class="glass-panel" style="padding:16px; border-radius:12px;">
             <h4 style="margin:0 0 12px; font-size:0.9em; color:rgba(255,255,255,0.7);">❌ Motivos de Cancelación</h4>

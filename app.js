@@ -209,6 +209,7 @@ function renderOrders(data) {
     });
 }
 
+
 window.toggleSLA = async (nro) => {
     try {
         const res = await fetchAPI('marcarSLAFuera', { nro, usuario: currentUser.usuario });
@@ -291,8 +292,15 @@ function renderReportsTable() {
             tipoDisplay = '-';
         }
 
-        // 3. Validacion Tick
+        // 3. Validacion Tick / Motivo Cancelación
         let validTick = order.estado === 'Validado' ? '✓' : '';
+        if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
+            const motivo = order.motivo_cancelacion || '';
+            if (motivo === 'Por consumidor') validTick = 'X Consumidor';
+            else if (motivo === 'Por Punto de Venta') validTick = 'X Venta';
+            else if (motivo === 'Por Repartidor') validTick = 'X Repartidor';
+            else if (motivo) validTick = motivo;
+        }
 
         // 4. Vuelto — Read directly from column M (vuelto)
         let vueltoDisplay = '';
@@ -432,6 +440,25 @@ newOrderForm.addEventListener('submit', async (e) => {
 
 let currentOrderForValidation = null;
 
+// Helper function to get unique driver names from orders
+function getUniqueDrivers() {
+    const drivers = new Set();
+    orders.forEach(order => {
+        if (order.envio && order.envio.trim() !== '') {
+            drivers.add(order.envio.trim());
+        }
+    });
+    return Array.from(drivers).sort();
+}
+
+// Function to populate the datalist for drivers
+function updateDriversDatalist() {
+    const datalist = document.getElementById('drivers-list');
+    if (!datalist) return;
+    const drivers = getUniqueDrivers();
+    datalist.innerHTML = drivers.map(d => `<option value="${d}">`).join('');
+}
+
 window.openValidateModal = (nro) => {
     const order = orders.find(o => o.nro == nro);
     if (!order) return;
@@ -473,9 +500,31 @@ window.openValidateModal = (nro) => {
     uploadPlaceholder.classList.remove('hidden');
     document.getElementById('photo-actions').classList.add('hidden');
     valPhotoAmountInput.value = '';
-    document.getElementById('val-fecha-entrega').value = '';
-    document.getElementById('val-hora-entrega').value = '';
-    document.getElementById('val-tiempo-transcurrido').textContent = '--';
+
+    // Población de Driver y Datalist
+    updateDriversDatalist();
+    document.getElementById('val-driver-name').value = order.envio || '';
+
+    // Set initial delivery date/time if available, otherwise clear
+    const valFechaEntrega = document.getElementById('val-fecha-entrega');
+    const valHoraEntrega = document.getElementById('val-hora-entrega');
+
+    if (order.fecha_entrega) {
+        const d = new Date(order.fecha_entrega);
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        valFechaEntrega.value = `${day}/${month}/${year}`;
+    } else {
+        valFechaEntrega.value = '';
+    }
+
+    if (order.hora_entrega) {
+        valHoraEntrega.value = order.hora_entrega;
+    } else {
+        valHoraEntrega.value = '';
+    }
+    calculateLiveElapsedTime(); // Calculate initial elapsed time
 
     // Reset Validation Mode Default (Uncheck all)
     document.querySelectorAll('input[name="valType"]').forEach(r => r.checked = false);
@@ -549,6 +598,9 @@ window.openValidateModal = (nro) => {
         dropZone.style.opacity = '0.7';
         valPhotoAmountInput.disabled = true;
         document.querySelectorAll('input[name="valType"]').forEach(r => r.disabled = true);
+        document.getElementById('val-driver-name').disabled = true; // Disable driver input
+        valFechaEntrega.disabled = true; // Disable date input
+        valHoraEntrega.disabled = true; // Disable time input
 
         // Show Read Only Badge
         const title = document.querySelector('#modal-validate h3');
@@ -572,6 +624,9 @@ window.openValidateModal = (nro) => {
         saveBtn.style.display = 'block';
         valPhotoAmountInput.disabled = false;
         document.querySelectorAll('input[name="valType"]').forEach(r => r.disabled = false);
+        document.getElementById('val-driver-name').disabled = false; // Enable driver input
+        valFechaEntrega.disabled = false; // Enable date input
+        valHoraEntrega.disabled = false; // Enable time input
 
         const isTypeSelected = document.querySelector('input[name="valType"]:checked');
         if (isTypeSelected) {
@@ -602,10 +657,78 @@ valTypeRadios.forEach(radio => {
     });
 });
 
+// Helper to calculate elapsed time in real-time
+function calculateLiveElapsedTime() {
+    if (!currentOrderForValidation || !currentOrderForValidation.fecha) return;
+
+    const fechaEntrega = document.getElementById('val-fecha-entrega').value;
+    const horaEntrega = document.getElementById('val-hora-entrega').value;
+    const display = document.getElementById('val-tiempo-transcurrido');
+
+    if (!fechaEntrega || !horaEntrega) {
+        display.textContent = '--';
+        return;
+    }
+
+    try {
+        // Validar formato básico DD/MM/YYYY antes de intentar procesar
+        const dateParts = fechaEntrega.split('/');
+        if (dateParts.length !== 3 || dateParts[2].length !== 4) {
+            display.textContent = '--';
+            return;
+        }
+
+        const [d, m, y] = dateParts;
+        const isoDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${horaEntrega}:00`;
+        const entrega = new Date(isoDate);
+
+        if (isNaN(entrega.getTime())) {
+            display.textContent = '--';
+            return;
+        }
+
+        const registro = new Date(currentOrderForValidation.fecha);
+        const diffMs = entrega - registro;
+        const diffMin = Math.round(diffMs / 60000);
+
+        const label = diffMin > 35 ? '⚠️ Fuera de SLA' : '✅ En tiempo';
+        display.textContent = `${diffMin} min (${label})`;
+        display.style.color = diffMin > 35 ? '#f87171' : '#4ade80';
+    } catch (e) {
+        display.textContent = '--';
+    }
+}
+
+// Attach listeners for live calculation
+document.getElementById('val-fecha-entrega')?.addEventListener('input', calculateLiveElapsedTime);
+document.getElementById('val-hora-entrega')?.addEventListener('input', calculateLiveElapsedTime);
+document.getElementById('val-fecha-entrega')?.addEventListener('change', calculateLiveElapsedTime);
+document.getElementById('val-hora-entrega')?.addEventListener('change', calculateLiveElapsedTime);
+
+// Trigger on modal click as per user request to ensure refresh when clicking away from inputs
+document.getElementById('modal-validate')?.addEventListener('click', (e) => {
+    // Solo si el click NO fue dentro de los inputs para no interrumpir la escritura
+    if (!e.target.closest('input')) {
+        calculateLiveElapsedTime();
+    }
+});
+
 function updateValidationMode(mode) {
     const photoColumn = document.querySelector('.photo-column');
     const ocrBtn = document.getElementById('ocr-trigger-btn');
     const helperParams = document.getElementById('ocr-helper-text');
+
+    // Default Date only for EFECTIVO
+    if (mode === 'efectivo') {
+        const dateInput = document.getElementById('val-fecha-entrega');
+        if (!dateInput.value) {
+            const now = new Date();
+            const day = String(now.getDate()).padStart(2, '0');
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const year = now.getFullYear();
+            dateInput.value = `${day}/${month}/${year}`;
+        }
+    }
 
     // Elements to toggle
     const posOptions = document.getElementById('pos-options');
@@ -1681,7 +1804,12 @@ function itemDetected(amount) {
 validateForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const valType = document.querySelector('input[name="valType"]:checked').value;
+    const valTypeRadio = document.querySelector('input[name="valType"]:checked');
+    if (!valTypeRadio) {
+        Swal.fire('Error', 'Debe seleccionar un Tipo de Pago (POS, Online o Efectivo).', 'warning');
+        return;
+    }
+    const valType = valTypeRadio.value;
     const file = photoInput.files[0];
     let fileData = null;
 
@@ -1695,8 +1823,14 @@ validateForm.addEventListener('submit', async (e) => {
         fileData = await toBase64(file);
     }
 
+    const driverName = (document.getElementById('val-driver-name').value || '').trim();
+    if (!driverName) {
+        Swal.fire('Error', 'Debes consignar el nombre del Driver antes de validar.', 'warning');
+        return;
+    }
+
     const startUpload = async () => {
-        Swal.fire({ title: 'Guardando...', didOpen: () => Swal.showLoading() });
+        Swal.fire({ title: `Guardando (${driverName})...`, didOpen: () => Swal.showLoading() });
         const montoFoto = parseFloat(valPhotoAmountInput.value);
 
         // Extraer valores adicionales de la UI
@@ -1716,6 +1850,7 @@ validateForm.addEventListener('submit', async (e) => {
             usuario: currentUser.usuario,
             tipo: tipoFinal,
             vuelto: (valType === 'efectivo') ? document.getElementById('val-vuelto-amount').value : '',
+            envio: driverName,
             fechaEntrega: document.getElementById('val-fecha-entrega').value || '',
             horaEntrega: document.getElementById('val-hora-entrega').value || '',
             archivo: fileData ? {
@@ -1996,33 +2131,51 @@ document.querySelectorAll('.filter-tab').forEach(tab => {
 refreshBtn.addEventListener('click', loadOrders);
 
 window.rejectOrder = async (nro) => {
-    const { value: motivo, isConfirmed } = await Swal.fire({
+    const order = orders.find(o => o.nro == nro);
+    if (!order) return;
+
+    updateDriversDatalist();
+
+    const { value: formValues, isConfirmed } = await Swal.fire({
         title: '¿Por qué se cancela el pedido?',
         icon: 'warning',
+        html: `
+            <div class="swal-custom-container" style="text-align: left;">
+                <label style="display:block; margin-bottom:5px;">Motivo:</label>
+                <div class="swal-radio-group" style="margin-bottom:15px;">
+                    <label style="display:block; margin-bottom:5px;"><input type="radio" name="swal-motivo" value="Por consumidor" checked> 🙋 Por consumidor</label>
+                    <label style="display:block; margin-bottom:5px;"><input type="radio" name="swal-motivo" value="Por Punto de Venta"> 🏪 Por Punto de Venta</label>
+                    <label style="display:block; margin-bottom:5px;"><input type="radio" name="swal-motivo" value="Por Repartidor"> 🚴 Por Repartidor</label>
+                </div>
+                <label style="display:block; margin-bottom:5px;">Nombre del Driver:</label>
+                <input id="swal-driver" class="swal2-input" placeholder="Driver..." list="drivers-list" value="${order.envio || ''}" style="margin: 0; width: 100%;">
+            </div>
+        `,
         showCancelButton: true,
         confirmButtonColor: '#d33',
         cancelButtonColor: '#666',
         confirmButtonText: '<i class="fa-solid fa-ban"></i> Cancelar Pedido',
         cancelButtonText: 'Volver',
-        input: 'radio',
-        inputOptions: {
-            'Por consumidor': '🙋 Por consumidor',
-            'Por Punto de Venta': '🏪 Por Punto de Venta',
-            'Por Repartidor': '🚴 Por Repartidor'
-        },
-        inputValidator: (value) => {
-            if (!value) return 'Debes seleccionar un motivo para continuar.';
-        },
-        customClass: { input: 'swal-radio-group' }
+        preConfirm: () => {
+            const motivo = document.querySelector('input[name="swal-motivo"]:checked').value;
+            const driver = document.getElementById('swal-driver').value;
+            if (!driver) {
+                Swal.showValidationMessage('Debes consignar el nombre del Driver');
+                return false;
+            }
+            return { motivo, driver };
+        }
     });
 
-    if (isConfirmed && motivo) {
+    if (isConfirmed && formValues) {
+        const { motivo, driver } = formValues;
         Swal.fire({ title: 'Cancelando...', didOpen: () => Swal.showLoading() });
         try {
             const res = await fetchAPI('rechazarPedido', {
                 nro,
                 usuario: currentUser.usuario,
-                motivo: motivo
+                motivo: motivo,
+                envio: driver
             });
             if (res.success) {
                 Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong>`, 'success');

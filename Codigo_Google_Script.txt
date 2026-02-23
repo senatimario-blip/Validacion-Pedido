@@ -138,6 +138,7 @@ function validarPedido(data) {
   sheet.getRange(rowIndex, 7).setValue("Validado");          // G: Estado
   sheet.getRange(rowIndex, 8).setValue(data.usuario);        // H: Validado por
   sheet.getRange(rowIndex, 9).setValue(new Date());          // I: Fecha validación
+  sheet.getRange(rowIndex, 10).setValue(data.envio || "");    // J: Responsable Envío
   sheet.getRange(rowIndex, 12).setValue(data.tipo || "");    // L: Tipo Pago Val.
   sheet.getRange(rowIndex, 13).setValue(                     // M: Vuelto
     (data.tipo === "EFECTIVO" && data.vuelto) ? parseFloat(data.vuelto) : ""
@@ -209,6 +210,7 @@ function rechazarPedido(data) {
       sheet.getRange(i + 1, 7).setValue("Cancelado");          // G: Estado
       sheet.getRange(i + 1, 8).setValue(data.usuario);         // H
       sheet.getRange(i + 1, 9).setValue(new Date());           // I
+      sheet.getRange(i + 1, 10).setValue(data.envio || "");    // J: Responsable Envío
       sheet.getRange(i + 1, 14).setValue(data.motivo || "");   // N: Motivo Cancelación
       return { success: true };
     }
