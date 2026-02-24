@@ -166,6 +166,42 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
+        // ==========================================
+        // LA LÓGICA DE TU NUEVA COLUMNA "DETALLE"
+        // ==========================================
+        
+        // 1. Estado por defecto: Guion gris tenue
+        let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
+        
+        if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
+            // 2. Si se cancela: Muestra el motivo en rojito
+            const motivo = (order.motivo_cancelacion || '').toLowerCase();
+            if (motivo.includes('consumidor')) {
+                detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🙋‍♂️ Consumidor</span>';
+            } else if (motivo.includes('venta')) {
+                detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🏪 Pto de Venta</span>';
+            } else if (motivo.includes('repartidor')) {
+                detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🚴 Repartidor</span>';
+            } else if (motivo !== '') {
+                detalleHtml = `<span style="color:#fca5a5; font-size:0.9em;">${order.motivo_cancelacion}</span>`;
+            }
+        } else if (order.estado === 'Validado') {
+            // 3. Si se valida: Muestra el tipo de pago en colores
+            const tipo = (order.tipo_pago_val || order.tipo_pago || '').toString().toUpperCase();
+            if (tipo.includes('EFECTIVO')) {
+                detalleHtml = '<span style="color:#4ade80; font-weight:bold; font-size:0.85em;">💵 EFECTIVO</span>';
+            } else if (tipo.includes('ONLINE')) {
+                detalleHtml = '<span style="color:#60a5fa; font-weight:bold; font-size:0.85em;">🌐 ONLINE</span>';
+            } else if (tipo.includes('TARJETA')) {
+                detalleHtml = '<span style="color:#a78bfa; font-weight:bold; font-size:0.85em;">💳 TARJETA</span>';
+            } else if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) {
+                detalleHtml = '<span style="color:#2dd4bf; font-weight:bold; font-size:0.85em;">📱 QR</span>';
+            } else if (tipo !== '') {
+                detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
+            }
+        }
+        // ==========================================
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
@@ -173,6 +209,9 @@ function renderOrders(data) {
             <td>${order.llave}</td>
             <td>S/ ${formatMoney(order.monto)}</td>
             <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span></td>
+            
+            <td>${detalleHtml}</td> 
+
             <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
             <td>
                 ${order.foto === 'PAGO-EFECTIVO' ?
