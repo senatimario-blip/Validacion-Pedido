@@ -67,11 +67,28 @@
     <section id="app-section">
         <!-- Sidebar / Navigation -->
         <nav class="sidebar glass-panel">
-            <div class="nav-brand" style="padding: 8px 0;">
-    <img src="cabify-logo.png" 
-         alt="Cabify"
-         style="height: 36px; object-fit: contain; filter: brightness(0) invert(1);">
-    </div>
+
+            <!-- LOGO CABIFY CENTRADO -->
+            <div class="nav-brand" style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: 100%;
+                padding: 18px 0 14px 0;
+                margin: 0;
+            ">
+                <img src="cabify-logo.png"
+                     alt="Cabify"
+                     style="
+                        width: 80%;
+                        max-width: 140px;
+                        height: auto;
+                        object-fit: contain;
+                        filter: brightness(0) invert(1);
+                        display: block;
+                     ">
+            </div>
+
             <div class="user-profile">
                 <div class="avatar"><i class="fa-solid fa-user"></i></div>
                 <div class="user-info">
@@ -188,7 +205,8 @@
                                     <th>Estado</th>
                                     <th>Detalle</th>
                                     <th>Envío</th>
-                                    <th>Tiempo</th> <th>Foto</th>
+                                    <th>Tiempo</th>
+                                    <th>Foto</th>
                                     <th>Validado por</th>
                                     <th>Acciones</th>
                                 </tr>
@@ -435,7 +453,6 @@
         </div>
     </div>
 
-
     <!-- Tesseract (OCR) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 
@@ -458,7 +475,6 @@
                     <div class="detail-group">
                         <label>Llave</label>
                         <div class="detail-value" id="val-key-display"></div>
-                        <!-- Extra info chips: Driver, Hora, Pago -->
                         <div id="val-extra-info" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
                     </div>
                     <div class="detail-group">
@@ -474,7 +490,7 @@
                     </div>
 
                     <form id="validate-form">
-                        <input type="hidden" id="val-id"> <!-- Row index -->
+                        <input type="hidden" id="val-id">
 
                         <div class="form-group">
                             <label>Tipo de Validación</label>
@@ -494,11 +510,8 @@
                             </div>
                         </div>
 
-                        <!-- Sub-opciones Dinámicas -->
                         <div id="sub-options-container" class="form-group"
                             style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--glass-border);">
-
-                            <!-- Opciones POS -->
                             <div id="pos-options" style="display: block;">
                                 <label>Medio de Pago por POS:</label>
                                 <div style="display:flex; gap:10px; margin-top:8px;">
@@ -513,18 +526,15 @@
                                         <i class="fa-solid fa-qrcode"></i> QR
                                     </button>
                                 </div>
-                                <!-- Campo oculto que mantiene el valor actual -->
                                 <input type="hidden" id="val-pos-type" value="TARJETA">
                             </div>
 
-                            <!-- Opciones Efectivo -->
                             <div id="efectivo-options" style="display: none;">
                                 <label>Vuelto Entregado (S/):</label>
                                 <input type="number" id="val-vuelto-amount" class="form-control" step="0.01"
                                     placeholder="Ej: 15.50" style="margin-top: 5px; width: 100%;">
                             </div>
 
-                            <!-- Opciones Online (Solo informativo) -->
                             <div id="online-options" style="display: none;">
                                 <small style="color: var(--text-muted);"><i class="fa-solid fa-circle-info"></i> La
                                     validación Online requiere foto de captura del banco.</small>
@@ -596,10 +606,8 @@
                         <button type="button" class="btn-secondary small" id="rotate-photo-btn" title="Girar 90°">
                             <i class="fa-solid fa-rotate"></i> Girar
                         </button>
-                        <button type="button" class="btn-secondary small" id="remove-photo-btn">Cambiar
-                            Foto</button>
-                        <a href="#" target="_blank" id="view-full-photo" class="btn-secondary small">Ver
-                            Original</a>
+                        <button type="button" class="btn-secondary small" id="remove-photo-btn">Cambiar Foto</button>
+                        <a href="#" target="_blank" id="view-full-photo" class="btn-secondary small">Ver Original</a>
                     </div>
                 </div>
             </div>
