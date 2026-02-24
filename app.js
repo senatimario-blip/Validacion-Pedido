@@ -181,7 +181,7 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
-        // 1. LÓGICA DE COLUMNA "DETALLE"
+        // 1. LÓGICA DE DETALLE (PAGOS / CANCELACIONES)
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
@@ -198,68 +198,69 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // 2. LÓGICA DE COLUMNA "TIEMPO" (CORREGIDO: Cero 1880h y Colores Nuevos)
+        // 2. LÓGICA DE TIEMPO "TODOTERRENO"
         let tiempoHtml = '<span class="text-muted">-</span>';
-        
         try {
-            // Función interna para parsear fechas DD/MM/YYYY HH:MM de forma segura
-            const parsearFechaFull = (str) => {
+            const parsearInteligente = (str) => {
                 if (!str) return null;
-                const pts = String(str).split(/[\s/:-]/);
-                if (pts.length < 3) return null;
-                const d = parseInt(pts[0]), m = parseInt(pts[1]) - 1, y = parseInt(pts[2]);
-                const hr = pts[3] ? parseInt(pts[3]) : 0, min = pts[4] ? parseInt(pts[4]) : 0;
-                return new Date(y, m, d, hr, min);
+                if (str instanceof Date) return str; // Si ya es fecha, usarla
+                
+                // Limpiar y separar por cualquier caracter común de fecha
+                const p = String(str).split(/[\s/:-]/);
+                if (p.length < 3) return null;
+                
+                let d = parseInt(p[0]), m = parseInt(p[1]) - 1, y = parseInt(p[2]);
+                // Corregir años de 2 dígitos (ej. "26" -> 2026)
+                if (y < 100) y += 2000;
+                
+                let hr = p[3] ? parseInt(p[3]) : 0;
+                let min = p[4] ? parseInt(p[4]) : 0;
+                
+                let fechaFinal = new Date(y, m, d, hr, min);
+                return isNaN(fechaFinal.getTime()) ? null : fechaFinal;
             };
 
-            let orderDate = parsearFechaFull(order.fecha);
+            let orderDate = parsearInteligente(order.fecha);
 
-            if (orderDate && !isNaN(orderDate.getTime())) {
-                // --- CASO PENDIENTE (Semaforo Verde / Rojo con Parpadeo) ---
+            if (orderDate) {
+                // --- CASO PENDIENTE ---
                 if (order.estado === 'Pendiente') {
-                    let ahora = new Date();
-                    let diffMins = Math.floor((ahora - orderDate) / 60000);
+                    let diffMins = Math.floor((new Date() - orderDate) / 60000);
                     
-                    if (diffMins < 35) {
-                        // VERDE: Normal
-                        tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.15); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
+                    // SEGURIDAD: Si da una cifra loca (> 2 días), ignorar error
+                    if (diffMins > 2880 || diffMins < -2880) {
+                        tiempoHtml = '<span class="text-muted">Revisar Fecha</span>';
+                    } else if (diffMins < 35) {
+                        tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
                     } else {
-                        // ROJO PARPADEANTE: Urgente (usa la clase del Paso 1)
                         tiempoHtml = `<span class="blink-urgent" style="font-weight:bold; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
                     }
                 } 
-                // --- CASO VALIDADO (Azul si <= 35m / Naranja si > 35m) ---
+                // --- CASO VALIDADO ---
                 else if (order.estado === 'Validado' && order.hora_entrega) {
-                    const hParts = String(order.hora_entrega).split(':');
-                    if (hParts.length >= 2) {
-                        let hEntrega = parseInt(hParts[0]), mEntrega = parseInt(hParts[1]);
-                        
-                        // Sincronizamos la entrega con el mismo día del registro
+                    const hp = String(order.hora_entrega).split(':');
+                    if (hp.length >= 2) {
+                        let hEnt = parseInt(hp[0]), mEnt = parseInt(hp[1]);
                         let delDate = new Date(orderDate.getTime());
-                        delDate.setHours(hEntrega, mEntrega, 0, 0);
+                        delDate.setHours(hEnt, mEnt, 0, 0);
                         
                         let diffMs = delDate - orderDate;
-                        // Ajuste de medianoche (por si el voucher marca 00:10 y el pedido fue 23:50)
                         if (diffMs < -43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
                         else if (diffMs > 43200000) { delDate.setDate(delDate.getDate() - 1); diffMs = delDate - orderDate; }
                         
                         let finalMins = Math.floor(diffMs / 60000);
-                        
-                        // Protección final contra datos corruptos (1880h)
                         if (finalMins >= 0 && finalMins < 1440) {
-                            let esTarde = finalMins > 35;
-                            let color = esTarde ? '#fb923c' : '#60a5fa'; // Naranja : Azul
-                            let bg = esTarde ? 'rgba(251, 146, 60, 0.15)' : 'rgba(96, 165, 250, 0.15)';
+                            let color = finalMins <= 35 ? '#60a5fa' : '#fb923c'; 
+                            let bg = finalMins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
                             let texto = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
-                            
                             tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${texto}</span>`;
                         }
                     }
                 }
             }
-        } catch(e) { console.error("Error tiempo:", e); }
+        } catch(e) { console.error("Error en tiempo:", e); }
 
-        // 3. CONSTRUIR LA FILA DE LA TABLA (Mantiene tus 11 columnas exactas)
+        // 3. CONSTRUCCIÓN DE FILA (11 columnas)
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
@@ -276,27 +277,16 @@ function renderOrders(data) {
                 (order.foto === 'PAGO-ONLINE' ? '<span class="badge" style="background:rgba(59, 130, 246, 0.2); color:#60a5fa; border:1px solid rgba(96, 165, 250, 0.3); cursor:default"><i class="fa-solid fa-globe"></i> Online</span>' :
                     (order.foto ? `<a href="${extractPhotoUrl(order.foto)}" target="_blank" class="btn-icon-small"><i class="fa-solid fa-image"></i></a>` : '<span class="text-muted">-</span>'))}
             </td>
-            <td style="font-size: 0.85em; color: rgba(255,255,255,0.8);">
-                ${order.validado_por || '<span class="text-muted">-</span>'}
-            </td>
+            <td style="font-size: 0.85em; color: rgba(255,255,255,0.8);">${order.validado_por || '-'}</td>
             <td>
-                ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
-                <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
-                    ${currentUser.rol === 'Admin' ?
-                    `<i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>` :
-                    `<i class="fa-solid fa-eye"></i> <i class="fa-solid fa-lock" style="font-size:0.7em"></i>`}
+                <button class="btn-secondary small" onclick="openValidateModal(${order.nro})">
+                    <i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>
                 </button>
-                ${currentUser.rol === 'Admin' && order.estado !== 'Validado' ? `
-                <button class="btn-icon-small danger" onclick="rejectOrder(${order.nro})" title="Cancelar">
-                    <i class="fa-solid fa-ban"></i>
-                </button>` : ''}
+                ${currentUser.rol === 'Admin' && order.estado !== 'Validado' ? `<button class="btn-icon-small danger" onclick="rejectOrder(${order.nro})"><i class="fa-solid fa-ban"></i></button>` : ''}
                 ${currentUser.rol === 'Admin' && order.estado === 'Validado' ? `
-                <button class="btn-icon-small ${order.sla_fuera ? 'danger' : ''}"
-                    onclick="toggleSLA(${order.nro})"
-                    title="${order.sla_fuera ? 'Fuera de SLA ⏱️ — Clic para desmarcar' : 'Marcar como fuera de SLA (>35 min)'}"
-                    style="${order.sla_fuera ? 'opacity:1;' : 'opacity:0.4;'}">
+                <button class="btn-icon-small ${order.sla_fuera ? 'danger' : ''}" onclick="toggleSLA(${order.nro})" style="${order.sla_fuera ? 'opacity:1;' : 'opacity:0.4;'}">
                     <i class="fa-solid fa-stopwatch"></i>
-                </button>` : ''}`}
+                </button>` : ''}
             </td>
         `;
         ordersTableBody.appendChild(tr);
