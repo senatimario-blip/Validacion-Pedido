@@ -168,7 +168,7 @@ function renderOrders(data) {
         const dynamicCorrelative = totalOrders - index;
 
         // 1. LÓGICA DE COLUMNA "DETALLE"
-        let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
+        let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>';
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
             if (motivo.includes('consumidor')) detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🙋‍♂️ Consumidor</span>';
@@ -186,71 +186,94 @@ function renderOrders(data) {
 
         // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
         let tiempoHtml = '<span class="text-muted">-</span>';
-        
+
         try {
-            if (order.fecha) {
-                let orderDate = new Date(order.fecha);
-                if (isNaN(orderDate.getTime()) && typeof order.fecha === 'string') {
-                    const parts = order.fecha.split(/[\s/:-]/);
-                    if (parts.length >= 3) {
-                        let d = parseInt(parts[0], 10);
-                        let m = parseInt(parts[1], 10) - 1;
-                        let y = parseInt(parts[2], 10);
-                        if (y < 100) y += 2000;
-                        let hr = parts[3] ? parseInt(parts[3], 10) : 0;
-                        let min = parts[4] ? parseInt(parts[4], 10) : 0;
-                        orderDate = new Date(y, m, d, hr, min);
+            let orderDate = null;
+
+            // Intento #1: Forzar parseo de la fecha como America/Lima usando Intl (Si es Date válido)
+            const dRegistroOrig = new Date(order.fecha);
+            if (!isNaN(dRegistroOrig.getTime())) {
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Lima',
+                    year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hour12: false
+                });
+                const parts = formatter.formatToParts(dRegistroOrig);
+                const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+                let rH = getP('hour');
+                if (rH === 24) rH = 0;
+
+                orderDate = new Date(Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0));
+            }
+
+            if (orderDate && !isNaN(orderDate.getTime())) {
+                let diffMs = null;
+                if (order.estado === 'Validado' && order.hora_entrega) {
+                    let hStr = String(order.hora_entrega).trim();
+                    let hh = 0, mm = 0, ok = false;
+
+                    if (hStr.includes('T')) {
+                        let dT = new Date(hStr);
+                        if (!isNaN(dT.getTime())) { hh = dT.getHours(); mm = dT.getMinutes(); ok = true; }
+                    } else {
+                        let pts = hStr.split(':');
+                        if (pts.length >= 2) { hh = parseInt(pts[0], 10); mm = parseInt(pts[1], 10); ok = true; }
                     }
+
+                    if (ok) {
+                        // Crear un UTC equivalente a la hora de Lima
+                        let delDate = new Date(Date.UTC(orderDate.getUTCFullYear(), orderDate.getUTCMonth(), orderDate.getUTCDate(), hh, mm, 0));
+                        diffMs = delDate.getTime() - orderDate.getTime();
+
+                        // Ajuste si la hora de entrega cae cruzando la medianoche (ej: pediste a las 23:00, entregado a las 00:30)
+                        if (diffMs < 0 && Math.abs(diffMs) > 43200000) {
+                            delDate.setUTCDate(delDate.getUTCDate() + 1);
+                            diffMs = delDate.getTime() - orderDate.getTime();
+                        }
+                    }
+                } else if (order.estado === 'Pendiente') {
+                    // Calcular against now(Lima)
+                    const now = new Date();
+                    const formatterNow = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'America/Lima',
+                        year: 'numeric', month: 'numeric', day: 'numeric',
+                        hour: 'numeric', minute: 'numeric', second: 'numeric',
+                        hour12: false
+                    });
+                    const partsNow = formatterNow.formatToParts(now);
+                    const getPN = (type) => parseInt(partsNow.find(p => p.type === type).value, 10);
+                    let nH = getPN('hour');
+                    if (nH === 24) nH = 0;
+                    const limaNowUtc = Date.UTC(getPN('year'), getPN('month') - 1, getPN('day'), nH, getPN('minute'), 0);
+
+                    diffMs = limaNowUtc - orderDate.getTime();
+                    if (diffMs < 0) diffMs = 0;
                 }
 
-                if (!isNaN(orderDate.getTime())) {
-                    let diffMs = null;
-                    if (order.estado === 'Validado' && order.hora_entrega) {
-                        let delDate = new Date(orderDate.getTime());
-                        let h = 0, m = 0, ok = false;
-                        let hStr = String(order.hora_entrega).trim();
-                        if (hStr.includes('T')) {
-                            let dT = new Date(hStr);
-                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); ok = true; }
-                        } else {
-                            let pts = hStr.split(':');
-                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); ok = true; }
-                        }
-                        if (ok) {
-                            delDate.setHours(h, m, 0, 0);
-                            diffMs = delDate - orderDate;
-                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
-                                delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; 
-                            }
-                        }
-                    } else if (order.estado === 'Pendiente') {
-                        diffMs = new Date() - orderDate;
-                        if (diffMs < 0) diffMs = 0;
-                    }
+                if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
+                    let mins = Math.floor(diffMs / 60000);
 
-                    if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
-                        let mins = Math.floor(diffMs / 60000);
-                        
-                        // --- NUEVA LÓGICA DE COLORES ---
-                        let color, bg;
-                        
-                        if (order.estado === 'Pendiente') {
-                            // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
-                            color = mins <= 35 ? '#4ade80' : '#f87171'; 
-                            bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
-                        } else {
-                            // AZUL SUAVE si está a tiempo, NARANJA si pasó los 35 min
-                            color = mins <= 35 ? '#60a5fa' : '#fb923c'; 
-                            bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
-                        }
-                        // -------------------------------
-                    
-                        let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
-                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
+                    // --- NUEVA LÓGICA DE COLORES ---
+                    let color, bg;
+
+                    if (order.estado === 'Pendiente') {
+                        // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
+                        color = mins <= 35 ? '#4ade80' : '#f87171';
+                        bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                    } else {
+                        // AZUL SUAVE si está a tiempo, NARANJA si pasó los 35 min
+                        color = mins <= 35 ? '#60a5fa' : '#fb923c';
+                        bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
                     }
+                    // -------------------------------
+
+                    let text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
+                    tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
                 }
             }
-        } catch(e) {}
+        } catch (e) { }
 
         // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
         const tr = document.createElement('tr');
@@ -359,7 +382,7 @@ function renderReportsTable() {
         let horaFormat = '-';
         if (order.fecha) {
             try {
-                horaFormat = new Date(order.fecha).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
+                horaFormat = new Date(order.fecha).toLocaleTimeString('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: true });
                 horaFormat = horaFormat.toLowerCase().replace(' ', '');
             } catch (e) { }
         }
@@ -540,7 +563,7 @@ window.openValidateModal = (nro) => {
     if (order.fecha) {
         let horaChip = '-';
         try {
-            horaChip = new Date(order.fecha).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
+            horaChip = new Date(order.fecha).toLocaleTimeString('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: true });
         } catch (e) { }
         extraInfoDiv.innerHTML += `<span style="${chipStyle}"><i class="fa-solid fa-clock" style="color:#a78bfa;"></i> ${horaChip}</span>`;
     }
@@ -713,7 +736,7 @@ function calculateLiveElapsedTime() {
 
     if (!fechaEntrega || !horaEntrega) {
         display.textContent = '--';
-        display.style.color = 'var(--accent)'; 
+        display.style.color = 'var(--accent)';
         return;
     }
 
@@ -725,16 +748,40 @@ function calculateLiveElapsedTime() {
         }
 
         const [d, m, y] = dateParts;
-        const isoDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${horaEntrega}:00`;
-        const entrega = new Date(isoDate);
 
-        if (isNaN(entrega.getTime())) {
+        // Convertimos la hora digitada en partes
+        const hParts = horaEntrega.split(':');
+        const hh = parseInt(hParts[0] || '0', 10);
+        const mm = parseInt(hParts[1] || '0', 10);
+
+        // Creamos un UTC map absoluto representando el 'reloj' de entrega (ignoramos la TZ de la laptop)
+        const entregaMs = Date.UTC(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10), hh, mm, 0);
+
+        // Para la fecha de registro, forzamos extraer las partes del reloj según la hora en Perú
+        const dRegistro = new Date(currentOrderForValidation.fecha);
+        let registroMs = dRegistro.getTime();
+
+        if (isNaN(registroMs)) {
             display.textContent = '--';
             return;
         }
 
-        const registro = new Date(currentOrderForValidation.fecha);
-        const diffMs = entrega - registro;
+        // Extraer partes en America/Lima para unificar todas las computadoras
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Lima',
+            year: 'numeric', month: 'numeric', day: 'numeric',
+            hour: 'numeric', minute: 'numeric', second: 'numeric',
+            hour12: false
+        });
+        const parts = formatter.formatToParts(dRegistro);
+        const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+        let rH = getP('hour');
+        if (rH === 24) rH = 0; // Algunas implementaciones de Intl devuelven 24 en vez de 0
+
+        registroMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0);
+
+        const diffMs = entregaMs - registroMs;
         const diffMin = Math.round(diffMs / 60000);
 
         if (diffMin >= 0) {
@@ -744,7 +791,7 @@ function calculateLiveElapsedTime() {
             display.style.color = '#60a5fa';
         } else {
             display.textContent = 'Hora anterior al registro';
-            display.style.color = '#f87171'; 
+            display.style.color = '#f87171';
         }
     } catch (e) {
         display.textContent = '--';
@@ -1150,17 +1197,17 @@ function processVoucherTimes(extractedFecha, extractedHora) {
         // Reemplazar guiones o puntos por barras en caso de que el OCR lea 23-02-26
         fechaNormalizada = fechaNormalizada.replace(/[\-\.]/g, '/');
         const partes = fechaNormalizada.split('/');
-        
+
         if (partes.length === 3) {
             let dia = partes[0].padStart(2, '0');
             let mes = partes[1].padStart(2, '0');
             let anio = partes[2];
-            
+
             // Si el año tiene 2 dígitos (ej. "26"), convertir a 4 dígitos ("2026")
             if (anio.length === 2) {
                 anio = '20' + anio;
             }
-            
+
             fechaNormalizada = `${dia}/${mes}/${anio}`;
         }
     }
@@ -1183,7 +1230,7 @@ function processVoucherTimes(extractedFecha, extractedHora) {
 
     try {
         const orderDateStr = new Date(currentOrderForValidation.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        
+
         // Comparamos usando la fecha normalizada
         if (fechaNormalizada && orderDateStr !== fechaNormalizada) {
             Swal.fire({
@@ -1732,7 +1779,7 @@ validateForm.addEventListener('submit', async (e) => {
 
     try {
         const orderDateStr = new Date(currentOrderForValidation.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        
+
         if (fechaEntregaInput !== orderDateStr && fechaEntregaInput !== orderDateStr.replace(/-/g, '/')) {
             Swal.fire('Fecha Inválida', `La fecha de entrega (${fechaEntregaInput}) debe ser exactamente igual a la fecha de creación del pedido (${orderDateStr}).`, 'error');
             return;
@@ -2106,7 +2153,7 @@ window.rejectOrder = async (nro) => {
                 nro,
                 usuario: currentUser.usuario,
                 motivo: motivo,
-                envio: driver 
+                envio: driver
             });
             if (res.success) {
                 Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong>`, 'success');
