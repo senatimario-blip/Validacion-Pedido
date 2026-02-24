@@ -429,6 +429,12 @@ function renderChartValidadores() {
 // LISTADO INFERIOR — refleja TODOS los filtros + corte por hora de ENTREGA
 // Válidos: hora de entrega | Cancelados: hora del pedido (fallback)
 // ============================================================
+// ============================================================
+// LISTADO INFERIOR — refleja TODOS los filtros + corte por hora de ENTREGA
+// Válidos: filtran y ordenan por hora de entrega
+// Cancelados: filtran y ordenan por hora de pedido
+// ORDEN DESCENDENTE: últimas entregas/pedidos arriba, primeras abajo
+// ============================================================
 function renderListado() {
     const tbody  = document.getElementById('dash-listado-body');
     const tfoot  = document.getElementById('dash-listado-tfoot');
@@ -448,18 +454,53 @@ function renderListado() {
         }
         if (esCancelado(o)) {
             if (!activePagos.has('CANCELADO')) return false;
-            const h = getHoraParaFiltro(o); // Hora del pedido para cancelados (fallback)
+            const h = getHoraParaFiltro(o); // Hora del pedido para cancelados
             if (h === null) return false;
             return h <= horaCorte;
         }
         return false;
     }).sort((a, b) => {
-        // Ordenar por hora de entrega/pedido ascendente
-        const hA = getHoraParaFiltro(a) ?? 99;
-        const hB = getHoraParaFiltro(b) ?? 99;
-        if (hA !== hB) return hA - hB;
-        // Si misma hora: válidos primero, luego por fecha descendente
-        if (esCancelado(a) !== esCancelado(b)) return esCancelado(a) ? 1 : -1;
+        // Obtener hora de referencia para cada pedido (la que se usa para ordenar)
+        const getHoraOrden = (o) => {
+            if (esCancelado(o)) {
+                // Cancelados: hora del pedido
+                const d = dashParseDate(o.fecha);
+                return d ? d.getHours() : -1;
+            }
+            // Válidos: hora de entrega
+            return getHoraEntrega(o) ?? -1;
+        };
+        
+        // Obtener minutos de referencia para desempate
+        const getMinutosOrden = (o) => {
+            if (esCancelado(o)) {
+                // Cancelados: minutos del pedido
+                const d = dashParseDate(o.fecha);
+                return d ? d.getMinutes() : 0;
+            }
+            // Válidos: minutos de la hora de entrega
+            if (!o.hora_entrega) return 0;
+            const s = String(o.hora_entrega).trim();
+            if (s.includes('T')) {
+                const d = new Date(s);
+                return !isNaN(d.getTime()) ? d.getMinutes() : 0;
+            }
+            const parts = s.split(':');
+            return parts.length >= 2 ? parseInt(parts[1], 10) || 0 : 0;
+        };
+        
+        const hA = getHoraOrden(a);
+        const hB = getHoraOrden(b);
+        
+        // ORDEN DESCENDENTE: mayor hora arriba
+        if (hA !== hB) return hB - hA;
+        
+        // Misma hora: ordenar por minutos descendente
+        const mA = getMinutosOrden(a);
+        const mB = getMinutosOrden(b);
+        if (mA !== mB) return mB - mA;
+        
+        // Misma hora y minutos: ordenar por fecha completa descendente
         const dA = dashParseDate(a.fecha);
         const dB = dashParseDate(b.fecha);
         return (dB ? dB.getTime() : 0) - (dA ? dA.getTime() : 0);
@@ -506,7 +547,7 @@ function renderListado() {
     // Filas con indicadores visuales de hora
     tbody.innerHTML = pedidos.map(o => {
         const isCan   = esCancelado(o);
-        const horaData = getHoraParaMostrar(o); // Nuevo sistema de hora
+        const horaData = getHoraParaMostrar(o);
         const tipo    = isCan ? 'CANCELADO' : clasificarPago(o);
         const col     = PAGO_COLORS[tipo]?.text || COLORS.gris;
         const estCol  = isCan ? COLORS.rojo : COLORS.verde;
