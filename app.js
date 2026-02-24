@@ -198,62 +198,68 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
+        // 2. LÓGICA DE COLUMNA "TIEMPO" (CORREGIDO: Cero 1880h y Colores Nuevos)
         let tiempoHtml = '<span class="text-muted">-</span>';
         
         try {
-            if (order.fecha) {
-                let orderDate = new Date(order.fecha);
-                if (isNaN(orderDate.getTime()) && typeof order.fecha === 'string') {
-                    const parts = order.fecha.split(/[\s/:-]/);
-                    if (parts.length >= 3) {
-                        let d = parseInt(parts[0], 10);
-                        let m = parseInt(parts[1], 10) - 1;
-                        let y = parseInt(parts[2], 10);
-                        if (y < 100) y += 2000;
-                        let hr = parts[3] ? parseInt(parts[3], 10) : 0;
-                        let min = parts[4] ? parseInt(parts[4], 10) : 0;
-                        orderDate = new Date(y, m, d, hr, min);
-                    }
-                }
+            // Función interna para parsear fechas DD/MM/YYYY HH:MM de forma segura
+            const parsearFechaFull = (str) => {
+                if (!str) return null;
+                const pts = String(str).split(/[\s/:-]/);
+                if (pts.length < 3) return null;
+                const d = parseInt(pts[0]), m = parseInt(pts[1]) - 1, y = parseInt(pts[2]);
+                const hr = pts[3] ? parseInt(pts[3]) : 0, min = pts[4] ? parseInt(pts[4]) : 0;
+                return new Date(y, m, d, hr, min);
+            };
 
-                if (!isNaN(orderDate.getTime())) {
-                    let diffMs = null;
-                    if (order.estado === 'Validado' && order.hora_entrega) {
+            let orderDate = parsearFechaFull(order.fecha);
+
+            if (orderDate && !isNaN(orderDate.getTime())) {
+                // --- CASO PENDIENTE (Semaforo Verde / Rojo con Parpadeo) ---
+                if (order.estado === 'Pendiente') {
+                    let ahora = new Date();
+                    let diffMins = Math.floor((ahora - orderDate) / 60000);
+                    
+                    if (diffMins < 35) {
+                        // VERDE: Normal
+                        tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.15); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
+                    } else {
+                        // ROJO PARPADEANTE: Urgente (usa la clase del Paso 1)
+                        tiempoHtml = `<span class="blink-urgent" style="font-weight:bold; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
+                    }
+                } 
+                // --- CASO VALIDADO (Azul si <= 35m / Naranja si > 35m) ---
+                else if (order.estado === 'Validado' && order.hora_entrega) {
+                    const hParts = String(order.hora_entrega).split(':');
+                    if (hParts.length >= 2) {
+                        let hEntrega = parseInt(hParts[0]), mEntrega = parseInt(hParts[1]);
+                        
+                        // Sincronizamos la entrega con el mismo día del registro
                         let delDate = new Date(orderDate.getTime());
-                        let h = 0, m = 0, ok = false;
-                        let hStr = String(order.hora_entrega).trim();
-                        if (hStr.includes('T')) {
-                            let dT = new Date(hStr);
-                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); ok = true; }
-                        } else {
-                            let pts = hStr.split(':');
-                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); ok = true; }
+                        delDate.setHours(hEntrega, mEntrega, 0, 0);
+                        
+                        let diffMs = delDate - orderDate;
+                        // Ajuste de medianoche (por si el voucher marca 00:10 y el pedido fue 23:50)
+                        if (diffMs < -43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
+                        else if (diffMs > 43200000) { delDate.setDate(delDate.getDate() - 1); diffMs = delDate - orderDate; }
+                        
+                        let finalMins = Math.floor(diffMs / 60000);
+                        
+                        // Protección final contra datos corruptos (1880h)
+                        if (finalMins >= 0 && finalMins < 1440) {
+                            let esTarde = finalMins > 35;
+                            let color = esTarde ? '#fb923c' : '#60a5fa'; // Naranja : Azul
+                            let bg = esTarde ? 'rgba(251, 146, 60, 0.15)' : 'rgba(96, 165, 250, 0.15)';
+                            let texto = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
+                            
+                            tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${texto}</span>`;
                         }
-                        if (ok) {
-                            delDate.setHours(h, m, 0, 0);
-                            diffMs = delDate - orderDate;
-                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
-                                delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; 
-                            }
-                        }
-                    } else if (order.estado === 'Pendiente') {
-                        diffMs = new Date() - orderDate;
-                        if (diffMs < 0) diffMs = 0;
-                    }
-
-                    if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
-                        let mins = Math.floor(diffMs / 60000);
-                        let color = mins <= 35 ? '#60a5fa' : '#f87171';
-                        let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
-                        let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
-                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
                     }
                 }
             }
-        } catch(e) {}
+        } catch(e) { console.error("Error tiempo:", e); }
 
-        // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
+        // 3. CONSTRUIR LA FILA DE LA TABLA (Mantiene tus 11 columnas exactas)
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
@@ -316,6 +322,12 @@ document.getElementById('report-date-filter').addEventListener('change', renderR
 document.getElementById('btn-print-report').addEventListener('click', () => {
     window.print();
 });
+
+function getDayName(dateString) {
+    const d = new Date(dateString + 'T12:00:00');
+    const dias = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
+    return dias[d.getDay()];
+}
 
 function getDayName(dateString) {
     const d = new Date(dateString + 'T12:00:00');
