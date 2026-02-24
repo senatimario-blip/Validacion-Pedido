@@ -223,13 +223,21 @@ function renderOrders(data) {
                     }
 
                     if (ok) {
-                        // Crear un UTC equivalente a la hora de Lima
-                        let delDate = new Date(Date.UTC(orderDate.getUTCFullYear(), orderDate.getUTCMonth(), orderDate.getUTCDate(), hh, mm, 0));
+                        // Crear un Date en UTC puro con la fecha límite (usamos los componentes Y/M/D ya extraídos del Peru Time)
+                        const limY = orderDate.getUTCFullYear();
+                        const limM = orderDate.getUTCMonth();
+                        const limD = orderDate.getUTCDate();
+
+                        let delDate = new Date(Date.UTC(limY, limM, limD, hh, mm, 0));
                         diffMs = delDate.getTime() - orderDate.getTime();
 
-                        // Ajuste si la hora de entrega cae cruzando la medianoche (ej: pediste a las 23:00, entregado a las 00:30)
-                        if (diffMs < 0 && Math.abs(diffMs) > 43200000) {
-                            delDate.setUTCDate(delDate.getUTCDate() + 1);
+                        // Ajuste si la hora de entrega cae al día siguiente cruzando la medianoche 
+                        // (ej: pedido a las 23:40, entregado a las 00:15)
+                        if (diffMs < -43200000) { // Menor a -12 horas
+                            delDate = new Date(Date.UTC(limY, limM, limD + 1, hh, mm, 0));
+                            diffMs = delDate.getTime() - orderDate.getTime();
+                        } else if (diffMs > 43200000) { // Fallback de salto día inverso
+                            delDate = new Date(Date.UTC(limY, limM, limD - 1, hh, mm, 0));
                             diffMs = delDate.getTime() - orderDate.getTime();
                         }
                     }
