@@ -167,7 +167,7 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
-        // 1. LÓGICA DE DETALLE (PAGOS / CANCELACIONES)
+        // 1. LÓGICA DE COLUMNA "DETALLE"
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
@@ -184,54 +184,66 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // 2. LÓGICA DE TIEMPO (SEMÁFORO INTELIGENTE)
+        // 2. LÓGICA DE COLUMNA "TIEMPO" (VERDE, AZUL, NARANJA)
         let tiempoHtml = '<span class="text-muted">-</span>';
+        
         try {
+            // Aseguramos que la fecha de registro sea válida
             let orderDate = new Date(order.fecha);
-            
-            // --- CASO PENDIENTE: TIEMPO EN VIVO ---
-            if (order.estado === 'Pendiente' && !isNaN(orderDate.getTime())) {
-                let ahora = new Date();
-                let diffMins = Math.floor((ahora - orderDate) / 60000);
-                
-                if (diffMins < 35) {
-                    // VERDE: Normal
-                    tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
-                } else {
-                    // ROJO PARPADEANTE: Urgente (pasó 35 min)
-                    tiempoHtml = `<span class="blink-alert" style="font-weight:bold; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
+            if (isNaN(orderDate.getTime()) && order.fecha) {
+                // Intento manual si el formato falla (DD/MM/YYYY HH:MM)
+                const parts = String(order.fecha).split(/[\s/:-]/);
+                if (parts.length >= 5) {
+                    orderDate = new Date(parts[2], parts[1]-1, parts[0], parts[3], parts[4]);
                 }
-            } 
-            // --- CASO VALIDADO: USA LA HORA DEL MODAL ---
-            else if (order.estado === 'Validado' && order.hora_entrega) {
-                let h = 0, m = 0;
-                let hStr = String(order.hora_entrega).trim();
-                let pts = hStr.split(':');
-                if (pts.length >= 2) {
-                    h = parseInt(pts[0], 10);
-                    m = parseInt(pts[1], 10);
+            }
+
+            if (!isNaN(orderDate.getTime())) {
+                // --- CASO A: PENDIENTE (Semaforo Verde / Alerta) ---
+                if (order.estado === 'Pendiente') {
+                    let ahora = new Date();
+                    let diffMins = Math.floor((ahora - orderDate) / 60000);
                     
-                    let delDate = new Date(orderDate.getTime());
-                    delDate.setHours(h, m, 0, 0);
-                    
-                    let diffMs = delDate - orderDate;
-                    // Escudo medianoche
-                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
-                        delDate.setDate(delDate.getDate() + 1); 
-                        diffMs = delDate - orderDate; 
+                    if (diffMins < 35) {
+                        // VERDE: A tiempo
+                        tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
+                    } else {
+                        // ROJO (Sin parpadeo por ahora): Fuera de SLA
+                        tiempoHtml = `<span style="color:#f87171; font-weight:bold; background:rgba(248, 113, 113, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
                     }
-                    
-                    let finalMins = Math.floor(diffMs / 60000);
-                    let colorFinal = finalMins <= 35 ? '#60a5fa' : '#fb923c'; // Azul si cumplió / Naranja si no
-                    let bgFinal = finalMins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
-                    let textoFinal = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
-                    
-                    tiempoHtml = `<span style="color:${colorFinal}; font-weight:bold; background:${bgFinal}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${textoFinal}</span>`;
+                } 
+                // --- CASO B: VALIDADO (Azul si <=35m / Naranja si >35m) ---
+                else if (order.estado === 'Validado' && order.hora_entrega) {
+                    let hStr = String(order.hora_entrega).trim();
+                    let pts = hStr.split(':');
+                    if (pts.length >= 2) {
+                        let h = parseInt(pts[0], 10);
+                        let m = parseInt(pts[1], 10);
+                        
+                        let delDate = new Date(orderDate.getTime());
+                        delDate.setHours(h, m, 0, 0);
+                        
+                        let diffMs = delDate - orderDate;
+                        // Escudo medianoche mejorado
+                        if (diffMs < -43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
+                        else if (diffMs > 43200000) { delDate.setDate(delDate.getDate() - 1); diffMs = delDate - orderDate; }
+                        
+                        let finalMins = Math.floor(diffMs / 60000);
+                        
+                        // Solo mostramos si el resultado es lógico (evita las 1880 horas)
+                        if (finalMins >= 0 && finalMins < 1440) {
+                            let color = finalMins <= 35 ? '#60a5fa' : '#fb923c'; // Azul : Naranja
+                            let bg = finalMins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
+                            let texto = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
+                            
+                            tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${texto}</span>`;
+                        }
+                    }
                 }
             }
         } catch(e) { console.error("Error en tiempo:", e); }
 
-        // 3. ARMADO DE FILA (11 Columnas)
+        // 3. CONSTRUCCIÓN DE LA FILA (11 Columnas exactas)
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
