@@ -210,20 +210,60 @@ function renderOrders(data) {
 
             if (orderDate && !isNaN(orderDate.getTime())) {
                 let diffMs = null;
-                if (order.estado === 'Validado' && order.hora_entrega) {
+                let staticMins = null; // Para cuando viene de HH:MM:SS de Google Sheets
+
+                // Usamos el tiempo guardado si ya está Validado y existe la columna
+                if (order.estado === 'Validado' && order.tiempo_transcurrido) {
+                    let valTiempo = order.tiempo_transcurrido;
+
+                    // Si viene como string HH:MM:SS
+                    if (typeof valTiempo === 'string' && valTiempo.includes(':') && !valTiempo.includes('T')) {
+                        let parts = valTiempo.split(':');
+                        let h = parseInt(parts[0] || '0', 10);
+                        let m = parseInt(parts[1] || '0', 10);
+                        if (!isNaN(h) && !isNaN(m)) {
+                            staticMins = (h * 60) + m;
+                        }
+                    }
+                    // Si viene desde Google Sheets como un objeto Date / ISO String (1899-12-30T00:26:00.000Z)
+                    else {
+                        try {
+                            const d = new Date(valTiempo);
+                            if (!isNaN(d.getTime())) {
+                                // En Sheets las duraciones base 1899 se guardan y devuelven relativas a UTC
+                                // Extraemos directamente la hora/minuto en formato UTC para ignorar los timezone locales de la laptop
+                                staticMins = (d.getUTCHours() * 60) + d.getUTCMinutes();
+                            }
+                        } catch (e) { }
+                    }
+                }
+                // Si no hay tiempo estático, calculamos dinámicamente o por fecha entrega (legacy/fallbacks)
+                else if (order.estado === 'Validado' && order.hora_entrega) {
                     let hStr = String(order.hora_entrega).trim();
                     let hh = 0, mm = 0, ok = false;
 
                     if (hStr.includes('T')) {
                         let dT = new Date(hStr);
-                        if (!isNaN(dT.getTime())) { hh = dT.getHours(); mm = dT.getMinutes(); ok = true; }
+                        if (!isNaN(dT.getTime())) {
+                            const formatterD = new Intl.DateTimeFormat('en-US', {
+                                timeZone: 'America/Lima',
+                                hour: 'numeric', minute: 'numeric', second: 'numeric',
+                                hour12: false
+                            });
+                            const pD = formatterD.formatToParts(dT);
+                            const getPD = (type) => parseInt(pD.find(p => p.type === type).value, 10);
+                            let tH = getPD('hour');
+                            if (tH === 24) tH = 0;
+                            hh = tH;
+                            mm = getPD('minute');
+                            ok = true;
+                        }
                     } else {
                         let pts = hStr.split(':');
                         if (pts.length >= 2) { hh = parseInt(pts[0], 10); mm = parseInt(pts[1], 10); ok = true; }
                     }
 
                     if (ok) {
-                        // Crear un Date en UTC puro con la fecha límite (usamos los componentes Y/M/D ya extraídos del Peru Time)
                         const limY = orderDate.getUTCFullYear();
                         const limM = orderDate.getUTCMonth();
                         const limD = orderDate.getUTCDate();
@@ -231,18 +271,16 @@ function renderOrders(data) {
                         let delDate = new Date(Date.UTC(limY, limM, limD, hh, mm, 0));
                         diffMs = delDate.getTime() - orderDate.getTime();
 
-                        // Ajuste si la hora de entrega cae al día siguiente cruzando la medianoche 
-                        // (ej: pedido a las 23:40, entregado a las 00:15)
-                        if (diffMs < -43200000) { // Menor a -12 horas
+                        if (diffMs < -43200000) {
                             delDate = new Date(Date.UTC(limY, limM, limD + 1, hh, mm, 0));
                             diffMs = delDate.getTime() - orderDate.getTime();
-                        } else if (diffMs > 43200000) { // Fallback de salto día inverso
+                        } else if (diffMs > 43200000) {
                             delDate = new Date(Date.UTC(limY, limM, limD - 1, hh, mm, 0));
                             diffMs = delDate.getTime() - orderDate.getTime();
                         }
                     }
                 } else if (order.estado === 'Pendiente') {
-                    // Calcular against now(Lima)
+                    // Calcular against now(Lima) solo para Pendientes
                     const now = new Date();
                     const formatterNow = new Intl.DateTimeFormat('en-US', {
                         timeZone: 'America/Lima',
@@ -260,8 +298,8 @@ function renderOrders(data) {
                     if (diffMs < 0) diffMs = 0;
                 }
 
-                if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
-                    let mins = Math.floor(diffMs / 60000);
+                if (staticMins !== null || (diffMs !== null && diffMs >= 0 && diffMs <= 86400000)) {
+                    let mins = staticMins !== null ? staticMins : Math.floor(diffMs / 60000);
 
                     // --- NUEVA LÓGICA DE COLORES ---
                     let color, bg;
@@ -599,16 +637,42 @@ window.openValidateModal = (nro) => {
 
     if (order.fecha_entrega) {
         const d = new Date(order.fecha_entrega);
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
-        valFechaEntrega.value = `${day}/${month}/${year}`;
+        if (!isNaN(d.getTime())) {
+            const fmt = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Lima',
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            });
+            const parts = fmt.formatToParts(d);
+            const getP = (type) => parts.find(p => p.type === type).value;
+            valFechaEntrega.value = `${getP('day')}/${getP('month')}/${getP('year')}`;
+        } else {
+            valFechaEntrega.value = order.fecha_entrega;
+        }
     } else {
         valFechaEntrega.value = '';
     }
 
     if (order.hora_entrega) {
-        valHoraEntrega.value = order.hora_entrega;
+        let hStr = String(order.hora_entrega).trim();
+        if (hStr.includes('T')) {
+            let dT = new Date(hStr);
+            if (!isNaN(dT.getTime())) {
+                const fmtD = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Lima',
+                    hour: 'numeric', minute: 'numeric',
+                    hour12: false
+                });
+                const pD = fmtD.formatToParts(dT);
+                const getPD = (type) => pD.find(p => p.type === type).value;
+                let tH = getPD('hour');
+                if (tH === '24') tH = '00';
+                valHoraEntrega.value = `${tH.padStart(2, '0')}:${getPD('minute').padStart(2, '0')}`;
+            } else {
+                valHoraEntrega.value = hStr;
+            }
+        } else {
+            valHoraEntrega.value = hStr;
+        }
     } else {
         valHoraEntrega.value = '';
     }
@@ -796,9 +860,11 @@ function calculateLiveElapsedTime() {
             const h = Math.floor(diffMin / 60);
             const m = diffMin % 60;
             display.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
+            display.setAttribute('data-min', diffMin);
             display.style.color = '#60a5fa';
         } else {
             display.textContent = 'Hora anterior al registro';
+            display.removeAttribute('data-min');
             display.style.color = '#f87171';
         }
     } catch (e) {
@@ -1251,24 +1317,44 @@ function processVoucherTimes(extractedFecha, extractedHora) {
 
     if (extractedHora && currentOrderForValidation.fecha) {
         try {
-            const orderDate = new Date(currentOrderForValidation.fecha);
-            const voucherDate = new Date(orderDate);
-            const hm = extractedHora.split(':');
-            voucherDate.setHours(parseInt(hm[0]), parseInt(hm[1]), 0, 0);
+            const hParts = extractedHora.split(':');
+            const hh = parseInt(hParts[0] || '0', 10);
+            const mm = parseInt(hParts[1] || '0', 10);
 
-            const diffMs = voucherDate - orderDate;
+            // Fetch dates and build UTC points like in calculateLiveElapsedTime
+            const dRegistro = new Date(currentOrderForValidation.fecha);
+
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Lima',
+                year: 'numeric', month: 'numeric', day: 'numeric',
+                hour: 'numeric', minute: 'numeric', second: 'numeric',
+                hour12: false
+            });
+            const parts = formatter.formatToParts(dRegistro);
+            const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+            let rH = getP('hour');
+            if (rH === 24) rH = 0;
+
+            let registroMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0);
+            let entregaMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), hh, mm, 0);
+
+            const diffMs = entregaMs - registroMs;
             if (diffMs > 0) {
-                const diffMins = Math.floor(diffMs / 60000);
+                const diffMins = Math.round(diffMs / 60000); // Uso round igual que calculateLiveElapsedTime
                 const h = Math.floor(diffMins / 60);
                 const m = diffMins % 60;
                 elapsedEl.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
+                elapsedEl.setAttribute('data-min', diffMins);
                 elapsedEl.style.color = '#60a5fa';
             } else {
                 elapsedEl.textContent = 'Hora anterior al pedido';
+                elapsedEl.removeAttribute('data-min');
                 elapsedEl.style.color = '#f87171';
             }
         } catch (e) {
             elapsedEl.textContent = '--';
+            elapsedEl.removeAttribute('data-min');
         }
     }
 }
@@ -1826,6 +1912,15 @@ validateForm.addEventListener('submit', async (e) => {
             tipoFinal = 'EFECTIVO';
         }
 
+        // Convert data-min to HH:MM:00
+        const tiempoMins = parseInt(document.getElementById('val-tiempo-transcurrido').getAttribute('data-min'), 10);
+        let timeFormatted = '';
+        if (!isNaN(tiempoMins) && tiempoMins >= 0) {
+            const h = String(Math.floor(tiempoMins / 60)).padStart(2, '0');
+            const m = String(tiempoMins % 60).padStart(2, '0');
+            timeFormatted = `${h}:${m}:00`;
+        }
+
         const payload = {
             nro: currentOrderForValidation.nro,
             montoFoto: montoFoto,
@@ -1835,6 +1930,7 @@ validateForm.addEventListener('submit', async (e) => {
             envio: driverName,
             fechaEntrega: document.getElementById('val-fecha-entrega').value || '',
             horaEntrega: document.getElementById('val-hora-entrega').value || '',
+            tiempoTranscurrido: timeFormatted,
             archivo: fileData ? {
                 name: `pedido_${currentOrderForValidation.nro}_${Date.now()}.jpg`,
                 type: file ? file.type : 'image/jpeg',

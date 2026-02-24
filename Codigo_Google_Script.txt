@@ -53,9 +53,12 @@ function listarPedidos() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: true, data: [] };
 
-  // Leer 17 columnas (A..Q)
-  const data = sheet.getRange(2, 1, lastRow - 1, 17).getValues();
-  const pedidos = data.map(row => ({
+  // Leer 18 columnas (A..R)
+  const data = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
+  // Traemos también los Textos (Display Values) para ignorar el formato histórico de Time/Dates en Sheets
+  const displayData = sheet.getRange(2, 1, lastRow - 1, 18).getDisplayValues();
+
+  const pedidos = data.map((row, index) => ({
     nro:               row[0],
     fecha:             row[1],
     llave:             row[2],
@@ -72,7 +75,8 @@ function listarPedidos() {
     motivo_cancelacion: row[13], // N: Motivo Cancelación
     sla_fuera:         row[14],  // O: SLA Fuera Tiempo
     fecha_entrega:     row[15],  // P: Fecha Entrega
-    hora_entrega:      row[16]   // Q: Hora Entrega
+    hora_entrega:      row[16],  // Q: Hora Entrega
+    tiempo_transcurrido: displayData[index][17] // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
   })).filter(p => p.nro);
 
   return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
@@ -145,6 +149,7 @@ function validarPedido(data) {
   );
   sheet.getRange(rowIndex, 16).setValue(data.fechaEntrega || ""); // P: Fecha de Entrega
   sheet.getRange(rowIndex, 17).setValue(data.horaEntrega || "");  // Q: Hora de Entrega
+  sheet.getRange(rowIndex, 18).setValue(data.tiempoTranscurrido || ""); // R: Tiempo Transcurrido
 
   return { success: true };
 }
