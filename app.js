@@ -156,7 +156,7 @@ async function loadOrders() {
     } catch (error) {
         Swal.fire('Error', 'Error cargando pedidos', 'error');
     }
-    document.getElementById('loading-indicator').classList.add('hidden');
+    document.getElementById('loading-indicator').classList.add('hidden');https://github.com/senatimario-blip/Validacion-Pedido/blob/main/app.js
 }
 
 function renderOrders(data) {
@@ -167,58 +167,99 @@ function renderOrders(data) {
         const dynamicCorrelative = totalOrders - index;
 
         // ==========================================
-        // LA LÓGICA DE TU NUEVA COLUMNA "DETALLE"
+        // 1. LÓGICA DE COLUMNA "DETALLE"
         // ==========================================
-        
-        // 1. Estado por defecto: Guion gris tenue
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
-        
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
-            // 2. Si se cancela: Muestra el motivo en rojito
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
-            if (motivo.includes('consumidor')) {
-                detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🙋‍♂️ Consumidor</span>';
-            } else if (motivo.includes('venta')) {
-                detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🏪 Pto de Venta</span>';
-            } else if (motivo.includes('repartidor')) {
-                detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🚴 Repartidor</span>';
-            } else if (motivo !== '') {
-                detalleHtml = `<span style="color:#fca5a5; font-size:0.9em;">${order.motivo_cancelacion}</span>`;
-            }
+            if (motivo.includes('consumidor')) detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🙋‍♂️ Consumidor</span>';
+            else if (motivo.includes('venta')) detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🏪 Pto de Venta</span>';
+            else if (motivo.includes('repartidor')) detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🚴 Repartidor</span>';
+            else if (motivo !== '') detalleHtml = `<span style="color:#fca5a5; font-size:0.9em;">${order.motivo_cancelacion}</span>`;
         } else if (order.estado === 'Validado') {
-            // 3. Si se valida: Muestra el tipo de pago en colores
             const tipo = (order.tipo_pago_val || order.tipo_pago || '').toString().toUpperCase();
-            if (tipo.includes('EFECTIVO')) {
-                detalleHtml = '<span style="color:#4ade80; font-weight:bold; font-size:0.85em;">💵 EFECTIVO</span>';
-            } else if (tipo.includes('ONLINE')) {
-                detalleHtml = '<span style="color:#60a5fa; font-weight:bold; font-size:0.85em;">🌐 ONLINE</span>';
-            } else if (tipo.includes('TARJETA')) {
-                detalleHtml = '<span style="color:#a78bfa; font-weight:bold; font-size:0.85em;">💳 TARJETA</span>';
-            } else if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) {
-                detalleHtml = '<span style="color:#2dd4bf; font-weight:bold; font-size:0.85em;">📱 QR</span>';
-            } else if (tipo !== '') {
-                detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
-            }
+            if (tipo.includes('EFECTIVO')) detalleHtml = '<span style="color:#4ade80; font-weight:bold; font-size:0.85em;">💵 EFECTIVO</span>';
+            else if (tipo.includes('ONLINE')) detalleHtml = '<span style="color:#60a5fa; font-weight:bold; font-size:0.85em;">🌐 ONLINE</span>';
+            else if (tipo.includes('TARJETA')) detalleHtml = '<span style="color:#a78bfa; font-weight:bold; font-size:0.85em;">💳 TARJETA</span>';
+            else if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) detalleHtml = '<span style="color:#2dd4bf; font-weight:bold; font-size:0.85em;">📱 QR</span>';
+            else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
-        // ==========================================
 
+        // ==========================================
+        // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
+        // ==========================================
+        let tiempoHtml = '<span class="text-muted">-</span>';
+        
+        if (order.fecha) {
+            try {
+                let s = String(order.fecha).trim();
+                let orderDate = s.includes('T') ? new Date(s) : null;
+                if (!orderDate || isNaN(orderDate.getTime())) {
+                    const parts = s.split(/[\s/:-]/);
+                    if (parts.length >= 5) {
+                        let y = parseInt(parts[2]); if (y < 100) y += 2000;
+                        orderDate = new Date(y, parseInt(parts[1])-1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+                    }
+                }
+
+                if (orderDate && !isNaN(orderDate.getTime())) {
+                    let diffMs = null;
+
+                    if (order.estado === 'Validado' && order.hora_entrega) {
+                        let delDate = new Date(orderDate.getTime());
+                        if (order.fecha_entrega) {
+                            const p = String(order.fecha_entrega).split(/[\s/:-]/);
+                            if (p.length >= 3) { let y = parseInt(p[2]); if (y<100) y+=2000; delDate = new Date(y, parseInt(p[1])-1, parseInt(p[0])); }
+                        }
+                        
+                        let h = 0, m = 0, horaValida = false;
+                        const hStr = String(order.hora_entrega).trim();
+                        if (hStr.includes('T')) {
+                            const dT = new Date(hStr);
+                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); horaValida = true; }
+                        } else {
+                            const pts = hStr.split(':');
+                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); horaValida = true; }
+                        }
+
+                        if (horaValida) {
+                            delDate.setHours(h, m, 0, 0);
+                            diffMs = delDate - orderDate;
+                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
+                            if (diffMs <= 0 || diffMs > 43200000) diffMs = null; 
+                        }
+                    } else if (order.estado === 'Pendiente') {
+                        diffMs = new Date() - orderDate;
+                        if (diffMs < 0) diffMs = 0;
+                    }
+
+                    if (diffMs !== null) {
+                        let mins = Math.floor(diffMs / 60000);
+                        let color = mins <= 35 ? '#60a5fa' : '#f87171'; // Azul (<=35) o Rojo (>35)
+                        let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                        let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
+                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">
+                                        <i class="fa-solid fa-clock"></i> ${text}
+                                      </span>`;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // ==========================================
+        // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas)
+        // ==========================================
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
-            
             <td>${formatDate(order.fecha)}</td>
-            
             <td>${order.llave}</td>
-            
             <td>S/ ${formatMoney(order.monto)}</td>
-            
             <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span></td>
             
-            <td>${detalleHtml}</td> 
-
-            <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
+            <td>${detalleHtml}</td> <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
             
-            <td>
+            <td>${tiempoHtml}</td> <td>
                 ${order.foto === 'PAGO-EFECTIVO' ?
                 '<span class="badge" style="background:rgba(16, 185, 129, 0.2); color:#4ade80; border:1px solid rgba(74, 222, 128, 0.3); cursor:default"><i class="fa-solid fa-money-bill-wave"></i> Efectivo</span>' :
                 (order.foto === 'PAGO-ONLINE' ? '<span class="badge" style="background:rgba(59, 130, 246, 0.2); color:#60a5fa; border:1px solid rgba(96, 165, 250, 0.3); cursor:default"><i class="fa-solid fa-globe"></i> Online</span>' :
