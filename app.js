@@ -26,20 +26,6 @@ let dateRange = { start: null, end: null };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // --- PASO 1: Inyectar el parpadeo de alerta para los pedidos rojos ---
-    const styleSheet = document.createElement("style");
-    styleSheet.innerText = `
-        @keyframes blinker { 50% { opacity: 0.1; } }
-        .blink-urgent {
-            animation: blinker 0.6s linear infinite;
-            background: rgba(248, 113, 113, 0.25) !important;
-            color: #f87171 !important;
-            border: 1px solid #ef4444;
-        }
-    `;
-    document.head.appendChild(styleSheet);
-    // -------------------------------------------------------------------
-
     if (API_URL) apiUrlInput.value = API_URL;
 
     // Set Date Filter to Today
@@ -181,7 +167,7 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
-        // 1. LÓGICA DE DETALLE (PAGOS / CANCELACIONES)
+        // 1. LÓGICA DE COLUMNA "DETALLE"
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
@@ -198,69 +184,62 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // 2. LÓGICA DE TIEMPO "TODOTERRENO"
+        // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
         let tiempoHtml = '<span class="text-muted">-</span>';
+        
         try {
-            const parsearInteligente = (str) => {
-                if (!str) return null;
-                if (str instanceof Date) return str; // Si ya es fecha, usarla
-                
-                // Limpiar y separar por cualquier caracter común de fecha
-                const p = String(str).split(/[\s/:-]/);
-                if (p.length < 3) return null;
-                
-                let d = parseInt(p[0]), m = parseInt(p[1]) - 1, y = parseInt(p[2]);
-                // Corregir años de 2 dígitos (ej. "26" -> 2026)
-                if (y < 100) y += 2000;
-                
-                let hr = p[3] ? parseInt(p[3]) : 0;
-                let min = p[4] ? parseInt(p[4]) : 0;
-                
-                let fechaFinal = new Date(y, m, d, hr, min);
-                return isNaN(fechaFinal.getTime()) ? null : fechaFinal;
-            };
-
-            let orderDate = parsearInteligente(order.fecha);
-
-            if (orderDate) {
-                // --- CASO PENDIENTE ---
-                if (order.estado === 'Pendiente') {
-                    let diffMins = Math.floor((new Date() - orderDate) / 60000);
-                    
-                    // SEGURIDAD: Si da una cifra loca (> 2 días), ignorar error
-                    if (diffMins > 2880 || diffMins < -2880) {
-                        tiempoHtml = '<span class="text-muted">Revisar Fecha</span>';
-                    } else if (diffMins < 35) {
-                        tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
-                    } else {
-                        tiempoHtml = `<span class="blink-urgent" style="font-weight:bold; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
+            if (order.fecha) {
+                let orderDate = new Date(order.fecha);
+                if (isNaN(orderDate.getTime()) && typeof order.fecha === 'string') {
+                    const parts = order.fecha.split(/[\s/:-]/);
+                    if (parts.length >= 3) {
+                        let d = parseInt(parts[0], 10);
+                        let m = parseInt(parts[1], 10) - 1;
+                        let y = parseInt(parts[2], 10);
+                        if (y < 100) y += 2000;
+                        let hr = parts[3] ? parseInt(parts[3], 10) : 0;
+                        let min = parts[4] ? parseInt(parts[4], 10) : 0;
+                        orderDate = new Date(y, m, d, hr, min);
                     }
-                } 
-                // --- CASO VALIDADO ---
-                else if (order.estado === 'Validado' && order.hora_entrega) {
-                    const hp = String(order.hora_entrega).split(':');
-                    if (hp.length >= 2) {
-                        let hEnt = parseInt(hp[0]), mEnt = parseInt(hp[1]);
+                }
+
+                if (!isNaN(orderDate.getTime())) {
+                    let diffMs = null;
+                    if (order.estado === 'Validado' && order.hora_entrega) {
                         let delDate = new Date(orderDate.getTime());
-                        delDate.setHours(hEnt, mEnt, 0, 0);
-                        
-                        let diffMs = delDate - orderDate;
-                        if (diffMs < -43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
-                        else if (diffMs > 43200000) { delDate.setDate(delDate.getDate() - 1); diffMs = delDate - orderDate; }
-                        
-                        let finalMins = Math.floor(diffMs / 60000);
-                        if (finalMins >= 0 && finalMins < 1440) {
-                            let color = finalMins <= 35 ? '#60a5fa' : '#fb923c'; 
-                            let bg = finalMins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
-                            let texto = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
-                            tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${texto}</span>`;
+                        let h = 0, m = 0, ok = false;
+                        let hStr = String(order.hora_entrega).trim();
+                        if (hStr.includes('T')) {
+                            let dT = new Date(hStr);
+                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); ok = true; }
+                        } else {
+                            let pts = hStr.split(':');
+                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); ok = true; }
                         }
+                        if (ok) {
+                            delDate.setHours(h, m, 0, 0);
+                            diffMs = delDate - orderDate;
+                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
+                                delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; 
+                            }
+                        }
+                    } else if (order.estado === 'Pendiente') {
+                        diffMs = new Date() - orderDate;
+                        if (diffMs < 0) diffMs = 0;
+                    }
+
+                    if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
+                        let mins = Math.floor(diffMs / 60000);
+                        let color = mins <= 35 ? '#60a5fa' : '#f87171';
+                        let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                        let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
+                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
                     }
                 }
             }
-        } catch(e) { console.error("Error en tiempo:", e); }
+        } catch(e) {}
 
-        // 3. CONSTRUCCIÓN DE FILA (11 columnas)
+        // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
@@ -277,16 +256,27 @@ function renderOrders(data) {
                 (order.foto === 'PAGO-ONLINE' ? '<span class="badge" style="background:rgba(59, 130, 246, 0.2); color:#60a5fa; border:1px solid rgba(96, 165, 250, 0.3); cursor:default"><i class="fa-solid fa-globe"></i> Online</span>' :
                     (order.foto ? `<a href="${extractPhotoUrl(order.foto)}" target="_blank" class="btn-icon-small"><i class="fa-solid fa-image"></i></a>` : '<span class="text-muted">-</span>'))}
             </td>
-            <td style="font-size: 0.85em; color: rgba(255,255,255,0.8);">${order.validado_por || '-'}</td>
+            <td style="font-size: 0.85em; color: rgba(255,255,255,0.8);">
+                ${order.validado_por || '<span class="text-muted">-</span>'}
+            </td>
             <td>
-                <button class="btn-secondary small" onclick="openValidateModal(${order.nro})">
-                    <i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>
+                ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
+                <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
+                    ${currentUser.rol === 'Admin' ?
+                    `<i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>` :
+                    `<i class="fa-solid fa-eye"></i> <i class="fa-solid fa-lock" style="font-size:0.7em"></i>`}
                 </button>
-                ${currentUser.rol === 'Admin' && order.estado !== 'Validado' ? `<button class="btn-icon-small danger" onclick="rejectOrder(${order.nro})"><i class="fa-solid fa-ban"></i></button>` : ''}
-                ${currentUser.rol === 'Admin' && order.estado === 'Validado' ? `
-                <button class="btn-icon-small ${order.sla_fuera ? 'danger' : ''}" onclick="toggleSLA(${order.nro})" style="${order.sla_fuera ? 'opacity:1;' : 'opacity:0.4;'}">
-                    <i class="fa-solid fa-stopwatch"></i>
+                ${currentUser.rol === 'Admin' && order.estado !== 'Validado' ? `
+                <button class="btn-icon-small danger" onclick="rejectOrder(${order.nro})" title="Cancelar">
+                    <i class="fa-solid fa-ban"></i>
                 </button>` : ''}
+                ${currentUser.rol === 'Admin' && order.estado === 'Validado' ? `
+                <button class="btn-icon-small ${order.sla_fuera ? 'danger' : ''}"
+                    onclick="toggleSLA(${order.nro})"
+                    title="${order.sla_fuera ? 'Fuera de SLA ⏱️ — Clic para desmarcar' : 'Marcar como fuera de SLA (>35 min)'}"
+                    style="${order.sla_fuera ? 'opacity:1;' : 'opacity:0.4;'}">
+                    <i class="fa-solid fa-stopwatch"></i>
+                </button>` : ''}`}
             </td>
         `;
         ordersTableBody.appendChild(tr);
@@ -312,12 +302,6 @@ document.getElementById('report-date-filter').addEventListener('change', renderR
 document.getElementById('btn-print-report').addEventListener('click', () => {
     window.print();
 });
-
-function getDayName(dateString) {
-    const d = new Date(dateString + 'T12:00:00');
-    const dias = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
-    return dias[d.getDay()];
-}
 
 function getDayName(dateString) {
     const d = new Date(dateString + 'T12:00:00');
