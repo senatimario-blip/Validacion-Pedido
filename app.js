@@ -167,7 +167,7 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
-        // 1. LÓGICA DE COLUMNA "DETALLE"
+        // 1. LÓGICA DE DETALLE (PAGOS / CANCELACIONES)
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
@@ -184,56 +184,58 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // 2. LÓGICA DE COLUMNA "TIEMPO" (VERDE, AZUL, NARANJA)
+        // 2. LÓGICA DE TIEMPO (VERDE, ROJO, AZUL, NARANJA)
         let tiempoHtml = '<span class="text-muted">-</span>';
         
         try {
-            // Aseguramos que la fecha de registro sea válida
-            let orderDate = new Date(order.fecha);
-            if (isNaN(orderDate.getTime()) && order.fecha) {
-                // Intento manual si el formato falla (DD/MM/YYYY HH:MM)
-                const parts = String(order.fecha).split(/[\s/:-]/);
-                if (parts.length >= 5) {
-                    orderDate = new Date(parts[2], parts[1]-1, parts[0], parts[3], parts[4]);
-                }
-            }
+            // FUNCIÓN DE PARSEO RIGUROSO PARA TU GOOGLE SHEET (DD/MM/YYYY)
+            const parsearFecha = (str) => {
+                if (!str) return null;
+                const pts = str.split(/[\s/:-]/);
+                if (pts.length < 3) return null;
+                const d = parseInt(pts[0]), m = parseInt(pts[1]) - 1, y = parseInt(pts[2]);
+                const hr = pts[3] ? parseInt(pts[3]) : 0, min = pts[4] ? parseInt(pts[4]) : 0;
+                return new Date(y, m, d, hr, min);
+            };
 
-            if (!isNaN(orderDate.getTime())) {
-                // --- CASO A: PENDIENTE (Semaforo Verde / Alerta) ---
+            let orderDate = parsearFecha(order.fecha);
+
+            if (orderDate && !isNaN(orderDate.getTime())) {
+                
+                // --- CASO PENDIENTE (En vivo: Verde o Rojo Parpadeante) ---
                 if (order.estado === 'Pendiente') {
                     let ahora = new Date();
                     let diffMins = Math.floor((ahora - orderDate) / 60000);
                     
                     if (diffMins < 35) {
-                        // VERDE: A tiempo
                         tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
                     } else {
-                        // ROJO (Sin parpadeo por ahora): Fuera de SLA
+                        // Aquí podrías agregar la clase de parpadeo si lo deseas
                         tiempoHtml = `<span style="color:#f87171; font-weight:bold; background:rgba(248, 113, 113, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
                     }
                 } 
-                // --- CASO B: VALIDADO (Azul si <=35m / Naranja si >35m) ---
+                // --- CASO VALIDADO (Fijo: Azul o Naranja) ---
                 else if (order.estado === 'Validado' && order.hora_entrega) {
-                    let hStr = String(order.hora_entrega).trim();
-                    let pts = hStr.split(':');
-                    if (pts.length >= 2) {
-                        let h = parseInt(pts[0], 10);
-                        let m = parseInt(pts[1], 10);
+                    const hParts = order.hora_entrega.split(':');
+                    if (hParts.length >= 2) {
+                        let hEntrega = parseInt(hParts[0]), mEntrega = parseInt(hParts[1]);
                         
+                        // Usamos la misma fecha de registro para la entrega
                         let delDate = new Date(orderDate.getTime());
-                        delDate.setHours(h, m, 0, 0);
+                        delDate.setHours(hEntrega, mEntrega, 0, 0);
                         
                         let diffMs = delDate - orderDate;
-                        // Escudo medianoche mejorado
+                        // Ajuste por si cruza la medianoche
                         if (diffMs < -43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
                         else if (diffMs > 43200000) { delDate.setDate(delDate.getDate() - 1); diffMs = delDate - orderDate; }
                         
                         let finalMins = Math.floor(diffMs / 60000);
                         
-                        // Solo mostramos si el resultado es lógico (evita las 1880 horas)
+                        // Protección final: Si el cálculo sigue dando algo loco, no mostramos basura
                         if (finalMins >= 0 && finalMins < 1440) {
-                            let color = finalMins <= 35 ? '#60a5fa' : '#fb923c'; // Azul : Naranja
-                            let bg = finalMins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
+                            let esTarde = finalMins > 35;
+                            let color = esTarde ? '#fb923c' : '#60a5fa'; // Naranja : Azul
+                            let bg = esTarde ? 'rgba(251, 146, 60, 0.1)' : 'rgba(96, 165, 250, 0.1)';
                             let texto = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
                             
                             tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${texto}</span>`;
