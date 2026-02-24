@@ -156,7 +156,7 @@ async function loadOrders() {
     } catch (error) {
         Swal.fire('Error', 'Error cargando pedidos', 'error');
     }
-    document.getElementById('loading-indicator').classList.add('hidden');https://github.com/senatimario-blip/Validacion-Pedido/blob/main/app.js
+    document.getElementById('loading-indicator').classList.add('hidden');
 }
 
 function renderOrders(data) {
