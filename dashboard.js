@@ -2,35 +2,30 @@
 // dashboard.js — Dashboard Dinámico e Interactivo
 // ============================================================
 
-// ---- Estado del dashboard ----
 let dashCharts = {};
 let dashOrders = [];
-
-// Tipos de pago activos (filtro múltiple)
 let activePagos = new Set(['TARJETA', 'QR', 'ONLINE', 'EFECTIVO']);
 
-// ---- Colores del tema ----
 const COLORS = {
-    azul: 'rgba(96, 165, 250, 0.85)',
-    verde: 'rgba(74, 222, 128, 0.85)',
-    rojo: 'rgba(248, 113, 113, 0.85)',
-    naranja: 'rgba(251, 146, 60, 0.85)',
-    violeta: 'rgba(167, 139, 250, 0.85)',
-    cyan: 'rgba(34, 211, 238, 0.85)',
+    azul:     'rgba(96, 165, 250, 0.85)',
+    verde:    'rgba(74, 222, 128, 0.85)',
+    rojo:     'rgba(248, 113, 113, 0.85)',
+    naranja:  'rgba(251, 146, 60, 0.85)',
+    violeta:  'rgba(167, 139, 250, 0.85)',
+    cyan:     'rgba(34, 211, 238, 0.85)',
     amarillo: 'rgba(250, 204, 21, 0.85)',
-    gris: 'rgba(148, 163, 184, 0.85)',
-    azulBG: 'rgba(96, 165, 250, 0.15)',
-    verdeBG: 'rgba(74, 222, 128, 0.15)',
-    rojoBG: 'rgba(248, 113, 113, 0.15)',
-    naranjaBG: 'rgba(251, 146, 60, 0.15)',
+    gris:     'rgba(148, 163, 184, 0.85)',
+    azulBG:   'rgba(96, 165, 250, 0.15)',
+    verdeBG:  'rgba(74, 222, 128, 0.15)',
+    rojoBG:   'rgba(248, 113, 113, 0.15)',
+    naranjaBG:'rgba(251, 146, 60, 0.15)',
 };
 
-// Colores específicos por tipo de pago
 const PAGO_COLORS = {
-    TARJETA: { bg: 'rgba(96, 165, 250, 0.2)',  border: 'rgba(96, 165, 250, 0.9)',  text: '#60A5FA', icon: 'fa-credit-card' },
-    QR:      { bg: 'rgba(167, 139, 250, 0.2)', border: 'rgba(167, 139, 250, 0.9)', text: '#A78BFA', icon: 'fa-qrcode' },
-    ONLINE:  { bg: 'rgba(34, 211, 238, 0.2)',  border: 'rgba(34, 211, 238, 0.9)',  text: '#22D3EE', icon: 'fa-globe' },
-    EFECTIVO:{ bg: 'rgba(74, 222, 128, 0.2)',  border: 'rgba(74, 222, 128, 0.9)',  text: '#4ADE80', icon: 'fa-money-bill-wave' },
+    TARJETA: { bg: 'rgba(96, 165, 250, 0.2)',  border: 'rgba(96, 165, 250, 0.9)',  text: '#60A5FA', icon: 'fa-credit-card'   },
+    QR:      { bg: 'rgba(167, 139, 250, 0.2)', border: 'rgba(167, 139, 250, 0.9)', text: '#A78BFA', icon: 'fa-qrcode'        },
+    ONLINE:  { bg: 'rgba(34, 211, 238, 0.2)',  border: 'rgba(34, 211, 238, 0.9)',  text: '#22D3EE', icon: 'fa-globe'         },
+    EFECTIVO:{ bg: 'rgba(74, 222, 128, 0.2)',  border: 'rgba(74, 222, 128, 0.9)',  text: '#4ADE80', icon: 'fa-money-bill-wave'},
 };
 
 const CHART_DEFAULTS = {
@@ -40,47 +35,56 @@ const CHART_DEFAULTS = {
 };
 
 // ============================================================
-// Utilidad: clasificar tipo de pago
+// Utilidades
 // ============================================================
 function clasificarPago(o) {
     const t = (o.tipo_pago_val || o.tipo_pago || '').toString().toUpperCase();
     if (t.includes('TARJETA') || t.includes('POS')) return 'TARJETA';
-    if (t.includes('QR'))      return 'QR';
-    if (t.includes('ONLINE'))  return 'ONLINE';
+    if (t.includes('QR'))       return 'QR';
+    if (t.includes('ONLINE'))   return 'ONLINE';
     if (t.includes('EFECTIVO')) return 'EFECTIVO';
     return 'OTROS';
 }
 
-// ============================================================
-// Lógica de Procesamiento de Fechas
-// ============================================================
 function dashParseDate(dateStr) {
     if (!dateStr) return null;
     if (dateStr instanceof Date) return dateStr;
-
     let s = dateStr.toString().trim();
-
-    if (s.includes('T')) {
-        const d = new Date(s);
-        return isNaN(d.getTime()) ? null : d;
-    }
-
+    if (s.includes('T')) { const d = new Date(s); return isNaN(d.getTime()) ? null : d; }
     const parts = s.split(/[\s/:-]/);
     if (parts.length >= 3) {
-        const day = parseInt(parts[0]);
-        const month = parseInt(parts[1]) - 1;
-        let year = parseInt(parts[2]);
-        if (year < 100) year += 2000;
-        const hour = parts[3] ? parseInt(parts[3]) : 0;
-        const min  = parts[4] ? parseInt(parts[4]) : 0;
-        const sec  = parts[5] ? parseInt(parts[5]) : 0;
-        const d = new Date(year, month, day, hour, min, sec);
+        const day = parseInt(parts[0]), month = parseInt(parts[1]) - 1;
+        let year = parseInt(parts[2]); if (year < 100) year += 2000;
+        const h = parts[3] ? parseInt(parts[3]) : 0;
+        const m = parts[4] ? parseInt(parts[4]) : 0;
+        const sec = parts[5] ? parseInt(parts[5]) : 0;
+        const d = new Date(year, month, day, h, m, sec);
         return isNaN(d.getTime()) ? null : d;
     }
-
-    const fallback = new Date(s);
-    return isNaN(fallback.getTime()) ? null : fallback;
+    const f = new Date(s); return isNaN(f.getTime()) ? null : f;
 }
+
+// Devuelve la hora (0-23) de o.hora_entrega, o null si no existe
+function getHoraEntrega(o) {
+    if (!o.hora_entrega) return null;
+    const s = String(o.hora_entrega).trim();
+    try {
+        if (s.includes('T')) {
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? null : d.getHours();
+        }
+        const parts = s.split(':');
+        if (parts.length >= 2) {
+            const h = parseInt(parts[0], 10);
+            return isNaN(h) ? null : h;
+        }
+    } catch(e) {}
+    return null;
+}
+
+function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+function destroyChart(key) { if (dashCharts[key]) { dashCharts[key].destroy(); delete dashCharts[key]; } }
+function baseOptions(extra = {}) { return Object.assign({}, CHART_DEFAULTS, extra); }
 
 // ============================================================
 // Init
@@ -94,71 +98,46 @@ function initDashboard() {
         e.preventDefault();
         document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
         document.getElementById('nav-dashboard').classList.add('active');
-        document.getElementById('app-content').style.display = 'none';
+        document.getElementById('app-content').style.display     = 'none';
         document.getElementById('reports-content').style.display = 'none';
-        document.getElementById('dashboard-view').style.display = 'block';
-
+        document.getElementById('dashboard-view').style.display  = 'block';
         const fromEl = document.getElementById('dash-from');
         const toEl   = document.getElementById('dash-to');
         if (!fromEl.value && !toEl.value) {
             const t = new Date();
-            const yy = t.getFullYear();
-            const mm = String(t.getMonth() + 1).padStart(2, '0');
-            const dd = String(t.getDate()).padStart(2, '0');
-            fromEl.value = `${yy}-${mm}-${dd}`;
-            toEl.value   = `${yy}-${mm}-${dd}`;
+            const ymd = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+            fromEl.value = toEl.value = ymd;
         }
         renderDashboard();
     });
 
     document.getElementById('dash-filter-btn').addEventListener('click', renderDashboard);
 
-    // Selector de hora de corte → recalcula solo la tabla acumulada
-    document.addEventListener('change', (e) => {
-        if (e.target && e.target.id === 'dash-corte-hora-sel') {
-            const baseOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
-                const fromVal = document.getElementById('dash-from').value;
-                const toVal   = document.getElementById('dash-to').value;
-                let ok = true;
-                if (fromVal || toVal) {
-                    const d = dashParseDate(o.fecha);
-                    if (!d) return false;
-                    const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-                    if (fromVal) { const f = new Date(fromVal + 'T00:00:00'); ok = ok && dateOnly >= f; }
-                    if (toVal)   { const t = new Date(toVal   + 'T00:00:00'); ok = ok && dateOnly <= t; }
-                }
-                const driver = (document.getElementById('dash-driver').value || '').toLowerCase().trim();
-                if (driver) ok = ok && (o.envio || '').toLowerCase().includes(driver);
-                return ok;
-            });
-            renderTablaCorteHoras(baseOrders);
-        }
-    });
-
     document.getElementById('dash-reset-btn').addEventListener('click', () => {
-        document.getElementById('dash-from').value    = '';
-        document.getElementById('dash-to').value      = '';
-        document.getElementById('dash-driver').value  = '';
-        const sel = document.getElementById('dash-corte-hora-sel');
-        if (sel) sel.value = '23';
+        document.getElementById('dash-from').value   = '';
+        document.getElementById('dash-to').value     = '';
+        document.getElementById('dash-driver').value = '';
+        const hSel = document.getElementById('dash-corte-hora-sel');
+        if (hSel) hSel.value = String(new Date().getHours());
         activePagos = new Set(['TARJETA', 'QR', 'ONLINE', 'EFECTIVO']);
         syncPagoButtons();
         renderDashboard();
     });
 
-    // Botones de filtro por tipo de pago
+    // Botones tipo de pago
     document.querySelectorAll('.dash-pago-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tipo = btn.dataset.tipo;
-            if (activePagos.has(tipo)) {
-                // No dejar menos de 1 activo
-                if (activePagos.size > 1) activePagos.delete(tipo);
-            } else {
-                activePagos.add(tipo);
-            }
+            if (activePagos.has(tipo)) { if (activePagos.size > 1) activePagos.delete(tipo); }
+            else activePagos.add(tipo);
             syncPagoButtons();
             renderDashboard();
         });
+    });
+
+    // Selector hora de corte → recalcula listado al instante sin recargar gráficos
+    document.addEventListener('change', (e) => {
+        if (e.target && e.target.id === 'dash-corte-hora-sel') renderListadoCorte();
     });
 }
 
@@ -166,15 +145,15 @@ function syncPagoButtons() {
     document.querySelectorAll('.dash-pago-btn').forEach(btn => {
         const tipo = btn.dataset.tipo;
         if (activePagos.has(tipo)) {
-            btn.classList.add('pago-active');
-            btn.style.background = PAGO_COLORS[tipo].bg;
+            btn.style.background  = PAGO_COLORS[tipo].bg;
             btn.style.borderColor = PAGO_COLORS[tipo].border;
-            btn.style.color = PAGO_COLORS[tipo].text;
+            btn.style.color       = PAGO_COLORS[tipo].text;
+            btn.style.opacity     = '1';
         } else {
-            btn.classList.remove('pago-active');
-            btn.style.background = 'rgba(255,255,255,0.04)';
+            btn.style.background  = 'rgba(255,255,255,0.04)';
             btn.style.borderColor = 'rgba(255,255,255,0.1)';
-            btn.style.color = 'rgba(255,255,255,0.35)';
+            btn.style.color       = 'rgba(255,255,255,0.3)';
+            btn.style.opacity     = '0.5';
         }
     });
 }
@@ -187,7 +166,6 @@ function renderDashboard() {
     const toVal   = document.getElementById('dash-to').value;
     const driver  = (document.getElementById('dash-driver').value || '').toLowerCase().trim();
 
-    // Base: todos los pedidos filtrados por fecha y repartidor
     const baseOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
         let ok = true;
         if (fromVal || toVal) {
@@ -201,31 +179,23 @@ function renderDashboard() {
         return ok;
     });
 
-    // Aplicar filtro de tipos de pago
     dashOrders = baseOrders.filter(o => {
-        const tipo = clasificarPago(o);
-        // Pedidos sin tipo o pendientes los incluimos siempre en KPIs generales,
-        // pero para el filtro de pago solo filtramos validados con tipo asignado
-        if (o.estado === 'Validado') {
-            return activePagos.has(tipo) || tipo === 'OTROS';
-        }
-        return true; // pendientes/cancelados siempre visibles
+        if (o.estado === 'Validado') return activePagos.has(clasificarPago(o)) || clasificarPago(o) === 'OTROS';
+        return true;
     });
 
-    // Poblar select de repartidores
-    const allDrivers = [...new Set((typeof orders !== 'undefined' ? orders : []).map(o => o.envio).filter(Boolean))].sort();
-    const dashDriver = document.getElementById('dash-driver');
-    if (dashDriver && dashDriver.options.length <= 1) {
+    // Poblar select repartidores (solo la primera vez)
+    const dashDriverEl = document.getElementById('dash-driver');
+    if (dashDriverEl && dashDriverEl.options.length <= 1) {
+        const allDrivers = [...new Set((typeof orders !== 'undefined' ? orders : []).map(o => o.envio).filter(Boolean))].sort();
         allDrivers.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d; opt.textContent = d;
-            dashDriver.appendChild(opt);
+            dashDriverEl.appendChild(opt);
         });
     }
 
-    // Actualizar chips de totales por tipo
     renderPagoChips(baseOrders);
-
     renderKPIs();
     renderChartPorDia();
     renderChartPagos();
@@ -233,133 +203,110 @@ function renderDashboard() {
     renderChartCancelaciones();
     renderChartHoras();
     renderChartValidadores();
-    renderTablaDia();
-    renderTablaCorteHoras(baseOrders);
+    renderListadoCorte();
 }
 
 // ============================================================
-// Chips de conteo rápido por tipo de pago
+// Chips de pago
 // ============================================================
 function renderPagoChips(baseOrders) {
-    const tipos = ['TARJETA', 'QR', 'ONLINE', 'EFECTIVO'];
-    tipos.forEach(tipo => {
-        const validados = baseOrders.filter(o => o.estado === 'Validado' && clasificarPago(o) === tipo);
-        const countEl = document.getElementById(`pago-count-${tipo}`);
-        const montoEl = document.getElementById(`pago-monto-${tipo}`);
-        if (countEl) countEl.textContent = validados.length;
-        if (montoEl) montoEl.textContent = 'S/ ' + validados.reduce((s, o) => s + (parseFloat(o.monto) || 0), 0).toFixed(2);
+    ['TARJETA','QR','ONLINE','EFECTIVO'].forEach(tipo => {
+        const vals = baseOrders.filter(o => o.estado === 'Validado' && clasificarPago(o) === tipo);
+        setText(`pago-count-${tipo}`, vals.length);
+        setText(`pago-monto-${tipo}`, 'S/ ' + vals.reduce((s,o) => s + (parseFloat(o.monto)||0), 0).toFixed(2));
     });
 }
 
 // ============================================================
-// KPI Cards
+// KPIs
 // ============================================================
 function renderKPIs() {
-    const total     = dashOrders.length;
-    const validados = dashOrders.filter(o => o.estado === 'Validado').length;
+    const total      = dashOrders.length;
+    const validados  = dashOrders.filter(o => o.estado === 'Validado').length;
     const cancelados = dashOrders.filter(o => o.estado === 'Cancelado' || o.estado === 'Rechazado').length;
     const pendientes = dashOrders.filter(o => o.estado === 'Pendiente').length;
-    const montoVal   = dashOrders.filter(o => o.estado === 'Validado').reduce((s, o) => s + (parseFloat(o.monto) || 0), 0);
+    const montoVal   = dashOrders.filter(o => o.estado === 'Validado').reduce((s,o) => s + (parseFloat(o.monto)||0), 0);
     const fillRate   = total > 0 ? (validados / total * 100).toFixed(1) : '0.0';
+    const slaFuera   = dashOrders.filter(o => o.sla_fuera && String(o.sla_fuera).trim() !== '').length;
+    const slaBase    = total - cancelados;
+    const slaRate    = slaBase > 0 ? ((1 - slaFuera / slaBase) * 100).toFixed(1) : '100.0';
 
-    const slaFuera = dashOrders.filter(o => o.sla_fuera && String(o.sla_fuera).trim() !== '').length;
-    const slaBase  = total - cancelados;
-    const slaRate  = slaBase > 0 ? ((1 - slaFuera / slaBase) * 100).toFixed(1) : '100.0';
-
-    // TPE
     let tpeTotalMins = 0, tpeCount = 0;
     dashOrders.forEach(o => {
         if (o.estado === 'Validado' && o.hora_entrega && o.fecha) {
             try {
-                const orderDate = dashParseDate(o.fecha);
-                if (!orderDate) return;
+                const orderDate = dashParseDate(o.fecha); if (!orderDate) return;
                 let deliveryDate = (o.fecha_entrega && String(o.fecha_entrega).trim() !== '')
-                    ? dashParseDate(o.fecha_entrega)
-                    : new Date(orderDate);
+                    ? dashParseDate(o.fecha_entrega) : new Date(orderDate);
                 if (!deliveryDate) return;
-
                 let h = 0, m = 0, horaValida = false;
                 const horaStr = String(o.hora_entrega).trim();
                 if (horaStr.includes('T')) {
-                    const dTime = new Date(horaStr);
-                    if (!isNaN(dTime.getTime())) { h = dTime.getHours(); m = dTime.getMinutes(); horaValida = true; }
+                    const dT = new Date(horaStr);
+                    if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); horaValida = true; }
                 } else {
-                    const parts = horaStr.split(':');
-                    if (parts.length >= 2) { h = parseInt(parts[0], 10); m = parseInt(parts[1], 10); horaValida = (!isNaN(h) && !isNaN(m)); }
+                    const pp = horaStr.split(':');
+                    if (pp.length >= 2) { h = parseInt(pp[0],10); m = parseInt(pp[1],10); horaValida = !isNaN(h) && !isNaN(m); }
                 }
-
                 if (horaValida) {
                     deliveryDate.setHours(h, m, 0, 0);
                     let diffMs = deliveryDate - orderDate;
-                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) { deliveryDate.setDate(deliveryDate.getDate() + 1); diffMs = deliveryDate - orderDate; }
-                    if (diffMs > 0 && diffMs <= 43200000) { tpeTotalMins += Math.floor(diffMs / 60000); tpeCount++; }
+                    if (diffMs < 0 && Math.abs(diffMs) > 43200000) { deliveryDate.setDate(deliveryDate.getDate()+1); diffMs = deliveryDate - orderDate; }
+                    if (diffMs > 0 && diffMs <= 43200000) { tpeTotalMins += Math.floor(diffMs/60000); tpeCount++; }
                 }
-            } catch (e) {}
+            } catch(e) {}
         }
     });
-
     const tpeMins   = tpeCount > 0 ? Math.round(tpeTotalMins / tpeCount) : 0;
-    const tpeString = tpeCount > 0
-        ? (tpeMins >= 60 ? `${Math.floor(tpeMins / 60)}h ${tpeMins % 60}m` : `${tpeMins} min`)
-        : '0 min';
+    const tpeString = tpeCount > 0 ? (tpeMins >= 60 ? `${Math.floor(tpeMins/60)}h ${tpeMins%60}m` : `${tpeMins} min`) : '0 min';
 
-    setText('kpi-total',    total);
-    setText('kpi-validados', validados);
+    setText('kpi-total',      total);
+    setText('kpi-validados',  validados);
     setText('kpi-cancelados', cancelados);
     setText('kpi-pendientes', pendientes);
-    setText('kpi-monto',    'S/ ' + montoVal.toFixed(2));
-    setText('kpi-fill',     fillRate + '%');
-    setText('kpi-tpe',      tpeString);
-    setText('kpi-sla',      slaRate + '%');
-    setText('kpi-sla-base', `${slaFuera} fuera de ${slaBase} pedidos`);
-}
-
-function setText(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
+    setText('kpi-monto',      'S/ ' + montoVal.toFixed(2));
+    setText('kpi-fill',       fillRate + '%');
+    setText('kpi-tpe',        tpeString);
+    setText('kpi-sla',        slaRate + '%');
+    setText('kpi-sla-base',   `${slaFuera} fuera de ${slaBase} pedidos`);
 }
 
 // ============================================================
 // Gráficos
 // ============================================================
-function destroyChart(key) { if (dashCharts[key]) { dashCharts[key].destroy(); delete dashCharts[key]; } }
-function baseOptions(extra = {}) { return Object.assign({}, CHART_DEFAULTS, extra); }
-
 function renderChartPorDia() {
     destroyChart('porDia');
     const byDay = {};
     dashOrders.forEach(o => {
-        const d = dashParseDate(o.fecha);
-        if (!d) return;
-        const key = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' });
-        if (!byDay[key]) byDay[key] = { count: 0, monto: 0 };
+        const d = dashParseDate(o.fecha); if (!d) return;
+        const key = d.toLocaleDateString('es-PE', { day:'2-digit', month:'2-digit' });
+        if (!byDay[key]) byDay[key] = { count:0, monto:0 };
         byDay[key].count++;
-        if (o.estado === 'Validado') byDay[key].monto += parseFloat(o.monto) || 0;
+        if (o.estado === 'Validado') byDay[key].monto += parseFloat(o.monto)||0;
     });
     const labels = Object.keys(byDay).sort();
     const ctx = document.getElementById('chart-por-dia').getContext('2d');
     dashCharts.porDia = new Chart(ctx, {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Pedidos', data: labels.map(l => byDay[l].count), borderColor: COLORS.azul, backgroundColor: COLORS.azulBG, tension: 0.3, fill: true }] },
-        options: baseOptions({ plugins: { legend: { display: false } } })
+        data: { labels, datasets: [{ label:'Pedidos', data: labels.map(l=>byDay[l].count), borderColor: COLORS.azul, backgroundColor: COLORS.azulBG, tension:0.3, fill:true }] },
+        options: baseOptions({ plugins: { legend: { display:false } } })
     });
 }
 
 function renderChartPagos() {
     destroyChart('pagos');
-    const agrupado = { TARJETA: 0, QR: 0, EFECTIVO: 0, ONLINE: 0, Otros: 0 };
+    const agrupado = { TARJETA:0, QR:0, EFECTIVO:0, ONLINE:0, Otros:0 };
     dashOrders.filter(o => o.estado === 'Validado').forEach(o => {
         const tipo = clasificarPago(o);
-        if (agrupado[tipo] !== undefined) agrupado[tipo]++;
-        else agrupado.Otros++;
+        agrupado[tipo] !== undefined ? agrupado[tipo]++ : agrupado.Otros++;
     });
     const colorMap = { TARJETA: COLORS.azul, QR: COLORS.violeta, EFECTIVO: COLORS.verde, ONLINE: COLORS.cyan, Otros: COLORS.gris };
     const labels = Object.keys(agrupado).filter(k => agrupado[k] > 0);
     const ctx = document.getElementById('chart-pagos').getContext('2d');
     dashCharts.pagos = new Chart(ctx, {
         type: 'doughnut',
-        data: { labels, datasets: [{ data: labels.map(l => agrupado[l]), backgroundColor: labels.map(l => colorMap[l]) }] },
-        options: baseOptions({ plugins: { legend: { position: 'bottom' } } })
+        data: { labels, datasets: [{ data: labels.map(l=>agrupado[l]), backgroundColor: labels.map(l=>colorMap[l]) }] },
+        options: baseOptions({ plugins: { legend: { position:'bottom' } } })
     });
 }
 
@@ -367,18 +314,17 @@ function renderChartRepartidores() {
     destroyChart('repartidores');
     const stats = {};
     dashOrders.forEach(o => {
-        const name = (o.envio || '').trim();
-        if (!name) return;
-        if (!stats[name]) stats[name] = { val: 0, can: 0 };
+        const name = (o.envio||'').trim(); if (!name) return;
+        if (!stats[name]) stats[name] = { val:0, can:0 };
         if (o.estado === 'Validado') stats[name].val++;
         else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') stats[name].can++;
     });
-    const sorted = Object.keys(stats).sort((a, b) => stats[b].val - stats[a].val).slice(0, 10);
+    const sorted = Object.keys(stats).sort((a,b) => stats[b].val - stats[a].val).slice(0,10);
     const ctx = document.getElementById('chart-repartidores').getContext('2d');
     dashCharts.repartidores = new Chart(ctx, {
         type: 'bar',
-        data: { labels: sorted, datasets: [{ label: 'Validados', data: sorted.map(n => stats[n].val), backgroundColor: COLORS.azul }] },
-        options: baseOptions({ indexAxis: 'y', plugins: { legend: { display: false } } })
+        data: { labels: sorted, datasets: [{ label:'Validados', data: sorted.map(n=>stats[n].val), backgroundColor: COLORS.azul }] },
+        options: baseOptions({ indexAxis:'y', plugins: { legend: { display:false } } })
     });
 }
 
@@ -387,193 +333,145 @@ function renderChartCancelaciones() {
     const motivos = {};
     dashOrders.filter(o => o.estado === 'Cancelado' || o.estado === 'Rechazado').forEach(o => {
         const m = o.motivo_cancelacion || 'No especificado';
-        motivos[m] = (motivos[m] || 0) + 1;
+        motivos[m] = (motivos[m]||0) + 1;
     });
     const ctx = document.getElementById('chart-cancelaciones').getContext('2d');
     dashCharts.cancelaciones = new Chart(ctx, {
         type: 'bar',
         data: { labels: Object.keys(motivos), datasets: [{ data: Object.values(motivos), backgroundColor: COLORS.rojo }] },
-        options: baseOptions({ plugins: { legend: { display: false } } })
+        options: baseOptions({ plugins: { legend: { display:false } } })
     });
 }
 
 function renderChartHoras() {
     destroyChart('horas');
     const horas = Array(24).fill(0);
-    dashOrders.forEach(o => {
-        const d = dashParseDate(o.fecha);
-        if (d) horas[d.getHours()]++;
-    });
+    dashOrders.forEach(o => { const d = dashParseDate(o.fecha); if (d) horas[d.getHours()]++; });
     const ctx = document.getElementById('chart-horas').getContext('2d');
     dashCharts.horas = new Chart(ctx, {
         type: 'bar',
-        data: { labels: Array.from({ length: 24 }, (_, i) => i + 'h'), datasets: [{ data: horas, backgroundColor: COLORS.violeta }] },
-        options: baseOptions({ plugins: { legend: { display: false } } })
+        data: { labels: Array.from({length:24},(_,i)=>i+'h'), datasets: [{ data: horas, backgroundColor: COLORS.violeta }] },
+        options: baseOptions({ plugins: { legend: { display:false } } })
     });
 }
 
 function renderChartValidadores() {
     destroyChart('validadores');
     const users = {};
-    dashOrders.forEach(o => { if (o.validado_por) users[o.validado_por] = (users[o.validado_por] || 0) + 1; });
+    dashOrders.forEach(o => { if (o.validado_por) users[o.validado_por] = (users[o.validado_por]||0)+1; });
     const ctx = document.getElementById('chart-validadores').getContext('2d');
     dashCharts.validadores = new Chart(ctx, {
         type: 'pie',
         data: { labels: Object.keys(users), datasets: [{ data: Object.values(users), backgroundColor: [COLORS.azul, COLORS.verde, COLORS.naranja, COLORS.violeta, COLORS.cyan] }] },
-        options: baseOptions({ plugins: { legend: { position: 'bottom' } } })
-    });
-}
-
-function renderTablaDia() {
-    const tbody = document.getElementById('dash-tabla-body');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-    const recientes = [...dashOrders].sort((a, b) => b.nro - a.nro).slice(0, 20);
-    recientes.forEach(o => {
-        const d = dashParseDate(o.fecha);
-        const hr = d ? d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '';
-        const estCol = o.estado === 'Validado' ? COLORS.verde : (o.estado === 'Cancelado' || o.estado === 'Rechazado') ? COLORS.rojo : COLORS.amarillo;
-        tbody.insertAdjacentHTML('beforeend', `
-            <tr>
-                <td>${o.llave}</td>
-                <td style="color:${estCol}; font-weight:bold;">${o.estado}</td>
-                <td>S/ ${parseFloat(o.monto || 0).toFixed(2)}</td>
-                <td>${o.envio || '-'}</td>
-                <td>${(o.tipo_pago_val || o.tipo_pago || '-').toUpperCase()}</td>
-                <td>${hr}</td>
-            </tr>`);
+        options: baseOptions({ plugins: { legend: { position:'bottom' } } })
     });
 }
 
 // ============================================================
-// TABLA DE CORTE ACUMULADO POR HORA (8:00 AM → hora elegida)
+// LISTADO CON CORTE POR HORA DE ENTREGA + TOTALES AL PIE
+// Usa o.hora_entrega para determinar si el pedido entra al corte
 // ============================================================
-function renderTablaCorteHoras(baseOrders) {
-    const tbody    = document.getElementById('dash-corte-horas-body');
-    const totalRow = document.getElementById('dash-corte-horas-total');
+function renderListadoCorte() {
+    const tbody  = document.getElementById('dash-listado-body');
+    const tfoot  = document.getElementById('dash-listado-tfoot');
+    const infoEl = document.getElementById('dash-listado-info');
     if (!tbody) return;
 
-    const HORA_INICIO = 8;   // fijo: 8 AM
-    const HORA_FIN    = 23;  // fijo: 11 PM
+    const hSel      = document.getElementById('dash-corte-hora-sel');
+    const horaCorte = hSel ? parseInt(hSel.value) : 23;
 
-    // Leer hora de corte seleccionada por el usuario (default: hora actual o 23)
-    const corteSel = document.getElementById('dash-corte-hora-sel');
-    const horaCorte = corteSel ? parseInt(corteSel.value) : HORA_FIN;
+    // Solo validados cuya hora_entrega <= horaCorte
+    const pedidos = dashOrders.filter(o => {
+        if (o.estado !== 'Validado') return false;
+        const h = getHoraEntrega(o);
+        if (h === null) return false;       // sin hora de entrega registrada
+        return h <= horaCorte;
+    }).sort((a, b) => {
+        // Ordenar por hora de entrega ascendente
+        return (getHoraEntrega(a) ?? 0) - (getHoraEntrega(b) ?? 0);
+    });
 
-    const tiposActivos = ['TARJETA', 'QR', 'ONLINE', 'EFECTIVO'];
-
-    // 1️⃣  Agrupar pedidos validados por hora exacta
-    const porHora = {};
-    for (let h = HORA_INICIO; h <= HORA_FIN; h++) {
-        porHora[h] = {};
-        tiposActivos.forEach(t => { porHora[h][t] = { count: 0, monto: 0 }; });
-        porHora[h]['TOTAL'] = { count: 0, monto: 0 };
-    }
-
-    baseOrders.filter(o => o.estado === 'Validado').forEach(o => {
-        const d = dashParseDate(o.fecha);
-        if (!d) return;
-        const h = d.getHours();
-        if (h < HORA_INICIO || h > HORA_FIN) return;   // fuera de rango
+    // Totales por tipo
+    const totales = {
+        TARJETA: {count:0, monto:0}, QR: {count:0, monto:0},
+        ONLINE:  {count:0, monto:0}, EFECTIVO: {count:0, monto:0},
+        TOTAL:   {count:0, monto:0}
+    };
+    pedidos.forEach(o => {
         const tipo  = clasificarPago(o);
         const monto = parseFloat(o.monto) || 0;
-        if (tiposActivos.includes(tipo)) {
-            porHora[h][tipo].count++;
-            porHora[h][tipo].monto += monto;
-        }
-        porHora[h]['TOTAL'].count++;
-        porHora[h]['TOTAL'].monto += monto;
+        if (totales[tipo]) { totales[tipo].count++; totales[tipo].monto += monto; }
+        totales.TOTAL.count++;
+        totales.TOTAL.monto += monto;
     });
 
-    // 2️⃣  Construir acumulados fila a fila
-    const acum = {};
-    tiposActivos.forEach(t => { acum[t] = { count: 0, monto: 0 }; });
-    acum['TOTAL'] = { count: 0, monto: 0 };
-
-    let html = '';
-
-    for (let h = HORA_INICIO; h <= HORA_FIN; h++) {
-        // Sumar hora actual al acumulado
-        tiposActivos.forEach(t => {
-            acum[t].count += porHora[h][t].count;
-            acum[t].monto += porHora[h][t].monto;
-        });
-        acum['TOTAL'].count += porHora[h]['TOTAL'].count;
-        acum['TOTAL'].monto += porHora[h]['TOTAL'].monto;
-
-        const label    = `Hasta ${String(h).padStart(2,'0')}:59`;
-        const esCorte  = (h === horaCorte);
-        const esAtras  = (h > horaCorte);           // filas después del corte → atenuadas
-        const rowStyle = esCorte
-            ? `background:rgba(250,204,21,0.12); border-left:3px solid ${COLORS.amarillo};`
-            : esAtras
-                ? 'opacity:0.35;'
-                : '';
-
-        let rowHtml = `<tr style="${rowStyle}">
-            <td style="font-weight:${esCorte?'800':'600'}; white-space:nowrap; color:${esCorte?COLORS.amarillo:'rgba(255,255,255,0.8)'};">
-                ${esCorte ? '<i class="fa-solid fa-scissors" style="margin-right:5px;"></i>' : ''}${label}
-            </td>`;
-
-        tiposActivos.forEach(tipo => {
-            const col = PAGO_COLORS[tipo];
-            const d   = acum[tipo];
-            rowHtml += d.count > 0
-                ? `<td>
-                    <span style="color:${col.text}; font-weight:700;">${d.count}</span>
-                    <br><small style="color:rgba(255,255,255,0.5);">S/ ${d.monto.toFixed(2)}</small>
-                   </td>`
-                : `<td style="color:rgba(255,255,255,0.2);">—</td>`;
-        });
-
-        rowHtml += `<td style="font-weight:700; color:${esCorte?COLORS.amarillo:COLORS.amarillo};">
-            ${acum['TOTAL'].count}
-            <br><small style="color:rgba(255,255,255,0.5);">S/ ${acum['TOTAL'].monto.toFixed(2)}</small>
-        </td></tr>`;
-
-        html += rowHtml;
+    // Info descriptiva
+    const driverLabel = (document.getElementById('dash-driver').value || '');
+    const pagosLabel  = [...activePagos].join(', ');
+    if (infoEl) {
+        infoEl.textContent =
+            `${pedidos.length} pedidos validados · Hora entrega hasta ${String(horaCorte).padStart(2,'0')}:59` +
+            (driverLabel ? ` · Repartidor: ${driverLabel}` : ' · Todos los repartidores') +
+            ` · Pagos: ${pagosLabel}`;
     }
 
-    tbody.innerHTML = html;
-
-    // 3️⃣  Fila de totales = acumulado hasta la hora de corte elegida
-    const acumCorte = {};
-    tiposActivos.forEach(t => { acumCorte[t] = { count: 0, monto: 0 }; });
-    acumCorte['TOTAL'] = { count: 0, monto: 0 };
-    for (let h = HORA_INICIO; h <= horaCorte; h++) {
-        tiposActivos.forEach(t => { acumCorte[t].count += porHora[h][t].count; acumCorte[t].monto += porHora[h][t].monto; });
-        acumCorte['TOTAL'].count += porHora[h]['TOTAL'].count;
-        acumCorte['TOTAL'].monto += porHora[h]['TOTAL'].monto;
+    // Filas
+    if (pedidos.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; opacity:0.5; padding:24px;">
+            Sin pedidos con los filtros seleccionados</td></tr>`;
+        if (tfoot) tfoot.innerHTML = '';
+        return;
     }
 
-    if (totalRow) {
-        let totHtml = `<td style="font-weight:700; color:${COLORS.amarillo};">
-            <i class="fa-solid fa-scissors"></i> Corte ${String(horaCorte).padStart(2,'0')}:59
-        </td>`;
-        tiposActivos.forEach(tipo => {
-            const col = PAGO_COLORS[tipo];
-            const d   = acumCorte[tipo];
-            totHtml += `<td style="font-weight:700;">
-                <span style="color:${col.text};">${d.count}</span>
-                <br><small style="color:rgba(255,255,255,0.6);">S/ ${d.monto.toFixed(2)}</small>
-            </td>`;
-        });
-        totHtml += `<td style="font-weight:700; color:${COLORS.amarillo};">
-            ${acumCorte['TOTAL'].count}
-            <br><small style="color:rgba(255,255,255,0.6);">S/ ${acumCorte['TOTAL'].monto.toFixed(2)}</small>
-        </td>`;
-        totalRow.innerHTML = totHtml;
+    tbody.innerHTML = pedidos.map(o => {
+        const h    = getHoraEntrega(o);
+        const hr   = h !== null ? `${String(h).padStart(2,'0')}:xx` : '--';
+        const tipo = clasificarPago(o);
+        const col  = PAGO_COLORS[tipo] ? PAGO_COLORS[tipo].text : COLORS.gris;
+        return `<tr>
+            <td>${o.llave}</td>
+            <td style="color:${COLORS.verde}; font-weight:bold;">Validado</td>
+            <td>S/ ${parseFloat(o.monto||0).toFixed(2)}</td>
+            <td>${o.envio || '-'}</td>
+            <td style="color:${col}; font-weight:600;"><i class="fa-solid ${PAGO_COLORS[tipo]?.icon || 'fa-circle'}" style="margin-right:4px;"></i>${tipo}</td>
+            <td style="font-weight:600; color:rgba(255,255,255,0.7);">${hr}</td>
+        </tr>`;
+    }).join('');
+
+    // Fila de totales al pie
+    if (tfoot) {
+        const chips = ['TARJETA','QR','ONLINE','EFECTIVO']
+            .filter(t => totales[t].count > 0)
+            .map(t => `<span style="color:${PAGO_COLORS[t].text}; margin-right:14px; white-space:nowrap;">
+                <i class="fa-solid ${PAGO_COLORS[t].icon}"></i>
+                <strong>${totales[t].count}</strong> &nbsp;S/ ${totales[t].monto.toFixed(2)}
+            </span>`).join('');
+
+        tfoot.innerHTML = `
+            <tr style="background:rgba(250,204,21,0.1); border-top:2px solid rgba(250,204,21,0.35);">
+                <td colspan="2" style="font-weight:800; color:${COLORS.amarillo}; white-space:nowrap;">
+                    <i class="fa-solid fa-scissors"></i> CORTE ${String(horaCorte).padStart(2,'0')}:59
+                </td>
+                <td style="font-weight:800; color:${COLORS.amarillo};">
+                    S/ ${totales.TOTAL.monto.toFixed(2)}
+                </td>
+                <td style="font-weight:700; color:rgba(255,255,255,0.8);">
+                    ${totales.TOTAL.count} pedidos
+                </td>
+                <td colspan="2" style="font-size:0.85em; padding:10px 8px;">${chips}</td>
+            </tr>`;
     }
 }
 
 // ============================================================
-// HTML del Dashboard
+// HTML
 // ============================================================
 function getDashboardHTML() {
+    const horaActual = Math.min(Math.max(new Date().getHours(), 8), 23);
     return `
 <div id="dashboard-view" style="display:none; padding:20px; overflow-y:auto; height:100%;">
 
-    <!-- ── FILTROS SUPERIORES ── -->
+    <!-- FILTROS SUPERIORES -->
     <div class="glass-panel" style="padding:16px; margin-bottom:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
         <i class="fa-solid fa-filter" style="color:rgba(255,255,255,0.5);"></i>
         <input type="date" id="dash-from">
@@ -583,39 +481,38 @@ function getDashboardHTML() {
         <button id="dash-reset-btn" class="btn-secondary">Reset</button>
     </div>
 
-    <!-- ── FILTRO TIPO DE PAGO (MULTI-SELECT) ── -->
+    <!-- FILTRO TIPO DE PAGO -->
     <div class="glass-panel" style="padding:16px; margin-bottom:20px;">
-        <div style="font-size:0.78em; text-transform:uppercase; letter-spacing:0.08em; color:rgba(255,255,255,0.4); margin-bottom:12px;">
-            <i class="fa-solid fa-filter"></i> Filtrar por tipo de pago
+        <div style="font-size:0.78em; text-transform:uppercase; letter-spacing:0.08em;
+                    color:rgba(255,255,255,0.4); margin-bottom:12px;">
+            <i class="fa-solid fa-filter"></i> Filtrar por tipo de pago — clic para activar/desactivar
         </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
             ${['TARJETA','QR','ONLINE','EFECTIVO'].map(tipo => `
             <button class="dash-pago-btn" data-tipo="${tipo}"
                 style="display:flex; flex-direction:column; align-items:center; gap:4px;
-                       padding:10px 18px; border-radius:10px; border:1px solid ${PAGO_COLORS[tipo].border};
+                       padding:10px 18px; border-radius:10px;
+                       border:1px solid ${PAGO_COLORS[tipo].border};
                        background:${PAGO_COLORS[tipo].bg}; color:${PAGO_COLORS[tipo].text};
-                       font-weight:700; font-size:0.85em; cursor:pointer; transition:all 0.2s;
-                       min-width:100px;">
+                       font-weight:700; font-size:0.85em; cursor:pointer;
+                       transition:all 0.2s; min-width:100px;">
                 <i class="fa-solid ${PAGO_COLORS[tipo].icon}" style="font-size:1.3em;"></i>
                 ${tipo}
-                <div style="font-size:0.75em; font-weight:400; opacity:0.8;" id="pago-count-${tipo}">0</div>
-                <div style="font-size:0.7em; opacity:0.7;" id="pago-monto-${tipo}">S/ 0.00</div>
+                <div style="font-size:0.78em; font-weight:400;" id="pago-count-${tipo}">0</div>
+                <div style="font-size:0.72em; opacity:0.8;" id="pago-monto-${tipo}">S/ 0.00</div>
             </button>`).join('')}
-        </div>
-        <div style="font-size:0.72em; color:rgba(255,255,255,0.3);">
-            <i class="fa-solid fa-circle-info"></i> Haz clic para activar/desactivar tipos. Los totales se actualizan en tiempo real.
         </div>
     </div>
 
-    <!-- ── KPI CARDS ── -->
+    <!-- KPIs -->
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px;">
-        ${kpiCard('kpi-total',     'fa-list-ol',     'Total',     '0',      COLORS.azul)}
-        ${kpiCard('kpi-validados', 'fa-check-circle','Validados', '0',      COLORS.verde)}
-        ${kpiCard('kpi-cancelados','fa-ban',         'Cancelados','0',      COLORS.rojo)}
-        ${kpiCard('kpi-pendientes','fa-clock',       'Pendientes','0',      COLORS.amarillo)}
-        ${kpiCard('kpi-monto',     'fa-money-bill',  'Monto Val.','S/ 0.00',COLORS.cyan)}
-        ${kpiCard('kpi-fill',      'fa-percentage',  'Fill Rate', '0%',     COLORS.naranja)}
-        ${kpiCard('kpi-tpe',       'fa-stopwatch',   'TPE',       '--',     COLORS.verde)}
+        ${kpiCard('kpi-total',     'fa-list-ol',      'Total',      '0',       COLORS.azul)}
+        ${kpiCard('kpi-validados', 'fa-check-circle', 'Validados',  '0',       COLORS.verde)}
+        ${kpiCard('kpi-cancelados','fa-ban',          'Cancelados', '0',       COLORS.rojo)}
+        ${kpiCard('kpi-pendientes','fa-clock',        'Pendientes', '0',       COLORS.amarillo)}
+        ${kpiCard('kpi-monto',     'fa-money-bill',   'Monto Val.', 'S/ 0.00', COLORS.cyan)}
+        ${kpiCard('kpi-fill',      'fa-percentage',   'Fill Rate',  '0%',      COLORS.naranja)}
+        ${kpiCard('kpi-tpe',       'fa-stopwatch',    'TPE',        '--',      COLORS.verde)}
         <div class="glass-panel" style="padding:14px; border-left:3px solid ${COLORS.violeta}; text-align:center;">
             <div id="kpi-sla" style="font-size:1.5em; font-weight:bold;">0%</div>
             <div style="font-size:0.7em; color:gray;">SLA Cumplimiento</div>
@@ -623,7 +520,7 @@ function getDashboardHTML() {
         </div>
     </div>
 
-    <!-- ── GRÁFICOS ── -->
+    <!-- GRÁFICOS -->
     <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
         <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-por-dia"></canvas></div>
         <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-pagos"></canvas></div>
@@ -637,61 +534,49 @@ function getDashboardHTML() {
         <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-validadores"></canvas></div>
     </div>
 
-    <!-- ── TABLA CORTE ACUMULADO POR HORA ── -->
-    <div class="glass-panel" style="padding:16px; margin-bottom:20px;">
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+    <!-- LISTADO CON CORTE POR HORA DE ENTREGA -->
+    <div class="glass-panel" style="padding:16px;">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap;">
             <i class="fa-solid fa-scissors" style="color:${COLORS.amarillo};"></i>
-            <span style="font-weight:700; font-size:1em;">Cuadre Acumulado por Hora</span>
-            <span style="font-size:0.75em; color:rgba(255,255,255,0.4);">Acumula desde las 08:00 AM hasta la hora elegida · Solo validados</span>
+            <span style="font-weight:700; font-size:1em;">Listado de Pedidos Validados</span>
+            <span style="font-size:0.75em; color:rgba(255,255,255,0.35);">
+                Filtrado por repartidor + tipo de pago + corte de hora de entrega
+            </span>
             <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
                 <label style="font-size:0.82em; color:rgba(255,255,255,0.6); white-space:nowrap;">
-                    <i class="fa-solid fa-clock"></i> Hora de corte:
+                    <i class="fa-solid fa-clock"></i> Corte hasta:
                 </label>
                 <select id="dash-corte-hora-sel"
                     style="background:rgba(250,204,21,0.12); border:1px solid rgba(250,204,21,0.4);
-                           color:${COLORS.amarillo}; border-radius:8px; padding:6px 10px;
+                           color:${COLORS.amarillo}; border-radius:8px; padding:6px 12px;
                            font-weight:700; font-size:0.9em; cursor:pointer;">
                     ${Array.from({length:16},(_,i)=>i+8).map(h =>
-                        `<option value="${h}" ${h===23?'selected':''}>${String(h).padStart(2,'0')}:59</option>`
+                        `<option value="${h}" ${h===horaActual?'selected':''}>${String(h).padStart(2,'0')}:59</option>`
                     ).join('')}
                 </select>
             </div>
         </div>
+        <div id="dash-listado-info"
+             style="font-size:0.75em; color:rgba(255,255,255,0.4); margin-bottom:10px; padding:6px 0;
+                    border-bottom:1px solid rgba(255,255,255,0.07);"></div>
         <div style="overflow-x:auto;">
-            <table class="orders-table" style="min-width:600px;">
+            <table class="orders-table">
                 <thead>
                     <tr>
-                        <th style="width:140px;">Hora de corte</th>
-                        ${['TARJETA','QR','ONLINE','EFECTIVO'].map(tipo => `
-                        <th style="color:${PAGO_COLORS[tipo].text};">
-                            <i class="fa-solid ${PAGO_COLORS[tipo].icon}"></i> ${tipo}
-                        </th>`).join('')}
-                        <th style="color:${COLORS.amarillo};">TOTAL</th>
+                        <th>Llave</th>
+                        <th>Estado</th>
+                        <th>Monto</th>
+                        <th>Repartidor</th>
+                        <th>Tipo Pago</th>
+                        <th>Hora Entrega</th>
                     </tr>
                 </thead>
-                <tbody id="dash-corte-horas-body">
-                    <tr><td colspan="6" style="text-align:center; opacity:0.5; padding:20px;">Cargando...</td></tr>
-                </tbody>
-                <tfoot>
-                    <tr id="dash-corte-horas-total"
-                        style="background:rgba(250,204,21,0.08); font-weight:700;
-                               border-top:2px solid rgba(250,204,21,0.3);">
-                    </tr>
-                </tfoot>
+                <tbody id="dash-listado-body"></tbody>
+                <tfoot id="dash-listado-tfoot"></tfoot>
             </table>
         </div>
     </div>
 
-    <!-- ── TABLA ÚLTIMOS PEDIDOS ── -->
-    <div class="glass-panel" style="padding:16px;">
-        <div style="font-weight:700; margin-bottom:10px;"><i class="fa-solid fa-list"></i> Últimos 20 pedidos</div>
-        <table class="orders-table">
-            <thead>
-                <tr><th>Llave</th><th>Estado</th><th>Monto</th><th>Repartidor</th><th>Pago</th><th>Hora</th></tr>
-            </thead>
-            <tbody id="dash-tabla-body"></tbody>
-        </table>
-    </div>
 </div>`;
 }
 
