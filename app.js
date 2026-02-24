@@ -156,6 +156,7 @@ async function loadOrders() {
     } catch (error) {
         Swal.fire('Error', 'Error cargando pedidos', 'error');
     }
+    // AQUÍ ESTABA EL ERROR: Borré el link de github que estaba pegado al final
     document.getElementById('loading-indicator').classList.add('hidden');
 }
 
@@ -166,9 +167,7 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
-        // ==========================================
         // 1. LÓGICA DE COLUMNA "DETALLE"
-        // ==========================================
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
@@ -185,70 +184,62 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // ==========================================
         // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
-        // ==========================================
         let tiempoHtml = '<span class="text-muted">-</span>';
         
-        if (order.fecha) {
-            try {
-                let s = String(order.fecha).trim();
-                let orderDate = s.includes('T') ? new Date(s) : null;
-                if (!orderDate || isNaN(orderDate.getTime())) {
-                    const parts = s.split(/[\s/:-]/);
-                    if (parts.length >= 5) {
-                        let y = parseInt(parts[2]); if (y < 100) y += 2000;
-                        orderDate = new Date(y, parseInt(parts[1])-1, parseInt(parts[0]), parseInt(parts[3]), parseInt(parts[4]));
+        try {
+            if (order.fecha) {
+                let orderDate = new Date(order.fecha);
+                if (isNaN(orderDate.getTime()) && typeof order.fecha === 'string') {
+                    const parts = order.fecha.split(/[\s/:-]/);
+                    if (parts.length >= 3) {
+                        let d = parseInt(parts[0], 10);
+                        let m = parseInt(parts[1], 10) - 1;
+                        let y = parseInt(parts[2], 10);
+                        if (y < 100) y += 2000;
+                        let hr = parts[3] ? parseInt(parts[3], 10) : 0;
+                        let min = parts[4] ? parseInt(parts[4], 10) : 0;
+                        orderDate = new Date(y, m, d, hr, min);
                     }
                 }
 
-                if (orderDate && !isNaN(orderDate.getTime())) {
+                if (!isNaN(orderDate.getTime())) {
                     let diffMs = null;
-
                     if (order.estado === 'Validado' && order.hora_entrega) {
                         let delDate = new Date(orderDate.getTime());
-                        if (order.fecha_entrega) {
-                            const p = String(order.fecha_entrega).split(/[\s/:-]/);
-                            if (p.length >= 3) { let y = parseInt(p[2]); if (y<100) y+=2000; delDate = new Date(y, parseInt(p[1])-1, parseInt(p[0])); }
-                        }
-                        
-                        let h = 0, m = 0, horaValida = false;
-                        const hStr = String(order.hora_entrega).trim();
+                        let h = 0, m = 0, ok = false;
+                        let hStr = String(order.hora_entrega).trim();
                         if (hStr.includes('T')) {
-                            const dT = new Date(hStr);
-                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); horaValida = true; }
+                            let dT = new Date(hStr);
+                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); ok = true; }
                         } else {
-                            const pts = hStr.split(':');
-                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); horaValida = true; }
+                            let pts = hStr.split(':');
+                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); ok = true; }
                         }
-
-                        if (horaValida) {
+                        if (ok) {
                             delDate.setHours(h, m, 0, 0);
                             diffMs = delDate - orderDate;
-                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
-                            if (diffMs <= 0 || diffMs > 43200000) diffMs = null; 
+                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
+                                delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; 
+                            }
                         }
                     } else if (order.estado === 'Pendiente') {
                         diffMs = new Date() - orderDate;
                         if (diffMs < 0) diffMs = 0;
                     }
 
-                    if (diffMs !== null) {
+                    if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
                         let mins = Math.floor(diffMs / 60000);
-                        let color = mins <= 35 ? '#60a5fa' : '#f87171'; // Azul (<=35) o Rojo (>35)
+                        let color = mins <= 35 ? '#60a5fa' : '#f87171';
                         let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
                         let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
-                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;">
-                                        <i class="fa-solid fa-clock"></i> ${text}
-                                      </span>`;
+                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
                     }
                 }
-            } catch(e) {}
-        }
+            }
+        } catch(e) {}
 
-        // ==========================================
-        // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas)
-        // ==========================================
+        // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
@@ -256,20 +247,18 @@ function renderOrders(data) {
             <td>${order.llave}</td>
             <td>S/ ${formatMoney(order.monto)}</td>
             <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span></td>
-            
-            <td>${detalleHtml}</td> <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
-            
-            <td>${tiempoHtml}</td> <td>
+            <td>${detalleHtml}</td>
+            <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
+            <td>${tiempoHtml}</td>
+            <td>
                 ${order.foto === 'PAGO-EFECTIVO' ?
                 '<span class="badge" style="background:rgba(16, 185, 129, 0.2); color:#4ade80; border:1px solid rgba(74, 222, 128, 0.3); cursor:default"><i class="fa-solid fa-money-bill-wave"></i> Efectivo</span>' :
                 (order.foto === 'PAGO-ONLINE' ? '<span class="badge" style="background:rgba(59, 130, 246, 0.2); color:#60a5fa; border:1px solid rgba(96, 165, 250, 0.3); cursor:default"><i class="fa-solid fa-globe"></i> Online</span>' :
                     (order.foto ? `<a href="${extractPhotoUrl(order.foto)}" target="_blank" class="btn-icon-small"><i class="fa-solid fa-image"></i></a>` : '<span class="text-muted">-</span>'))}
             </td>
-            
             <td style="font-size: 0.85em; color: rgba(255,255,255,0.8);">
                 ${order.validado_por || '<span class="text-muted">-</span>'}
             </td>
-            
             <td>
                 ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
                 <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
@@ -293,7 +282,6 @@ function renderOrders(data) {
         ordersTableBody.appendChild(tr);
     });
 }
-
 
 window.toggleSLA = async (nro) => {
     try {
@@ -416,7 +404,6 @@ newOrderBtn.addEventListener('click', () => {
     }
 
     if (orders.length > 0 && maxNro === 0) {
-        console.warn("MaxNro falló. Usando longitud del array.", orders);
         maxNro = orders.length;
     }
 
@@ -1474,7 +1461,7 @@ function preprocessImage(file) {
             }
 
             ctx.putImageData(imageData, 0, 0);
-            sharpenCanvas(canvas, ctx);
+            sharppenCanvas(canvas, ctx);
             resolve(canvas.toDataURL('image/png'));
         };
     });
@@ -1510,7 +1497,7 @@ function otsuThreshold(grayValues) {
     return bestThreshold;
 }
 
-function sharpenCanvas(canvas, ctx) {
+function sharppenCanvas(canvas, ctx) {
     const w = canvas.width, h = canvas.height;
     const src = ctx.getImageData(0, 0, w, h);
     const dst = ctx.createImageData(w, h);
