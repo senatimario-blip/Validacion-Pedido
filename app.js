@@ -167,7 +167,7 @@ function renderOrders(data) {
     data.forEach((order, index) => {
         const dynamicCorrelative = totalOrders - index;
 
-        // 1. LÓGICA DE DETALLE (PAGOS / CANCELACIONES)
+        // 1. LÓGICA DE COLUMNA "DETALLE"
         let detalleHtml = '<span style="color: gray; opacity: 0.5;">-</span>'; 
         if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
             const motivo = (order.motivo_cancelacion || '').toLowerCase();
@@ -184,68 +184,62 @@ function renderOrders(data) {
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
         }
 
-        // 2. LÓGICA DE TIEMPO (VERDE, ROJO, AZUL, NARANJA)
+        // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
         let tiempoHtml = '<span class="text-muted">-</span>';
         
         try {
-            // FUNCIÓN DE PARSEO RIGUROSO PARA TU GOOGLE SHEET (DD/MM/YYYY)
-            const parsearFecha = (str) => {
-                if (!str) return null;
-                const pts = str.split(/[\s/:-]/);
-                if (pts.length < 3) return null;
-                const d = parseInt(pts[0]), m = parseInt(pts[1]) - 1, y = parseInt(pts[2]);
-                const hr = pts[3] ? parseInt(pts[3]) : 0, min = pts[4] ? parseInt(pts[4]) : 0;
-                return new Date(y, m, d, hr, min);
-            };
-
-            let orderDate = parsearFecha(order.fecha);
-
-            if (orderDate && !isNaN(orderDate.getTime())) {
-                
-                // --- CASO PENDIENTE (En vivo: Verde o Rojo Parpadeante) ---
-                if (order.estado === 'Pendiente') {
-                    let ahora = new Date();
-                    let diffMins = Math.floor((ahora - orderDate) / 60000);
-                    
-                    if (diffMins < 35) {
-                        tiempoHtml = `<span style="color:#4ade80; font-weight:bold; background:rgba(74, 222, 128, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${diffMins} min</span>`;
-                    } else {
-                        // Aquí podrías agregar la clase de parpadeo si lo deseas
-                        tiempoHtml = `<span style="color:#f87171; font-weight:bold; background:rgba(248, 113, 113, 0.1); padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${diffMins} min</span>`;
+            if (order.fecha) {
+                let orderDate = new Date(order.fecha);
+                if (isNaN(orderDate.getTime()) && typeof order.fecha === 'string') {
+                    const parts = order.fecha.split(/[\s/:-]/);
+                    if (parts.length >= 3) {
+                        let d = parseInt(parts[0], 10);
+                        let m = parseInt(parts[1], 10) - 1;
+                        let y = parseInt(parts[2], 10);
+                        if (y < 100) y += 2000;
+                        let hr = parts[3] ? parseInt(parts[3], 10) : 0;
+                        let min = parts[4] ? parseInt(parts[4], 10) : 0;
+                        orderDate = new Date(y, m, d, hr, min);
                     }
-                } 
-                // --- CASO VALIDADO (Fijo: Azul o Naranja) ---
-                else if (order.estado === 'Validado' && order.hora_entrega) {
-                    const hParts = order.hora_entrega.split(':');
-                    if (hParts.length >= 2) {
-                        let hEntrega = parseInt(hParts[0]), mEntrega = parseInt(hParts[1]);
-                        
-                        // Usamos la misma fecha de registro para la entrega
+                }
+
+                if (!isNaN(orderDate.getTime())) {
+                    let diffMs = null;
+                    if (order.estado === 'Validado' && order.hora_entrega) {
                         let delDate = new Date(orderDate.getTime());
-                        delDate.setHours(hEntrega, mEntrega, 0, 0);
-                        
-                        let diffMs = delDate - orderDate;
-                        // Ajuste por si cruza la medianoche
-                        if (diffMs < -43200000) { delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; }
-                        else if (diffMs > 43200000) { delDate.setDate(delDate.getDate() - 1); diffMs = delDate - orderDate; }
-                        
-                        let finalMins = Math.floor(diffMs / 60000);
-                        
-                        // Protección final: Si el cálculo sigue dando algo loco, no mostramos basura
-                        if (finalMins >= 0 && finalMins < 1440) {
-                            let esTarde = finalMins > 35;
-                            let color = esTarde ? '#fb923c' : '#60a5fa'; // Naranja : Azul
-                            let bg = esTarde ? 'rgba(251, 146, 60, 0.1)' : 'rgba(96, 165, 250, 0.1)';
-                            let texto = finalMins >= 60 ? `${Math.floor(finalMins/60)}h ${finalMins%60}m` : `${finalMins} min`;
-                            
-                            tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-check-double"></i> ${texto}</span>`;
+                        let h = 0, m = 0, ok = false;
+                        let hStr = String(order.hora_entrega).trim();
+                        if (hStr.includes('T')) {
+                            let dT = new Date(hStr);
+                            if (!isNaN(dT.getTime())) { h = dT.getHours(); m = dT.getMinutes(); ok = true; }
+                        } else {
+                            let pts = hStr.split(':');
+                            if (pts.length >= 2) { h = parseInt(pts[0], 10); m = parseInt(pts[1], 10); ok = true; }
                         }
+                        if (ok) {
+                            delDate.setHours(h, m, 0, 0);
+                            diffMs = delDate - orderDate;
+                            if (diffMs < 0 && Math.abs(diffMs) > 43200000) { 
+                                delDate.setDate(delDate.getDate() + 1); diffMs = delDate - orderDate; 
+                            }
+                        }
+                    } else if (order.estado === 'Pendiente') {
+                        diffMs = new Date() - orderDate;
+                        if (diffMs < 0) diffMs = 0;
+                    }
+
+                    if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
+                        let mins = Math.floor(diffMs / 60000);
+                        let color = mins <= 35 ? '#60a5fa' : '#f87171';
+                        let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                        let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
+                        tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
                     }
                 }
             }
-        } catch(e) { console.error("Error en tiempo:", e); }
+        } catch(e) {}
 
-        // 3. CONSTRUCCIÓN DE LA FILA (11 Columnas exactas)
+        // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
@@ -267,12 +261,21 @@ function renderOrders(data) {
             </td>
             <td>
                 ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
-                <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="Validar/Ver">
-                    <i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>
+                <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
+                    ${currentUser.rol === 'Admin' ?
+                    `<i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>` :
+                    `<i class="fa-solid fa-eye"></i> <i class="fa-solid fa-lock" style="font-size:0.7em"></i>`}
                 </button>
                 ${currentUser.rol === 'Admin' && order.estado !== 'Validado' ? `
                 <button class="btn-icon-small danger" onclick="rejectOrder(${order.nro})" title="Cancelar">
                     <i class="fa-solid fa-ban"></i>
+                </button>` : ''}
+                ${currentUser.rol === 'Admin' && order.estado === 'Validado' ? `
+                <button class="btn-icon-small ${order.sla_fuera ? 'danger' : ''}"
+                    onclick="toggleSLA(${order.nro})"
+                    title="${order.sla_fuera ? 'Fuera de SLA ⏱️ — Clic para desmarcar' : 'Marcar como fuera de SLA (>35 min)'}"
+                    style="${order.sla_fuera ? 'opacity:1;' : 'opacity:0.4;'}">
+                    <i class="fa-solid fa-stopwatch"></i>
                 </button>` : ''}`}
             </td>
         `;
