@@ -230,8 +230,21 @@ function renderOrders(data) {
 
                     if (diffMs !== null && diffMs >= 0 && diffMs <= 86400000) {
                         let mins = Math.floor(diffMs / 60000);
-                        let color = mins <= 35 ? '#60a5fa' : '#f87171';
-                        let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                        
+                        // --- NUEVA LÓGICA DE COLORES ---
+                        let color, bg;
+                        
+                        if (order.estado === 'Pendiente') {
+                            // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
+                            color = mins <= 35 ? '#4ade80' : '#f87171'; 
+                            bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                        } else {
+                            // AZUL SUAVE si está a tiempo, NARANJA si pasó los 35 min
+                            color = mins <= 35 ? '#60a5fa' : '#fb923c'; 
+                            bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
+                        }
+                        // -------------------------------
+                    
                         let text = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`;
                         tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
                     }
