@@ -26,6 +26,20 @@ let dateRange = { start: null, end: null };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    // --- PASO 1: Inyectar el parpadeo de alerta para los pedidos rojos ---
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `
+        @keyframes blinker { 50% { opacity: 0.1; } }
+        .blink-urgent {
+            animation: blinker 0.6s linear infinite;
+            background: rgba(248, 113, 113, 0.25) !important;
+            color: #f87171 !important;
+            border: 1px solid #ef4444;
+        }
+    `;
+    document.head.appendChild(styleSheet);
+    // -------------------------------------------------------------------
+
     if (API_URL) apiUrlInput.value = API_URL;
 
     // Set Date Filter to Today
