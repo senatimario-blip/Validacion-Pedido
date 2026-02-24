@@ -112,10 +112,35 @@ function initDashboard() {
     });
 
     document.getElementById('dash-filter-btn').addEventListener('click', renderDashboard);
+
+    // Selector de hora de corte → recalcula solo la tabla acumulada
+    document.addEventListener('change', (e) => {
+        if (e.target && e.target.id === 'dash-corte-hora-sel') {
+            const baseOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
+                const fromVal = document.getElementById('dash-from').value;
+                const toVal   = document.getElementById('dash-to').value;
+                let ok = true;
+                if (fromVal || toVal) {
+                    const d = dashParseDate(o.fecha);
+                    if (!d) return false;
+                    const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                    if (fromVal) { const f = new Date(fromVal + 'T00:00:00'); ok = ok && dateOnly >= f; }
+                    if (toVal)   { const t = new Date(toVal   + 'T00:00:00'); ok = ok && dateOnly <= t; }
+                }
+                const driver = (document.getElementById('dash-driver').value || '').toLowerCase().trim();
+                if (driver) ok = ok && (o.envio || '').toLowerCase().includes(driver);
+                return ok;
+            });
+            renderTablaCorteHoras(baseOrders);
+        }
+    });
+
     document.getElementById('dash-reset-btn').addEventListener('click', () => {
         document.getElementById('dash-from').value    = '';
         document.getElementById('dash-to').value      = '';
         document.getElementById('dash-driver').value  = '';
+        const sel = document.getElementById('dash-corte-hora-sel');
+        if (sel) sel.value = '23';
         activePagos = new Set(['TARJETA', 'QR', 'ONLINE', 'EFECTIVO']);
         syncPagoButtons();
         renderDashboard();
@@ -421,105 +446,121 @@ function renderTablaDia() {
 }
 
 // ============================================================
-// TABLA DE CORTES POR HORA (NUEVA)
+// TABLA DE CORTE ACUMULADO POR HORA (8:00 AM → hora elegida)
 // ============================================================
 function renderTablaCorteHoras(baseOrders) {
-    const tbody = document.getElementById('dash-corte-horas-body');
+    const tbody    = document.getElementById('dash-corte-horas-body');
     const totalRow = document.getElementById('dash-corte-horas-total');
     if (!tbody) return;
 
+    const HORA_INICIO = 8;   // fijo: 8 AM
+    const HORA_FIN    = 23;  // fijo: 11 PM
+
+    // Leer hora de corte seleccionada por el usuario (default: hora actual o 23)
+    const corteSel = document.getElementById('dash-corte-hora-sel');
+    const horaCorte = corteSel ? parseInt(corteSel.value) : HORA_FIN;
+
     const tiposActivos = ['TARJETA', 'QR', 'ONLINE', 'EFECTIVO'];
 
-    // Estructura: horas[hora] = { TARJETA: {count, monto}, QR: {...}, ... }
-    const horas = {};
-    for (let i = 0; i < 24; i++) {
-        horas[i] = {};
-        tiposActivos.forEach(t => { horas[i][t] = { count: 0, monto: 0 }; });
-        horas[i]['TOTAL'] = { count: 0, monto: 0 };
+    // 1️⃣  Agrupar pedidos validados por hora exacta
+    const porHora = {};
+    for (let h = HORA_INICIO; h <= HORA_FIN; h++) {
+        porHora[h] = {};
+        tiposActivos.forEach(t => { porHora[h][t] = { count: 0, monto: 0 }; });
+        porHora[h]['TOTAL'] = { count: 0, monto: 0 };
     }
 
-    const pedidosValidados = baseOrders.filter(o => o.estado === 'Validado');
-    pedidosValidados.forEach(o => {
+    baseOrders.filter(o => o.estado === 'Validado').forEach(o => {
         const d = dashParseDate(o.fecha);
         if (!d) return;
-        const hora = d.getHours();
-        const tipo = clasificarPago(o);
+        const h = d.getHours();
+        if (h < HORA_INICIO || h > HORA_FIN) return;   // fuera de rango
+        const tipo  = clasificarPago(o);
         const monto = parseFloat(o.monto) || 0;
-
         if (tiposActivos.includes(tipo)) {
-            horas[hora][tipo].count++;
-            horas[hora][tipo].monto += monto;
+            porHora[h][tipo].count++;
+            porHora[h][tipo].monto += monto;
         }
-        horas[hora]['TOTAL'].count++;
-        horas[hora]['TOTAL'].monto += monto;
+        porHora[h]['TOTAL'].count++;
+        porHora[h]['TOTAL'].monto += monto;
     });
 
-    // Solo mostrar horas con actividad
-    const horasConActividad = Object.keys(horas).filter(h => horas[h]['TOTAL'].count > 0).map(Number).sort((a, b) => a - b);
+    // 2️⃣  Construir acumulados fila a fila
+    const acum = {};
+    tiposActivos.forEach(t => { acum[t] = { count: 0, monto: 0 }; });
+    acum['TOTAL'] = { count: 0, monto: 0 };
 
-    if (horasConActividad.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; opacity:0.5; padding:20px;">Sin datos para el período seleccionado</td></tr>`;
-        if (totalRow) totalRow.innerHTML = '';
-        return;
-    }
-
-    // Calcular totales generales
-    const totalesGlobales = {};
-    tiposActivos.forEach(t => { totalesGlobales[t] = { count: 0, monto: 0 }; });
-    totalesGlobales['TOTAL'] = { count: 0, monto: 0 };
-
-    // Render filas
     let html = '';
-    horasConActividad.forEach(h => {
-        const datos = horas[h];
-        const label = `${String(h).padStart(2, '0')}:00 – ${String(h + 1).padStart(2, '0')}:00`;
 
-        let rowHtml = `<tr>
-            <td style="font-weight:600; white-space:nowrap; color:rgba(255,255,255,0.8);">${label}</td>`;
+    for (let h = HORA_INICIO; h <= HORA_FIN; h++) {
+        // Sumar hora actual al acumulado
+        tiposActivos.forEach(t => {
+            acum[t].count += porHora[h][t].count;
+            acum[t].monto += porHora[h][t].monto;
+        });
+        acum['TOTAL'].count += porHora[h]['TOTAL'].count;
+        acum['TOTAL'].monto += porHora[h]['TOTAL'].monto;
+
+        const label    = `Hasta ${String(h).padStart(2,'0')}:59`;
+        const esCorte  = (h === horaCorte);
+        const esAtras  = (h > horaCorte);           // filas después del corte → atenuadas
+        const rowStyle = esCorte
+            ? `background:rgba(250,204,21,0.12); border-left:3px solid ${COLORS.amarillo};`
+            : esAtras
+                ? 'opacity:0.35;'
+                : '';
+
+        let rowHtml = `<tr style="${rowStyle}">
+            <td style="font-weight:${esCorte?'800':'600'}; white-space:nowrap; color:${esCorte?COLORS.amarillo:'rgba(255,255,255,0.8)'};">
+                ${esCorte ? '<i class="fa-solid fa-scissors" style="margin-right:5px;"></i>' : ''}${label}
+            </td>`;
 
         tiposActivos.forEach(tipo => {
-            const d = datos[tipo];
             const col = PAGO_COLORS[tipo];
-            totalesGlobales[tipo].count += d.count;
-            totalesGlobales[tipo].monto += d.monto;
-
-            if (d.count > 0) {
-                rowHtml += `<td>
+            const d   = acum[tipo];
+            rowHtml += d.count > 0
+                ? `<td>
                     <span style="color:${col.text}; font-weight:700;">${d.count}</span>
                     <br><small style="color:rgba(255,255,255,0.5);">S/ ${d.monto.toFixed(2)}</small>
-                </td>`;
-            } else {
-                rowHtml += `<td style="color:rgba(255,255,255,0.2);">—</td>`;
-            }
+                   </td>`
+                : `<td style="color:rgba(255,255,255,0.2);">—</td>`;
         });
 
-        totalesGlobales['TOTAL'].count += datos['TOTAL'].count;
-        totalesGlobales['TOTAL'].monto += datos['TOTAL'].monto;
-
-        rowHtml += `<td style="font-weight:700; color:${COLORS.amarillo};">
-            ${datos['TOTAL'].count}
-            <br><small style="color:rgba(255,255,255,0.5);">S/ ${datos['TOTAL'].monto.toFixed(2)}</small>
+        rowHtml += `<td style="font-weight:700; color:${esCorte?COLORS.amarillo:COLORS.amarillo};">
+            ${acum['TOTAL'].count}
+            <br><small style="color:rgba(255,255,255,0.5);">S/ ${acum['TOTAL'].monto.toFixed(2)}</small>
         </td></tr>`;
 
         html += rowHtml;
-    });
+    }
 
     tbody.innerHTML = html;
 
-    // Fila de totales
+    // 3️⃣  Fila de totales = acumulado hasta la hora de corte elegida
+    const acumCorte = {};
+    tiposActivos.forEach(t => { acumCorte[t] = { count: 0, monto: 0 }; });
+    acumCorte['TOTAL'] = { count: 0, monto: 0 };
+    for (let h = HORA_INICIO; h <= horaCorte; h++) {
+        tiposActivos.forEach(t => { acumCorte[t].count += porHora[h][t].count; acumCorte[t].monto += porHora[h][t].monto; });
+        acumCorte['TOTAL'].count += porHora[h]['TOTAL'].count;
+        acumCorte['TOTAL'].monto += porHora[h]['TOTAL'].monto;
+    }
+
     if (totalRow) {
-        let totHtml = `<td style="font-weight:700; color:white;">TOTAL</td>`;
+        let totHtml = `<td style="font-weight:700; color:${COLORS.amarillo};">
+            <i class="fa-solid fa-scissors"></i> Corte ${String(horaCorte).padStart(2,'0')}:59
+        </td>`;
         tiposActivos.forEach(tipo => {
             const col = PAGO_COLORS[tipo];
-            const d = totalesGlobales[tipo];
+            const d   = acumCorte[tipo];
             totHtml += `<td style="font-weight:700;">
                 <span style="color:${col.text};">${d.count}</span>
                 <br><small style="color:rgba(255,255,255,0.6);">S/ ${d.monto.toFixed(2)}</small>
             </td>`;
         });
         totHtml += `<td style="font-weight:700; color:${COLORS.amarillo};">
-            ${totalesGlobales['TOTAL'].count}
-            <br><small style="color:rgba(255,255,255,0.6);">S/ ${totalesGlobales['TOTAL'].monto.toFixed(2)}</small>
+            ${acumCorte['TOTAL'].count}
+            <br><small style="color:rgba(255,255,255,0.6);">S/ ${acumCorte['TOTAL'].monto.toFixed(2)}</small>
         </td>`;
         totalRow.innerHTML = totHtml;
     }
@@ -596,18 +637,31 @@ function getDashboardHTML() {
         <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-validadores"></canvas></div>
     </div>
 
-    <!-- ── TABLA CORTE POR HORA (NUEVA) ── -->
+    <!-- ── TABLA CORTE ACUMULADO POR HORA ── -->
     <div class="glass-panel" style="padding:16px; margin-bottom:20px;">
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
-            <i class="fa-solid fa-clock" style="color:${COLORS.cyan};"></i>
-            <span style="font-weight:700; font-size:1em;">Corte por Hora — Cuadre por Tipo de Pago</span>
-            <span style="font-size:0.75em; color:rgba(255,255,255,0.4); margin-left:auto;">Solo pedidos validados</span>
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+            <i class="fa-solid fa-scissors" style="color:${COLORS.amarillo};"></i>
+            <span style="font-weight:700; font-size:1em;">Cuadre Acumulado por Hora</span>
+            <span style="font-size:0.75em; color:rgba(255,255,255,0.4);">Acumula desde las 08:00 AM hasta la hora elegida · Solo validados</span>
+            <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+                <label style="font-size:0.82em; color:rgba(255,255,255,0.6); white-space:nowrap;">
+                    <i class="fa-solid fa-clock"></i> Hora de corte:
+                </label>
+                <select id="dash-corte-hora-sel"
+                    style="background:rgba(250,204,21,0.12); border:1px solid rgba(250,204,21,0.4);
+                           color:${COLORS.amarillo}; border-radius:8px; padding:6px 10px;
+                           font-weight:700; font-size:0.9em; cursor:pointer;">
+                    ${Array.from({length:16},(_,i)=>i+8).map(h =>
+                        `<option value="${h}" ${h===23?'selected':''}>${String(h).padStart(2,'0')}:59</option>`
+                    ).join('')}
+                </select>
+            </div>
         </div>
         <div style="overflow-x:auto;">
             <table class="orders-table" style="min-width:600px;">
                 <thead>
                     <tr>
-                        <th style="width:130px;">Franja Horaria</th>
+                        <th style="width:140px;">Hora de corte</th>
                         ${['TARJETA','QR','ONLINE','EFECTIVO'].map(tipo => `
                         <th style="color:${PAGO_COLORS[tipo].text};">
                             <i class="fa-solid ${PAGO_COLORS[tipo].icon}"></i> ${tipo}
@@ -619,7 +673,9 @@ function getDashboardHTML() {
                     <tr><td colspan="6" style="text-align:center; opacity:0.5; padding:20px;">Cargando...</td></tr>
                 </tbody>
                 <tfoot>
-                    <tr id="dash-corte-horas-total" style="background:rgba(255,255,255,0.05); font-weight:700; border-top:2px solid rgba(255,255,255,0.15);">
+                    <tr id="dash-corte-horas-total"
+                        style="background:rgba(250,204,21,0.08); font-weight:700;
+                               border-top:2px solid rgba(250,204,21,0.3);">
                     </tr>
                 </tfoot>
             </table>
