@@ -84,6 +84,56 @@ function getHoraEntrega(o) {
     return null;
 }
 
+// NUEVO: Devuelve hora formateada HH:MM de o.hora_entrega
+function getHoraEntregaStr(o) {
+    if (!o.hora_entrega) return '--';
+    const s = String(o.hora_entrega).trim();
+    try {
+        if (s.includes('T')) {
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) {
+                return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+            }
+        }
+        const parts = s.split(':');
+        if (parts.length >= 2) {
+            return `${String(parseInt(parts[0],10)).padStart(2,'0')}:${String(parseInt(parts[1],10)).padStart(2,'0')}`;
+        }
+    } catch(e) {}
+    return '--';
+}
+
+// NUEVO: Obtiene hora para filtro (entrega para válidos, pedido para cancelados)
+function getHoraParaFiltro(o) {
+    if (esCancelado(o)) {
+        // Cancelados: usan hora del pedido (fecha)
+        const d = dashParseDate(o.fecha);
+        return d ? d.getHours() : null;
+    }
+    // Válidos: usan hora de entrega
+    return getHoraEntrega(o);
+}
+
+// NUEVO: Obtiene string de hora para mostrar en tabla
+function getHoraParaMostrar(o) {
+    if (esCancelado(o)) {
+        // Cancelados: muestran hora del pedido con indicador
+        const d = dashParseDate(o.fecha);
+        if (!d) return '--';
+        return {
+            hora: `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`,
+            esPedido: true,
+            tooltip: 'Hora en que se realizó el pedido (no tiene hora de entrega)'
+        };
+    }
+    // Válidos: hora de entrega normal
+    return {
+        hora: getHoraEntregaStr(o),
+        esPedido: false,
+        tooltip: 'Hora de entrega'
+    };
+}
+
 function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
 function destroyChart(key) { if (dashCharts[key]) { dashCharts[key].destroy(); delete dashCharts[key]; } }
 function baseOptions(extra = {}) { return Object.assign({}, CHART_DEFAULTS, extra); }
@@ -376,8 +426,8 @@ function renderChartValidadores() {
 }
 
 // ============================================================
-// LISTADO INFERIOR — refleja TODOS los filtros + corte por hora de PEDIDO
-// Usa o.fecha (hora del pedido) para filtrar y mostrar — siempre disponible
+// LISTADO INFERIOR — refleja TODOS los filtros + corte por hora de ENTREGA
+// Válidos: hora de entrega | Cancelados: hora del pedido (fallback)
 // ============================================================
 function renderListado() {
     const tbody  = document.getElementById('dash-listado-body');
@@ -388,35 +438,28 @@ function renderListado() {
     const hSel      = document.getElementById('dash-corte-hora-sel');
     const horaCorte = hSel ? parseInt(hSel.value) : 23;
 
-    // Helper: hora del pedido desde o.fecha
-    const getHoraPedido = (o) => {
-        const d = dashParseDate(o.fecha);
-        return d ? d.getHours() : null;
-    };
-
-    // Helper: hora formateada HH:MM desde o.fecha
-    const getHoraPedidoStr = (o) => {
-        const d = dashParseDate(o.fecha);
-        if (!d) return '--';
-        return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    };
-
-    // Filtrar por hora de pedido <= horaCorte
+    // Filtrar por hora correspondiente (entrega para válidos, pedido para cancelados)
     const pedidos = dashOrders.filter(o => {
         if (o.estado === 'Validado') {
             if (!activePagos.has(clasificarPago(o))) return false;
-            const h = getHoraPedido(o);
+            const h = getHoraEntrega(o); // Hora de entrega para válidos
             if (h === null) return false;
             return h <= horaCorte;
         }
         if (esCancelado(o)) {
             if (!activePagos.has('CANCELADO')) return false;
-            const h = getHoraPedido(o);
+            const h = getHoraParaFiltro(o); // Hora del pedido para cancelados (fallback)
             if (h === null) return false;
             return h <= horaCorte;
         }
         return false;
     }).sort((a, b) => {
+        // Ordenar por hora de entrega/pedido ascendente
+        const hA = getHoraParaFiltro(a) ?? 99;
+        const hB = getHoraParaFiltro(b) ?? 99;
+        if (hA !== hB) return hA - hB;
+        // Si misma hora: válidos primero, luego por fecha descendente
+        if (esCancelado(a) !== esCancelado(b)) return esCancelado(a) ? 1 : -1;
         const dA = dashParseDate(a.fecha);
         const dB = dashParseDate(b.fecha);
         return (dB ? dB.getTime() : 0) - (dA ? dA.getTime() : 0);
@@ -441,13 +484,14 @@ function renderListado() {
         totales.TOTAL.monto += monto;
     });
 
-    // Info descriptiva
+    // Info descriptiva actualizada
     const driverLabel = (document.getElementById('dash-driver').value || '');
     const pagosLabel  = [...activePagos].join(', ');
     if (infoEl) {
-        infoEl.textContent =
+        infoEl.innerHTML =
             `${pedidos.length} registros` +
-            ` · Hora pedido hasta ${String(horaCorte).padStart(2,'0')}:59` +
+            ` · Corte: válidos hasta ${String(horaCorte).padStart(2,'0')}:59 (entrega)` +
+            ` · Cancelados hasta ${String(horaCorte).padStart(2,'0')}:59 (pedido)` +
             (driverLabel ? ` · ${driverLabel}` : ' · Todos los repartidores') +
             ` · Filtros: ${pagosLabel}`;
     }
@@ -459,15 +503,28 @@ function renderListado() {
         return;
     }
 
-    // Filas
+    // Filas con indicadores visuales de hora
     tbody.innerHTML = pedidos.map(o => {
         const isCan   = esCancelado(o);
-        const hr      = getHoraPedidoStr(o);   // siempre completa: HH:MM
+        const horaData = getHoraParaMostrar(o); // Nuevo sistema de hora
         const tipo    = isCan ? 'CANCELADO' : clasificarPago(o);
         const col     = PAGO_COLORS[tipo]?.text || COLORS.gris;
         const estCol  = isCan ? COLORS.rojo : COLORS.verde;
         const estLabel = isCan ? (o.estado || 'Cancelado') : 'Validado';
-        return `<tr style="${isCan ? 'opacity:0.75;' : ''}">
+        
+        // Indicador visual para cancelados (hora de pedido)
+        const horaDisplay = isCan 
+            ? `<span style="opacity:0.7;">${horaData.hora}</span> <span style="font-size:0.75em; opacity:0.5; font-weight:400;">(pedido)</span>`
+            : horaData.hora;
+            
+        const horaStyle = isCan 
+            ? `color:${COLORS.rojo}; font-style:italic;` 
+            : `color:rgba(255,255,255,0.9); font-weight:700;`;
+        
+        const rowStyle = isCan ? 'opacity:0.75;' : '';
+        const tooltip = isCan ? 'title="Hora en que se realizó el pedido (cancelado, sin entrega)"' : '';
+
+        return `<tr style="${rowStyle}" ${tooltip}>
             <td style="text-align:left; font-family:monospace; font-size:0.92em; letter-spacing:0.03em;">${o.llave}</td>
             <td style="text-align:center; color:${estCol}; font-weight:bold;">${estLabel}</td>
             <td style="text-align:right; font-weight:600;">S/ ${parseFloat(o.monto||0).toFixed(2)}</td>
@@ -475,7 +532,9 @@ function renderListado() {
             <td style="text-align:left; color:${col}; font-weight:600;">
                 <i class="fa-solid ${PAGO_COLORS[tipo]?.icon || 'fa-circle'}" style="margin-right:5px;"></i>${tipo}
             </td>
-            <td style="text-align:center; font-weight:700; color:rgba(255,255,255,0.9); font-size:0.95em;">${hr}</td>
+            <td style="text-align:center; font-size:0.95em; ${horaStyle}">
+                ${horaDisplay}
+            </td>
         </tr>`;
     }).join('');
 
@@ -599,6 +658,10 @@ function getDashboardHTML() {
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
             <i class="fa-solid fa-list-check" style="color:${COLORS.cyan};"></i>
             <span style="font-weight:700; font-size:1em;">Listado de Pedidos</span>
+            <span style="font-size:0.7em; color:rgba(255,255,255,0.4); margin-left:auto;">
+                <i class="fa-solid fa-info-circle"></i> 
+                Válidos: hora de entrega | Cancelados: hora de pedido
+            </span>
         </div>
         <div id="dash-listado-info"
              style="font-size:0.75em; color:rgba(255,255,255,0.4); margin-bottom:10px;
@@ -620,7 +683,7 @@ function getDashboardHTML() {
                         <th style="text-align:right;">Monto</th>
                         <th style="text-align:left;">Repartidor</th>
                         <th style="text-align:left;">Tipo Pago</th>
-                        <th style="text-align:center;">Hora Pedido</th>
+                        <th style="text-align:center;">Hora <span style="font-size:0.75em; opacity:0.6;">(Entrega/Pedido)</span></th>
                     </tr>
                 </thead>
                 <tbody id="dash-listado-body"></tbody>
