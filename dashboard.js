@@ -417,11 +417,9 @@ function renderListado() {
         }
         return false;
     }).sort((a, b) => {
-        // Ordenar por hora de pedido ascendente, cancelados al final
-        const esCanA = esCancelado(a) ? 1 : 0;
-        const esCanB = esCancelado(b) ? 1 : 0;
-        if (esCanA !== esCanB) return esCanA - esCanB;
-        return (getHoraPedido(a) ?? 0) - (getHoraPedido(b) ?? 0);
+        const dA = dashParseDate(a.fecha);
+        const dB = dashParseDate(b.fecha);
+        return (dB ? dB.getTime() : 0) - (dA ? dA.getTime() : 0);
     });
 
     // Totales
@@ -470,14 +468,14 @@ function renderListado() {
         const estCol  = isCan ? COLORS.rojo : COLORS.verde;
         const estLabel = isCan ? (o.estado || 'Cancelado') : 'Validado';
         return `<tr style="${isCan ? 'opacity:0.75;' : ''}">
-            <td>${o.llave}</td>
-            <td style="color:${estCol}; font-weight:bold;">${estLabel}</td>
-            <td>S/ ${parseFloat(o.monto||0).toFixed(2)}</td>
-            <td>${o.envio || '-'}</td>
-            <td style="color:${col}; font-weight:600;">
-                <i class="fa-solid ${PAGO_COLORS[tipo]?.icon || 'fa-circle'}" style="margin-right:4px;"></i>${tipo}
+            <td style="text-align:left; font-family:monospace; font-size:0.92em; letter-spacing:0.03em;">${o.llave}</td>
+            <td style="text-align:center; color:${estCol}; font-weight:bold;">${estLabel}</td>
+            <td style="text-align:right; font-weight:600;">S/ ${parseFloat(o.monto||0).toFixed(2)}</td>
+            <td style="text-align:left;">${o.envio || '-'}</td>
+            <td style="text-align:left; color:${col}; font-weight:600;">
+                <i class="fa-solid ${PAGO_COLORS[tipo]?.icon || 'fa-circle'}" style="margin-right:5px;"></i>${tipo}
             </td>
-            <td style="font-weight:600; color:rgba(255,255,255,0.8);">${hr}</td>
+            <td style="text-align:center; font-weight:700; color:rgba(255,255,255,0.9); font-size:0.95em;">${hr}</td>
         </tr>`;
     }).join('');
 
@@ -607,14 +605,22 @@ function getDashboardHTML() {
                     padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.07);"></div>
         <div style="overflow-x:auto;">
             <table class="orders-table">
+                <colgroup>
+                    <col style="width:18%">
+                    <col style="width:12%">
+                    <col style="width:12%">
+                    <col style="width:20%">
+                    <col style="width:26%">
+                    <col style="width:12%">
+                </colgroup>
                 <thead>
                     <tr>
-                        <th>Llave</th>
-                        <th>Estado</th>
-                        <th>Monto</th>
-                        <th>Repartidor</th>
-                        <th>Tipo Pago</th>
-                        <th>Hora Pedido</th>
+                        <th style="text-align:left;">Llave</th>
+                        <th style="text-align:center;">Estado</th>
+                        <th style="text-align:right;">Monto</th>
+                        <th style="text-align:left;">Repartidor</th>
+                        <th style="text-align:left;">Tipo Pago</th>
+                        <th style="text-align:center;">Hora Pedido</th>
                     </tr>
                 </thead>
                 <tbody id="dash-listado-body"></tbody>
