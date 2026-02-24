@@ -103,39 +103,33 @@ function initDashboard() {
 function renderDashboard() {
     const fromVal = document.getElementById('dash-from').value;
     const toVal = document.getElementById('dash-to').value;
-    const corteVal = document.getElementById('dash-corte').value;
-    const driverVal = (document.getElementById('dash-driver').value || '').toLowerCase().trim();
-    const selectedPayTypes = Array.from(document.querySelectorAll('.pay-filter:checked')).map(cb => cb.value);
+    const driver = (document.getElementById('dash-driver').value || '').toLowerCase().trim();
 
     dashOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
         let ok = true;
-        const d = dashParseDate(o.fecha);
-        if (!d) return false;
-
-        // 1. Filtro de Fechas
-        const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        if (fromVal) { const f = new Date(fromVal + 'T00:00:00'); ok = ok && dateOnly >= f; }
-        if (toVal) { const t = new Date(toVal + 'T00:00:00'); ok = ok && dateOnly <= t; }
-
-        // 2. Filtro de Driver
-        if (driverVal) ok = ok && (o.envio || '').toLowerCase().includes(driverVal);
-
-        // 3. Filtro de Cortes Horarios (Acumulativos)
-        const horaDecimal = d.getHours() + (d.getMinutes() / 60);
-        if (corteVal === '4pm') ok = ok && horaDecimal <= 16;
-        else if (corteVal === '9pm') ok = ok && horaDecimal <= 21;
-
-        // 4. Filtro de Tipo de Pago
-        const tipo = (o.tipo_pago_val || o.tipo_pago || '').toString().toUpperCase();
-        const matchesPago = selectedPayTypes.some(t => {
-            if (t === 'TARJETA') return tipo.includes('TARJETA') || tipo.includes('POS');
-            if (t === 'QR') return tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN');
-            return tipo.includes(t);
-        });
-        ok = ok && matchesPago;
-
+        if (fromVal || toVal) {
+            const d = dashParseDate(o.fecha);
+            if (!d) return false;
+            const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            
+            if (fromVal) { 
+                const f = new Date(fromVal + 'T00:00:00'); 
+                ok = ok && dateOnly >= f; 
+            }
+            if (toVal) { 
+                const t = new Date(toVal + 'T00:00:00'); 
+                ok = ok && dateOnly <= t; 
+            }
+        }
+        if (driver) ok = ok && (o.envio || '').toLowerCase().includes(driver);
         return ok;
     });
+
+    const allDrivers = [...new Set((typeof orders !== 'undefined' ? orders : []).map(o => o.envio).filter(Boolean))].sort();
+    const dashDriver = document.getElementById('dash-driver');
+    if (dashDriver && dashDriver.options.length <= 1) {
+        allDrivers.forEach(d => { const opt = document.createElement('option'); opt.value = d; opt.textContent = d; dashDriver.appendChild(opt); });
+    }
 
     renderKPIs();
     renderChartPorDia();
@@ -361,99 +355,36 @@ function renderChartValidadores() {
 
 function renderTablaDia() {
     const tbody = document.getElementById('dash-tabla-body');
-    const tfoot = document.getElementById('dash-tabla-footer');
-    if (!tbody || !tfoot) return;
-
+    if (!tbody) return;
     tbody.innerHTML = '';
-    tfoot.innerHTML = '';
-
-    let sumTotal = 0, sumTarjeta = 0, sumQR = 0, sumEfectivo = 0, sumOnline = 0;
-
-    const listado = [...dashOrders].sort((a,b) => (b.nro || 0) - (a.nro || 0));
-
-    listado.forEach(o => {
-        const monto = parseFloat(o.monto || 0);
-        const tipo = (o.tipo_pago_val || o.tipo_pago || '').toString().toUpperCase();
-        
-        sumTotal += monto;
-
-        // Sumar a cada subtotal
-        if (tipo.includes('TARJETA') || tipo.includes('POS')) sumTarjeta += monto;
-        else if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) sumQR += monto;
-        else if (tipo.includes('EFECTIVO')) sumEfectivo += monto;
-        else if (tipo.includes('ONLINE')) sumOnline += monto;
-
+    const recientes = [...dashOrders].sort((a,b) => b.nro - a.nro).slice(0, 20);
+    recientes.forEach(o => {
         const d = dashParseDate(o.fecha);
         const hr = d ? d.toLocaleTimeString('es-PE', { hour:'2-digit', minute:'2-digit' }) : '';
-        const estCol = o.estado === 'Validado' ? COLORS.verde : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? COLORS.rojo : COLORS.amarillo);
-
+        const estCol = o.estado === 'Validado' ? COLORS.verde : o.estado === 'Cancelado' || o.estado === 'Rechazado' ? COLORS.rojo : COLORS.amarillo;
         tbody.insertAdjacentHTML('beforeend', `
             <tr>
                 <td>${o.llave}</td>
                 <td style="color:${estCol}; font-weight:bold;">${o.estado}</td>
-                <td style="font-weight:bold;">S/ ${monto.toFixed(2)}</td>
+                <td>S/ ${parseFloat(o.monto||0).toFixed(2)}</td>
                 <td>${o.envio || '-'}</td>
-                <td style="font-size:0.85em;">${tipo || '-'}</td>
+                <td>${(o.tipo_pago_val || o.tipo_pago || '-').toUpperCase()}</td>
                 <td>${hr}</td>
             </tr>`);
     });
-
-    // Inyectar el resumen de caja en el pie de la tabla
-    tfoot.innerHTML = `
-        <tr style="background: rgba(0, 0, 0, 0.4); border-top: 2px solid #60a5fa;">
-            <td colspan="6" style="padding: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                    <div style="display: flex; gap: 20px; font-size: 0.85em;">
-                        <div style="color: #a78bfa;"><strong>💳 Tarjeta:</strong> S/ ${sumTarjeta.toFixed(2)}</div>
-                        <div style="color: #2dd4bf;"><strong>📱 QR:</strong> S/ ${sumQR.toFixed(2)}</div>
-                        <div style="color: #4ade80;"><strong>💵 Efectivo:</strong> S/ ${sumEfectivo.toFixed(2)}</div>
-                        <div style="color: #60a5fa;"><strong>🌐 Online:</strong> S/ ${sumOnline.toFixed(2)}</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <span style="color: #60a5fa; font-weight: bold; margin-right: 10px;">TOTAL FILTRADO:</span>
-                        <span style="color: #fff; font-size: 1.3em; font-weight: bold; background: rgba(96, 165, 250, 0.2); padding: 5px 12px; border-radius: 8px; border: 1px solid #60a5fa;">
-                            S/ ${sumTotal.toFixed(2)}
-                        </span>
-                    </div>
-                </div>
-            </td>
-        </tr>`;
 }
 
 function getDashboardHTML() {
     return `
 <div id="dashboard-view" style="display:none; padding:20px; overflow-y:auto; height:100%;">
-    <div class="glass-panel" style="padding:16px; margin-bottom:20px; display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
-        <div style="display:flex; gap:10px; align-items:center;">
-            <i class="fa-solid fa-clock-rotate-left"></i>
-            <select id="dash-corte" style="padding:8px; border-radius:8px; background:rgba(0,0,0,0.2); color:white; border:1px solid rgba(255,255,255,0.1);">
-                <option value="todo">Día Completo</option>
-                <option value="4pm">Corte 1 (Hasta las 4:00 PM)</option>
-                <option value="9pm">Corte 2 (Hasta las 9:00 PM)</option>
-            </select>
-        </div>
-
-        <div style="display:flex; gap:10px; align-items:center;">
-            <input type="date" id="dash-from">
-            <input type="date" id="dash-to">
-        </div>
-
-        <select id="dash-driver" style="padding:8px; border-radius:8px; background:rgba(0,0,0,0.2); color:white; border:1px solid rgba(255,255,255,0.1);">
-            <option value="">Todos los repartidores</option>
-        </select>
-
-        <div style="display:flex; gap:12px; align-items:center; background:rgba(255,255,255,0.05); padding:8px 15px; border-radius:10px; border:1px solid rgba(255,255,255,0.1);">
-            <span style="font-size:0.85em; font-weight:600; color:#60a5fa;">PAGOS:</span>
-            <label style="font-size:0.8em; cursor:pointer;"><input type="checkbox" class="pay-filter" value="TARJETA" checked> Tarjeta</label>
-            <label style="font-size:0.8em; cursor:pointer;"><input type="checkbox" class="pay-filter" value="QR" checked> QR</label>
-            <label style="font-size:0.8em; cursor:pointer;"><input type="checkbox" class="pay-filter" value="ONLINE" checked> Online</label>
-            <label style="font-size:0.8em; cursor:pointer;"><input type="checkbox" class="pay-filter" value="EFECTIVO" checked> Efectivo</label>
-        </div>
-
+    <div class="glass-panel" style="padding:16px; margin-bottom:20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <i class="fa-solid fa-filter"></i>
+        <input type="date" id="dash-from">
+        <input type="date" id="dash-to">
+        <select id="dash-driver"><option value="">Todos los repartidores</option></select>
         <button id="dash-filter-btn" class="btn-primary">Aplicar</button>
         <button id="dash-reset-btn" class="btn-secondary">Reset</button>
     </div>
-
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px;">
         ${kpiCard('kpi-total', 'fa-list-ol', 'Total', '0', COLORS.azul)}
         ${kpiCard('kpi-validados', 'fa-check-circle', 'Validados', '0', COLORS.verde)}
@@ -468,7 +399,6 @@ function getDashboardHTML() {
             <div id="kpi-sla-base" style="font-size:0.6em;">0 fuera de 0</div>
         </div>
     </div>
-
     <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
         <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-por-dia"></canvas></div>
         <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-pagos"></canvas></div>
@@ -477,16 +407,23 @@ function getDashboardHTML() {
         <div class="glass-panel" style="padding:16px; height:300px;"><canvas id="chart-repartidores"></canvas></div>
         <div class="glass-panel" style="padding:16px; height:300px;"><canvas id="chart-cancelaciones"></canvas></div>
     </div>
-
-    <div class="glass-panel" style="padding:16px;">
-        <h4 style="margin-bottom:10px; font-size:0.9em; color:rgba(255,255,255,0.6);">Detalle de registros filtrados</h4>
-        <table class="orders-table">
-            <thead>
-                <tr><th>Llave</th><th>Estado</th><th>Monto</th><th>Repartidor</th><th>Pago</th><th>Hora</th></tr>
-            </thead>
-            <tbody id="dash-tabla-body"></tbody>
-            <tfoot id="dash-tabla-footer"></tfoot>
-        </table>
+    <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px;">
+        <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-horas"></canvas></div>
+        <div class="glass-panel" style="padding:16px; height:250px;"><canvas id="chart-validadores"></canvas></div>
     </div>
+    <div class="glass-panel" style="padding:16px;"><table class="orders-table"><thead><tr><th>Llave</th><th>Estado</th><th>Monto</th><th>Repartidor</th><th>Pago</th><th>Hora</th></tr></thead><tbody id="dash-tabla-body"></tbody></table></div>
 </div>`;
 }
+
+function kpiCard(id, icon, label, def, col) {
+    return `<div class="glass-panel" style="padding:14px; border-left:3px solid ${col}; text-align:center;">
+        <div id="${id}" style="font-size:1.5em; font-weight:bold;">${def}</div>
+        <div style="font-size:0.7em; color:gray;">${label}</div>
+    </div>`;
+}
+
+document.addEventListener('DOMContentLoaded', () => { setTimeout(initDashboard, 100); });
+window.refreshDashboardIfVisible = function () { 
+    const v = document.getElementById('dashboard-view');
+    if (v && v.style.display !== 'none') renderDashboard(); 
+};
