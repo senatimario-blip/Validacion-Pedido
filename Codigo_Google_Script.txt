@@ -320,7 +320,7 @@ function processVoucherOCR(data) {
       }
 
       if (code !== 200) {
-        lastError = 'Error ' + code + ' en ' + model;
+        lastError = 'Error ' + code + ' en ' + model + ': ' + respText;
         continue;
       }
 
