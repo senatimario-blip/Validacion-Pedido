@@ -412,13 +412,27 @@ async function uploadPosSilently(file, orderKey) {
                     fotoBase64: base64Str
                 });
 
-                // Fire and forget (don't wait for response to not block user)
-                fetch(API_URL, {
+                // Wait for the response to see if there's an error
+                const response = await fetch(API_URL, {
                     method: 'POST',
                     body: jsonPayload
                 });
+                const result = await response.json();
+                console.log("Resultado de Google Drive subida silenciosa:", result);
+                if (!result.success) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Aviso',
+                        text: 'La foto se mandó por WhatsApp, pero hubo un error al guardarla en la Base de Datos: ' + (result.msg || 'Desconocido'),
+                        toast: true,
+                        position: 'bottom-end',
+                        showConfirmButton: false,
+                        timer: 5000
+                    });
+                }
                 resolve();
             } catch (e) {
+                console.error("Error catched en uploadPosSilently:", e);
                 resolve();
             }
         };
