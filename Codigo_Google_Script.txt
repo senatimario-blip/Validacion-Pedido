@@ -151,7 +151,6 @@ function validarPedido(data) {
   sheet.getRange(rowIndex, 18).setValue(data.tiempoTranscurrido || ""); // R: Tiempo Transcurrido
 
   return { success: true };
-  return { success: true };
 }
 
 // ============== ENDPOINT PARA LA APP DEL REPARTIDOR ==============
@@ -178,7 +177,7 @@ function guardarFotoOcrSilent(llaveBusqueda, fotoB64) {
   }
 
   try {
-    const rootFolder = DriveApp.getFolderById('17E5VjE0dO-WjFvE-N2e4vE5WvY2YyY'); // Usar ID quemado si existe, o buscar por nombre
+    const rootFolder = DriveApp.getFolderById('1yXvMbRZ2MAIaNkY0E1VGAr4e1y12L_W_'); // ID de la nueva carpeta FotosApp
     const mimeType = 'image/jpeg';
     const blob = Utilities.newBlob(Utilities.base64Decode(fotoB64), mimeType, 'pre_ocr_' + llaveTarget + '_' + Date.now() + '.jpg');
     const file = rootFolder.createFile(blob);
