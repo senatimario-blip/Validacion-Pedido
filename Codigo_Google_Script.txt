@@ -353,18 +353,29 @@ function processVoucherOCR_DriveUrl(data) {
   }
 
   try {
-    // 1. Fetch image from Google Drive URL (works for lh3.googleusercontent.com publicly readable links)
-    var response = UrlFetchApp.fetch(data.url);
-    var blob = response.getBlob();
+    // Extract file ID from typical Google Drive URLs
+    var fileId = null;
+    var match = data.url.match(/[\w-]{25,}/);
+    if (match) {
+      fileId = match[0];
+    }
+
+    if (!fileId) {
+      return { success: false, message: "No se pudo extraer el ID del archivo de la URL." };
+    }
+
+    // Call DriveApp to get the file internally using Apps Script permissions
+    var file = DriveApp.getFileById(fileId);
+    var blob = file.getBlob();
     var mimeType = blob.getContentType();
     var base64 = Utilities.base64Encode(blob.getBytes());
 
-    // 2. Delegate to existing Gemini OCR function
+    // Delegate to existing Gemini OCR function
     return processVoucherOCR({
       imageBase64: base64,
       mimeType: mimeType
     });
   } catch(e) {
-    return { success: false, message: "Error descargando o procesando imagen desde la nube: " + e.toString() };
+    return { success: false, message: "Error leyendo imagen nativa de Drive: " + e.toString() };
   }
 }
