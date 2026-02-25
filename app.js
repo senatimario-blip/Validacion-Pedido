@@ -629,6 +629,9 @@ window.openValidateModal = (nro) => {
     document.getElementById('photo-actions').classList.add('hidden');
     valPhotoAmountInput.value = '';
 
+    const vueltoInput = document.getElementById('val-vuelto-amount');
+    if (vueltoInput) vueltoInput.value = '';
+
     const ocrChipsContainer = document.getElementById('ocr-info-chips');
     if (ocrChipsContainer) {
         ocrChipsContainer.innerHTML = '';
