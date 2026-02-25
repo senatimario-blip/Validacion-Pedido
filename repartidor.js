@@ -341,27 +341,15 @@ function handlePhotoCapture(e, type) {
                 const compressedFile = new File([blob], `photo_${type}.jpg`, { type: 'image/jpeg' });
                 const blobUrl = URL.createObjectURL(compressedFile);
 
-                if (type === 'evidencia') {
-                    photoEvidenciaFile = compressedFile;
-                    previewEvidencia.src = blobUrl;
-                    previewEvidencia.classList.remove('hidden');
-                    // Style change
-                    btnUiEvidencia.classList.replace('border-slate-600', 'border-emerald-500');
-                    btnUiEvidencia.classList.replace('border-dashed', 'border-solid');
-                    iconEvidencia.classList.replace('bg-slate-700', 'bg-emerald-500');
-                    iconEvidencia.classList.replace('text-slate-300', 'text-white');
-                    iconEvidencia.innerHTML = '<i class="fa-solid fa-check"></i>';
-                } else {
-                    photoPosFile = compressedFile;
-                    previewPos.src = blobUrl;
-                    previewPos.classList.remove('hidden');
-                    // Style change
-                    btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
-                    btnUiPos.classList.replace('border-dashed', 'border-solid');
-                    iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
-                    iconPos.classList.replace('text-slate-300', 'text-white');
-                    iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
-                }
+                photoPosFile = compressedFile;
+                previewPos.src = blobUrl;
+                previewPos.classList.remove('hidden');
+                // Style change
+                btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
+                btnUiPos.classList.replace('border-dashed', 'border-solid');
+                iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
+                iconPos.classList.replace('text-slate-300', 'text-white');
+                iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
 
                 checkReadyToShare();
             }, 'image/jpeg', 0.8);
