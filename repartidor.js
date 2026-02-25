@@ -421,19 +421,24 @@ async function uploadPosSilently(file, orderKey) {
                 console.log("Resultado de Google Drive subida silenciosa:", result);
                 if (!result.success) {
                     Swal.fire({
-                        icon: 'warning',
-                        title: 'Aviso',
-                        text: 'La foto se mandó por WhatsApp, pero hubo un error al guardarla en la Base de Datos: ' + (result.msg || 'Desconocido'),
-                        toast: true,
-                        position: 'bottom-end',
-                        showConfirmButton: false,
-                        timer: 5000
+                        icon: 'error',
+                        title: 'Error de Google Drive',
+                        text: 'TÓMALE CAPTURA A ESTO: ' + (result.msg || 'Desconocido'),
+                        confirmButtonText: 'Entendido'
                     });
+                    resolve(false); // Indicates failure
+                    return;
                 }
-                resolve();
+                resolve(true); // Indicates success
             } catch (e) {
                 console.error("Error catched en uploadPosSilently:", e);
-                resolve();
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de Red Silencioso',
+                    text: 'TÓMALE CAPTURA A ESTO: ' + e.toString(),
+                    confirmButtonText: 'Entendido'
+                });
+                resolve(false);
             }
         };
         reader.readAsDataURL(file);
@@ -499,8 +504,15 @@ async function handleSendToWhatsApp() {
     btnEnviarWsp.classList.remove('animate-pulse');
 
     try {
-        // 1. Silent upload POS original para el Admin OCR (Fire and Forget)
-        uploadPosSilently(photoPosFile, selectedOrderForCapture.llave);
+        // 1. Silent upload POS original para el Admin OCR
+        const subidaExitosa = await uploadPosSilently(photoPosFile, selectedOrderForCapture.llave);
+
+        if (!subidaExitosa) {
+            // Restore button if the upload failed so they can try again or see the error
+            btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
+            btnEnviarWsp.removeAttribute('disabled');
+            return; // Stop here, don't fuse or send to whatsapp
+        }
 
         // 2. Fusionar fotos
         const fusedFile = await fusePhotos();
