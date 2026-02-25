@@ -447,48 +447,73 @@ async function handleSendToWhatsApp() {
         const llave = selectedOrderForCapture.llave || `PED-${selectedOrderForCapture.nro}`;
         const msgText = `✅ P. ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n⏱️ Tiempo Real: ${elapsedMinHtml} min\n💳 Tipo: ${selectedOrderForCapture.tipo_pago}\n🚴🏽 Repartidor: ${currentUser}`;
 
-        // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
-        if (navigator.canShare && navigator.canShare({ files: [photoToSend] })) {
-            await navigator.share({
-                title: 'Evidencia de Entrega',
-                text: msgText,
-                files: [photoToSend]
-            });
-            Swal.fire('¡Éxito!', 'Redirigiendo a WhatsApp...', 'success');
-        } else {
-            // Fallback si el dispositivo no soporta pasar archivos binarios directo (iOS viejo/Desktops)
-            Swal.fire({
-                icon: 'info',
-                title: 'Descarga tu foto',
-                text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda esta imagen y pásala junto con los datos copiados.',
-            });
-            // Copiar texto al portapapeles
-            try { await navigator.clipboard.writeText(msgText + "\n\n*Adjunta la foto que descargó el sistema.*"); } catch (e) { }
+        // Para que WhatsApp (Web Share API) funcione, necesita que el usuario acabe de hacer CLIC.
+        // Como la subida a Google Drive demora unos segundos, el navegador nos quitó ese "permiso de clic".
+        // La solución es pedirle al motorizado 1 clic final ("Continuar") para abrir WhatsApp exitosamente.
 
-            // Forzar descarga de la foto
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(photoToSend);
-            a.download = `entrega_${llave}.jpg`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-
-            // Redirigir a whatsapp universal sin archivo
-            window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-        }
-
-        // 6. Cerrar modal y limpiar
+        // Escondemos el modal negro de la cámara ya que la parte de Drive terminó
         modalCaptura.classList.add('hidden');
         modalCaptura.classList.remove('flex');
 
-        // Remove from list visually since it's delivered
-        currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
-        renderOrders();
+        Swal.fire({
+            title: '¡Foto Subida a la Oficina!',
+            text: 'Haz clic en el botón verde para compartirla por WhatsApp',
+            icon: 'success',
+            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
+            confirmButtonColor: '#25D366',
+            allowOutsideClick: false
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
+                    if (navigator.canShare && navigator.canShare({ files: [photoToSend] })) {
+                        await navigator.share({
+                            title: 'Evidencia de Entrega',
+                            text: msgText,
+                            files: [photoToSend]
+                        });
+                    } else {
+                        // Fallback si el dispositivo no soporta pasar archivos binarios directo (iOS viejo/Desktops)
+                        Swal.fire({
+                            icon: 'info',
+                            title: 'Descarga tu foto',
+                            text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda esta imagen y pásala junto con los datos copiados.',
+                        });
+                        // Copiar texto al portapapeles
+                        try { await navigator.clipboard.writeText(msgText + "\n\n*Adjunta la foto que descargó el sistema.*"); } catch (e) { }
+
+                        // Forzar descarga de la foto
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(photoToSend);
+                        a.download = `entrega_${llave}.jpg`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+
+                        // Redirigir a whatsapp universal sin archivo
+                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    }
+
+                    // 6. Eliminar el pedido de la lista visual porque ya fue entregado exitosamente
+                    currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
+                    renderOrders();
+
+                } catch (shareError) {
+                    if (shareError.name !== 'AbortError') { // AbortError es cuando el usuario cancela el diálogo de compartir
+                        Swal.fire('Error Compartiendo', shareError.message || shareError.toString(), 'error');
+                    }
+                }
+
+                // Restauramos el botón enviar por si se usa en la siguiente orden
+                btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar a WhatsApp</span>';
+                btnEnviarWsp.removeAttribute('disabled');
+            }
+        });
 
     } catch (e) {
         console.error(e);
-        if (e.name !== 'AbortError') { // AbortError es cuando el usuario cancela el share intencionalmente
-            Swal.fire('Error', 'Hubo un problema procesando las imágenes.', 'error');
+        if (e.name !== 'AbortError') {
+            Swal.fire('Error de Sistema', e.message || e.toString(), 'error');
             btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
             btnEnviarWsp.removeAttribute('disabled');
         } else {
