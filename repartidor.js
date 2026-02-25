@@ -306,17 +306,7 @@ function openCaptureModal(order) {
 }
 
 function resetModalState() {
-    photoEvidenciaFile = null;
     photoPosFile = null;
-
-    // Reset UI Evidencia
-    const eviUiClasses = ['bg-slate-800', 'border-slate-600', 'border-dashed'];
-    const eviIconClasses = ['bg-slate-700', 'text-slate-300'];
-    btnUiEvidencia.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
-    iconEvidencia.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
-    iconEvidencia.innerHTML = '<i class="fa-solid fa-box-open"></i>';
-    previewEvidencia.classList.add('hidden');
-    previewEvidencia.src = '';
 
     // Reset UI POS
     btnUiPos.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
