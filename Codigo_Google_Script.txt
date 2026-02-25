@@ -24,8 +24,9 @@ function doPost(e) {
       case 'marcarSLAFuera':      result = marcarSLAFuera(payload.nro, payload.fuera_sla); break;
       case 'guardarFotoOcr':      result = guardarFotoOcrSilent(payload.llave, payload.fotoBase64); break;
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
+      case 'processVoucherOCR_DriveUrl': result = processVoucherOCR_DriveUrl(payload); break;
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
-      default:                    result = { success: false, msg: 'Acción desconocida' }; break;
+      default:                    result = { success: false, message: 'Acción no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
   } catch (err) {
@@ -261,6 +262,22 @@ function rechazarPedido(data) {
   return { success: false, message: "Pedido no encontrado" };
 }
 
+function doPost(e) {
+  const action = e.parameter.action;
+  const data = JSON.parse(e.postData.contents);
+
+  if (action === 'getPedidos') return jsonResponse(getPedidos());
+  if (action === 'marcarSLAFuera') return jsonResponse(marcarSLAFuera(data.nro, data.fuera_sla));
+  if (action === 'validarPedido') return jsonResponse(validarPedido(data));
+  if (action === 'guardarFotoOcrSilent') return jsonResponse(guardarFotoOcrSilent(data.llaveBusqueda, data.fotoB64));
+  if (action === 'crearPedidosMasivos') return jsonResponse(crearPedidosMasivos(data));
+  if (action === 'crearPedido') return jsonResponse(crearPedido(data));
+  if (action === 'processVoucherOCR') return jsonResponse(processVoucherOCR(data));
+  if (action === 'processVoucherOCR_DriveUrl') return jsonResponse(processVoucherOCR_DriveUrl(data));
+  
+  return jsonResponse({ success: false, message: 'Acción no encontrada' }, 400);
+}
+
 // --- GEMINI VISION OCR ---
 
 function setGeminiKey(data) {
@@ -344,4 +361,26 @@ function processVoucherOCR(data) {
   }
 
   return { success: false, message: 'OCR falló: ' + lastError };
+}
+
+function processVoucherOCR_DriveUrl(data) {
+  if (!data.url) {
+    return { success: false, message: "No se proporcionó la URL de la imagen." };
+  }
+
+  try {
+    // 1. Fetch image from Google Drive URL (works for lh3.googleusercontent.com publicly readable links)
+    var response = UrlFetchApp.fetch(data.url);
+    var blob = response.getBlob();
+    var mimeType = blob.getContentType();
+    var base64 = Utilities.base64Encode(blob.getBytes());
+
+    // 2. Delegate to existing Gemini OCR function
+    return processVoucherOCR({
+      imageBase64: base64,
+      mimeType: mimeType
+    });
+  } catch(e) {
+    return { success: false, message: "Error descargando o procesando imagen desde la nube: " + e.toString() };
+  }
 }

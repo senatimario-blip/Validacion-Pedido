@@ -739,12 +739,18 @@ window.openValidateModal = (nro) => {
         }
     }
 
+    const autoScanGroup = document.getElementById('auto-scan-group');
     if (cleanUrl) {
         photoPreview.src = cleanUrl;
         photoPreview.classList.remove('hidden');
         uploadPlaceholder.classList.add('hidden');
         document.getElementById('photo-actions').classList.remove('hidden');
         document.getElementById('view-full-photo').href = cleanUrl;
+
+        // Show auto-scan if there is a URL
+        if (autoScanGroup) autoScanGroup.style.display = 'block';
+    } else {
+        if (autoScanGroup) autoScanGroup.style.display = 'none';
     }
 
     if (order.estado === 'Validado' && tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA' || (order.foto && (order.foto.includes('QR') || order.foto.includes('TARJETA')))) {
@@ -1549,6 +1555,65 @@ async function runOCR(file, rotation = 0) {
     ocrOverlay.classList.add('hidden');
     validateAmounts();
 }
+
+document.getElementById('btn-auto-scan')?.addEventListener('click', async () => {
+    if (!currentOrderForValidation || !currentOrderForValidation.foto) return;
+
+    const ocrOverlay = document.getElementById('ocr-overlay');
+    ocrOverlay.classList.remove('hidden');
+    valPhotoAmountInput.value = '';
+    valPhotoAmountInput.placeholder = 'Analizando en la nube...';
+    document.getElementById('val-fecha-entrega').value = '';
+    document.getElementById('val-hora-entrega').value = '';
+    document.getElementById('val-tiempo-transcurrido').textContent = '--';
+
+    try {
+        const response = await fetchAPI('processVoucherOCR_DriveUrl', {
+            url: currentOrderForValidation.foto
+        });
+
+        if (response.success && response.data) {
+            const d = response.data;
+            const amount = parseFloat(d.total) || 0;
+            const engine = `Gemini Cloud (${d.model || 'AI'})`;
+
+            if (amount > 0) {
+                valPhotoAmountInput.value = amount.toFixed(2);
+                itemDetected(amount);
+                processVoucherTimes(d.fecha || '', d.hora || '');
+
+                const valType = document.querySelector('input[name="valType"]:checked')?.value;
+                if (valType === 'pos') {
+                    setPosType(d.tipoPago || 'TARJETA');
+                }
+
+                showOcrInfoChips({
+                    amount: amount,
+                    fecha: d.fecha || '',
+                    hora: d.hora || '',
+                    tipoPago: d.tipoPago || 'TARJETA'
+                });
+
+                const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 4000 });
+                let detailParts = [`S/ ${amount.toFixed(2)}`];
+                if (d.fecha) detailParts.push(`📅 ${d.fecha}`);
+                if (d.hora) detailParts.push(`🕐 ${d.hora}`);
+                detailParts.push((d.tipoPago === 'QR') ? '📱 QR' : '💳 Tarjeta');
+                Toast.fire({ icon: 'success', title: `${engine}: ${detailParts.join(' | ')}` });
+            } else {
+                Swal.fire('Atención', 'Gemini Cloud no encontró un monto visible en la foto.', 'info');
+            }
+        } else {
+            throw new Error(response.message || 'Falló el OCR en la nube');
+        }
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Error de Escaneo Automático', 'No se pudo escanear directo de la nube: ' + err.message, 'error');
+    }
+
+    ocrOverlay.classList.add('hidden');
+    validateAmounts();
+});
 
 function showOcrInfoChips(data) {
     let container = document.getElementById('ocr-info-chips');

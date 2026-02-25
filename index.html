@@ -79,9 +79,7 @@
                 border-bottom: 1px solid rgba(255,255,255,0.08);
                 margin-bottom: 8px;
             ">
-                <img src="cabify-logo.png"
-                     alt="Cabify"
-                     style="
+                <img src="cabify-logo.png" alt="Cabify" style="
                         width: 100%;
                         max-width: 160px;
                         height: auto;
@@ -549,8 +547,15 @@
                                 placeholder="Nombre del repartidor..." list="drivers-list" autocomplete="off">
                         </div>
 
+                        <div class="form-group" id="auto-scan-group" style="display:none; margin-bottom: 15px;">
+                            <button type="button" id="btn-auto-scan" class="btn-primary full-width"
+                                style="background:var(--accent); display:flex; gap:8px; justify-content:center; align-items:center;">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Escanear Foto Guardada
+                            </button>
+                        </div>
+
                         <div class="form-group">
-                            <label id="lbl-monto-val">Monto Pagado</label>
+                            <label id="lbl-monto-val">Monto Pagado Manual / Re-escaneo</label>
                             <div class="input-with-ocr">
                                 <input type="number" id="val-photo-amount" step="0.01" placeholder="0.00">
                                 <button type="button" id="ocr-trigger-btn" class="btn-icon-small"
