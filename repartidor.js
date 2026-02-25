@@ -119,10 +119,10 @@ async function fetchDriverOrders() {
     stopAllTimers();
 
     try {
-        // En una v2 se podría crear un endpoint específico 'listarPedidosMotorizado'
-        // Por ahora reutilizamos listarPedidos y filtramos en cliente
-        const url = `${API_URL}?action=listarPedidos`;
-        const response = await fetch(url);
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'listarPedidos' })
+        });
         const data = await response.json();
 
         if (data.success) {
@@ -406,16 +406,16 @@ async function uploadPosSilently(file, orderKey) {
             const base64Str = reader.result.split(',')[1];
             try {
                 // Post silent hidden backup to keep OCR intact
-                const formData = new URLSearchParams();
-                formData.append('action', 'guardarFotoOcr'); // Requiere crear este mini action en Apps Script si no existe
-                formData.append('llave', orderKey);
-                formData.append('fotoBase64', base64Str);
+                const jsonPayload = JSON.stringify({
+                    action: 'guardarFotoOcr',
+                    llave: orderKey,
+                    fotoBase64: base64Str
+                });
 
                 // Fire and forget (don't wait for response to not block user)
                 fetch(API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData.toString()
+                    body: jsonPayload
                 });
                 resolve();
             } catch (e) {
