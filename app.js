@@ -749,6 +749,11 @@ window.openValidateModal = (nro) => {
 
         // Show auto-scan if there is a URL
         if (autoScanGroup) autoScanGroup.style.display = 'block';
+
+        // Disparar Auto Scan si NO ha sido validado ya
+        if (order.estado !== 'Validado') {
+            autoScanExistingPhoto(cleanUrl);
+        }
     } else {
         if (autoScanGroup) autoScanGroup.style.display = 'none';
     }
@@ -1556,64 +1561,48 @@ async function runOCR(file, rotation = 0) {
     validateAmounts();
 }
 
-document.getElementById('btn-auto-scan')?.addEventListener('click', async () => {
-    if (!currentOrderForValidation || !currentOrderForValidation.foto) return;
-
+// Funcionalidad de Auto Escaneo Inteligente (Reemplaza el Ctrl+V manual)
+async function autoScanExistingPhoto(url) {
+    if (!url) return;
     const ocrOverlay = document.getElementById('ocr-overlay');
     ocrOverlay.classList.remove('hidden');
     valPhotoAmountInput.value = '';
-    valPhotoAmountInput.placeholder = 'Analizando en la nube...';
-    document.getElementById('val-fecha-entrega').value = '';
-    document.getElementById('val-hora-entrega').value = '';
-    document.getElementById('val-tiempo-transcurrido').textContent = '--';
+    valPhotoAmountInput.placeholder = 'Extrayendo auto...';
 
     try {
-        const response = await fetchAPI('processVoucherOCR_DriveUrl', {
-            url: currentOrderForValidation.foto
-        });
-
-        if (response.success && response.data) {
-            const d = response.data;
-            const amount = parseFloat(d.total) || 0;
-            const engine = `Gemini Cloud (${d.model || 'AI'})`;
-
-            if (amount > 0) {
-                valPhotoAmountInput.value = amount.toFixed(2);
-                itemDetected(amount);
-                processVoucherTimes(d.fecha || '', d.hora || '');
-
-                const valType = document.querySelector('input[name="valType"]:checked')?.value;
-                if (valType === 'pos') {
-                    setPosType(d.tipoPago || 'TARJETA');
+        let file;
+        try {
+            // Intenta descargar la foto directamente
+            const response = await fetch(url);
+            const blob = await response.blob();
+            file = new File([blob], "auto-scan.jpg", { type: blob.type || 'image/jpeg' });
+        } catch (corsErr) {
+            // Si hay error CORS, usa el proxy del backend (obtenerFotoBase64)
+            const resp = await fetchAPI('obtenerFotoBase64', { url: url });
+            if (resp.success && resp.base64) {
+                const bstr = atob(resp.base64);
+                let n = bstr.length;
+                const u8arr = new Uint8Array(n);
+                while (n--) {
+                    u8arr[n] = bstr.charCodeAt(n);
                 }
-
-                showOcrInfoChips({
-                    amount: amount,
-                    fecha: d.fecha || '',
-                    hora: d.hora || '',
-                    tipoPago: d.tipoPago || 'TARJETA'
-                });
-
-                const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 4000 });
-                let detailParts = [`S/ ${amount.toFixed(2)}`];
-                if (d.fecha) detailParts.push(`📅 ${d.fecha}`);
-                if (d.hora) detailParts.push(`🕐 ${d.hora}`);
-                detailParts.push((d.tipoPago === 'QR') ? '📱 QR' : '💳 Tarjeta');
-                Toast.fire({ icon: 'success', title: `${engine}: ${detailParts.join(' | ')}` });
+                file = new File([u8arr], "auto-scan.jpg", { type: resp.mimeType || 'image/jpeg' });
             } else {
-                Swal.fire('Atención', 'Gemini Cloud no encontró un monto visible en la foto.', 'info');
+                throw new Error("No se pudo proxy la imagen");
             }
-        } else {
-            throw new Error(response.message || 'Falló el OCR en la nube');
+        }
+
+        // Corre el mismo motor de OCR de la app como si el usuario hubiera dado Ctrl+V
+        if (file) {
+            const valType = document.querySelector('input[name="valType"]:checked')?.value;
+            // Si el tipo es POS correrá Google Vision en el frontend (sin errores 403 de Gemini)
+            await runOCR(file, 0);
         }
     } catch (err) {
-        console.error(err);
-        Swal.fire('Error de Escaneo Automático', 'No se pudo escanear directo de la nube: ' + err.message, 'error');
+        console.warn('Auto Scan Silencioso falló:', err);
+        ocrOverlay.classList.add('hidden');
     }
-
-    ocrOverlay.classList.add('hidden');
-    validateAmounts();
-});
+}
 
 function showOcrInfoChips(data) {
     let container = document.getElementById('ocr-info-chips');
