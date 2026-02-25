@@ -1,19 +1,20 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Motorizado | Entregas</title>
-    
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <!-- FontAwesome para Íconos -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
+
     <!-- Configuracion de Tailwind (Mobile First) -->
     <script>
         tailwind.config = {
@@ -33,47 +34,63 @@
             background-color: #0f172a;
             color: #f8fafc;
             /* Evitar rebote en iOS/Android */
-            overscroll-behavior-y: none; 
+            overscroll-behavior-y: none;
         }
+
         .slide-up {
             animation: slideUp 0.3s ease-out forwards;
         }
+
         @keyframes slideUp {
-            from { transform: translateY(100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
         }
+
         /* Ocultar barra de scroll en contenedores */
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
+
         .no-scrollbar {
-            -ms-overflow-style: none; /* IE and Edge */
-            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none;
+            /* IE and Edge */
+            scrollbar-width: none;
+            /* Firefox */
         }
     </style>
 </head>
+
 <body class="min-h-screen bg-bgDark flex flex-col font-sans">
-    
+
     <!-- PANTALLA 1: LOGIN / SELECCIÓN DE REPARTIDOR -->
-    <div id="pantalla-login" class="flex flex-col items-center justify-center min-h-screen p-6 transition-opacity duration-300">
+    <div id="pantalla-login"
+        class="flex flex-col items-center justify-center min-h-screen p-6 transition-opacity duration-300">
         <div class="text-center mb-8">
             <i class="fa-solid fa-motorcycle text-5xl text-primary mb-4"></i>
             <h1 class="text-3xl font-bold">App Repartidor</h1>
             <p class="text-slate-400 mt-2">Ingresa tu código o nombre para ver tus entregas asignadas.</p>
         </div>
-        
+
         <div class="w-full max-w-sm bg-cardDark rounded-2xl p-6 shadow-xl border border-slate-700/50">
             <label class="block text-sm font-medium text-slate-300 mb-2">Nombre del Motorizado</label>
             <div class="relative">
                 <span class="absolute inset-y-0 left-0 flex items-center pl-3">
                     <i class="fa-solid fa-user text-slate-400"></i>
                 </span>
-                <input type="text" id="driver-name-input" 
+                <input type="text" id="driver-name-input"
                     class="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
                     placeholder="Ej. Victor L.">
             </div>
-            
-            <button id="btn-ingresar" class="w-full bg-primary hover:bg-blue-600 text-white font-bold rounded-xl py-4 mt-6 flex items-center justify-center gap-2 transition-colors active:scale-95">
+
+            <button id="btn-ingresar"
+                class="w-full bg-primary hover:bg-blue-600 text-white font-bold rounded-xl py-4 mt-6 flex items-center justify-center gap-2 transition-colors active:scale-95">
                 <span>Ingresar a Ruta</span>
                 <i class="fa-solid fa-arrow-right"></i>
             </button>
@@ -82,9 +99,10 @@
 
     <!-- PANTALLA 2: LISTADO DE PEDIDOS (Ruta Activa) -->
     <div id="pantalla-ruta" class="hidden flex-col h-screen slide-up relative">
-        
+
         <!-- Header Fijo -->
-        <header class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+        <header
+            class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
                     <i class="fa-solid fa-motorcycle"></i>
@@ -94,7 +112,8 @@
                     <p class="text-xs text-slate-400">En ruta • <span id="lbl-pedidos-count">0</span> pendientes</p>
                 </div>
             </div>
-            <button id="btn-actualizar" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 active:bg-slate-700">
+            <button id="btn-actualizar"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 active:bg-slate-700">
                 <i class="fa-solid fa-rotate-right"></i>
             </button>
         </header>
@@ -110,7 +129,8 @@
         </main>
 
         <!-- FAB (Boton Flotante) para ayuda o cerrar sesión -->
-        <button id="btn-cerrar-ruta" class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-300 px-6 py-2 rounded-full text-sm font-medium border border-slate-700 shadow-lg active:bg-slate-700 flex items-center gap-2">
+        <button id="btn-cerrar-ruta"
+            class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-300 px-6 py-2 rounded-full text-sm font-medium border border-slate-700 shadow-lg active:bg-slate-700 flex items-center gap-2">
             <i class="fa-solid fa-person-walking-arrow-right"></i>
             Terminar Ruta
         </button>
@@ -120,68 +140,61 @@
     <div id="modal-captura" class="fixed inset-0 bg-black/95 z-50 hidden flex-col transition-opacity">
         <div class="flex items-center justify-between p-4 border-b border-slate-800">
             <div>
-                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block">Realizando Entrega</span>
+                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block">Realizando
+                    Entrega</span>
                 <span class="text-xl font-bold" id="lbl-modal-llave">PED-000</span>
             </div>
-            <button id="btn-cerrar-modal" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-white">
+            <button id="btn-cerrar-modal"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-white">
                 <i class="fa-solid fa-xmark text-xl"></i>
             </button>
         </div>
 
         <div class="flex-1 p-6 flex flex-col items-center justify-center gap-6 overflow-y-auto">
-            
-            <div class="text-center mb-2">
-                <p class="text-slate-300">Toma ambas fotos para confirmar la entrega automáticamente.</p>
-            </div>
 
-            <!-- Boton Captura Evidencia (Fachada/Paquete) -->
-            <div class="w-full relative">
-                <input type="file" accept="image/*" capture="environment" id="input-foto-evidencia" class="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer">
-                <div id="btn-ui-evidencia" class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
-                    <div class="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl" id="icon-evidencia">
-                        <i class="fa-solid fa-box-open"></i>
-                    </div>
-                    <div class="text-center">
-                        <span class="font-bold text-lg block text-white">1. Foto de Evidencia</span>
-                        <span class="text-sm text-slate-400">Paquete, fachada o cliente</span>
-                    </div>
-                    <img id="preview-evidencia" class="hidden mt-2 rounded-lg max-h-32 object-cover w-full border border-slate-600">
-                </div>
+            <div class="text-center mb-2">
+                <p class="text-slate-300">Toma o sube la foto del comprobante para confirmar la entrega.</p>
             </div>
 
             <!-- Boton Captura POS/Pago -->
             <div class="w-full relative">
-                <input type="file" accept="image/*" capture="environment" id="input-foto-pos" class="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer">
-                <div id="btn-ui-pos" class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
-                    <div class="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl" id="icon-pos">
+                <input type="file" accept="image/*" capture="environment" id="input-foto-pos"
+                    class="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer">
+                <div id="btn-ui-pos"
+                    class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    <div class="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl"
+                        id="icon-pos">
                         <i class="fa-solid fa-receipt"></i>
                     </div>
                     <div class="text-center">
-                        <span class="font-bold text-lg block text-white" id="lbl-tipo-pago-modal">2. Foto de Pago</span>
+                        <span class="font-bold text-lg block text-white" id="lbl-tipo-pago-modal">Foto de Pago</span>
                         <span class="text-sm text-slate-400">Voucher POS, Billete o Captura</span>
                     </div>
-                    <img id="preview-pos" class="hidden mt-2 rounded-lg max-h-32 object-cover w-full border border-slate-600">
+                    <img id="preview-pos"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-slate-600">
                 </div>
             </div>
-            
-            <!-- Canvas Oculto para Fusionar -->
+
+            <!-- Canvas Oculto para Fusionar (Ya no se usa pero lo dejamos por si acaso) -->
             <canvas id="canvas-fusion" class="hidden"></canvas>
 
         </div>
 
         <!-- Footer Actions -->
         <div class="p-4 bg-cardDark border-t border-slate-800">
-            <button id="btn-enviar-wsp" disabled class="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
+            <button id="btn-enviar-wsp" disabled
+                class="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
                 <i class="fa-brands fa-whatsapp text-xl"></i>
                 <span class="text-lg">Enviar a WhatsApp</span>
             </button>
         </div>
     </div>
-    
+
     <!-- Audio para alerta 30min -->
     <!-- Se usará un tono corto codificado en base64 corto u oscilador puro en JS para evitar pedir descargar assets extra -->
-    
+
     <!-- Lógica de la App del Repartidor -->
     <script src="repartidor.js"></script>
 </body>
+
 </html>

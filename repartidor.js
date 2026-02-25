@@ -26,18 +26,12 @@ const lblTipoPagoModal = document.getElementById('lbl-tipo-pago-modal');
 const btnEnviarWsp = document.getElementById('btn-enviar-wsp');
 
 // Photo Inputs
-const inputEvidencia = document.getElementById('input-foto-evidencia');
 const inputPos = document.getElementById('input-foto-pos');
-const btnUiEvidencia = document.getElementById('btn-ui-evidencia');
 const btnUiPos = document.getElementById('btn-ui-pos');
-const iconEvidencia = document.getElementById('icon-evidencia');
 const iconPos = document.getElementById('icon-pos');
-const previewEvidencia = document.getElementById('preview-evidencia');
 const previewPos = document.getElementById('preview-pos');
-const canvasFusion = document.getElementById('canvas-fusion');
 
 // Data
-let photoEvidenciaFile = null;
 let photoPosFile = null;
 
 // Initialize
@@ -92,7 +86,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // File Inputs Handlers
-    inputEvidencia.addEventListener('change', (e) => handlePhotoCapture(e, 'evidencia'));
     inputPos.addEventListener('change', (e) => handlePhotoCapture(e, 'pos'));
 
     // Share to WhatsApp
@@ -389,7 +382,7 @@ function handlePhotoCapture(e, type) {
 }
 
 function checkReadyToShare() {
-    if (photoEvidenciaFile && photoPosFile) {
+    if (photoPosFile) {
         btnEnviarWsp.removeAttribute('disabled');
         btnEnviarWsp.classList.add('animate-pulse');
     } else {
@@ -444,60 +437,6 @@ async function uploadPosSilently(file, orderKey) {
         reader.readAsDataURL(file);
     });
 }
-
-function fusePhotos() {
-    return new Promise((resolve) => {
-        const img1 = new Image();
-        const img2 = new Image();
-        let loaded = 0;
-
-        const checkLoad = () => {
-            loaded++;
-            if (loaded === 2) {
-                // Resize both to same width for stacking
-                const targetWidth = 1000;
-                const srcAspect1 = img1.width / img1.height;
-                const srcAspect2 = img2.width / img2.height;
-
-                const targetHeight1 = targetWidth / srcAspect1;
-                const targetHeight2 = targetWidth / srcAspect2;
-
-                canvasFusion.width = targetWidth;
-                canvasFusion.height = targetHeight1 + targetHeight2;
-                const ctx = canvasFusion.getContext('2d');
-
-                // Draw white background
-                ctx.fillStyle = "#ffffff";
-                ctx.fillRect(0, 0, canvasFusion.width, canvasFusion.height);
-
-                // Draw Top (Evidencia)
-                ctx.drawImage(img1, 0, 0, targetWidth, targetHeight1);
-
-                // Draw Bottom (POS)
-                ctx.drawImage(img2, 0, targetHeight1, targetWidth, targetHeight2);
-
-                // Add watermark/Text overlay
-                ctx.fillStyle = "rgba(0,0,0,0.7)";
-                ctx.fillRect(0, targetHeight1 - 50, targetWidth, 100);
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "30px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText(`FUSIÓN AUTOMÁTICA O.K.`, targetWidth / 2, targetHeight1);
-
-                canvasFusion.toBlob((blob) => {
-                    resolve(new File([blob], `entrega_${selectedOrderForCapture.llave}.jpg`, { type: 'image/jpeg' }));
-                }, 'image/jpeg', 0.85);
-            }
-        };
-
-        img1.onload = checkLoad;
-        img2.onload = checkLoad;
-
-        img1.src = URL.createObjectURL(photoEvidenciaFile);
-        img2.src = URL.createObjectURL(photoPosFile);
-    });
-}
-
 async function handleSendToWhatsApp() {
     btnEnviarWsp.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-xl"></i> Procesando...';
     btnEnviarWsp.setAttribute('disabled', 'true');
@@ -514,8 +453,8 @@ async function handleSendToWhatsApp() {
             return; // Stop here, don't fuse or send to whatsapp
         }
 
-        // 2. Fusionar fotos
-        const fusedFile = await fusePhotos();
+        // 2. Usar la foto POS directamente (ya no hay fusión)
+        const photoToSend = photoPosFile;
 
         // 3. Calcular tiempo exacto
         let elapsedMinHtml = '--';
@@ -531,11 +470,11 @@ async function handleSendToWhatsApp() {
         const msgText = `✅ P. ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n⏱️ Tiempo Real: ${elapsedMinHtml} min\n💳 Tipo: ${selectedOrderForCapture.tipo_pago}\n🚴🏽 Repartidor: ${currentUser}`;
 
         // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
-        if (navigator.canShare && navigator.canShare({ files: [fusedFile] })) {
+        if (navigator.canShare && navigator.canShare({ files: [photoToSend] })) {
             await navigator.share({
                 title: 'Evidencia de Entrega',
                 text: msgText,
-                files: [fusedFile]
+                files: [photoToSend]
             });
             Swal.fire('¡Éxito!', 'Redirigiendo a WhatsApp...', 'success');
         } else {
@@ -543,14 +482,14 @@ async function handleSendToWhatsApp() {
             Swal.fire({
                 icon: 'info',
                 title: 'Descarga tu foto',
-                text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda esta imagen fusionada y pásala junto con los datos copiados.',
+                text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda esta imagen y pásala junto con los datos copiados.',
             });
             // Copiar texto al portapapeles
             try { await navigator.clipboard.writeText(msgText + "\n\n*Adjunta la foto que descargó el sistema.*"); } catch (e) { }
 
-            // Forzar descarga de la fusión
+            // Forzar descarga de la foto
             const a = document.createElement('a');
-            a.href = URL.createObjectURL(fusedFile);
+            a.href = URL.createObjectURL(photoToSend);
             a.download = `entrega_${llave}.jpg`;
             document.body.appendChild(a);
             a.click();
