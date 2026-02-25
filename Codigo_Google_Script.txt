@@ -20,7 +20,7 @@ function doPost(e) {
       case 'crearPedido':         result = crearPedido(payload); break;
       case 'validarPedido':       result = validarPedido(payload); break;
       case 'rechazarPedido':      result = rechazarPedido(payload); break;
-      case 'crearPedidosMasivos': result = crearPedidosMasivos(payload.pedidos); break;
+      case 'crearPedidosMasivos': result = crearPedidosMasivos(payload); break;
       case 'marcarSLAFuera':      result = marcarSLAFuera(payload.nro, payload.fuera_sla); break;
       case 'guardarFotoOcr':      result = guardarFotoOcrSilent(payload.llave, payload.fotoBase64); break;
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
