@@ -20,13 +20,14 @@ function doPost(e) {
       case 'crearPedido':         result = crearPedido(payload); break;
       case 'validarPedido':       result = validarPedido(payload); break;
       case 'rechazarPedido':      result = rechazarPedido(payload); break;
-      case 'crearPedidosMasivos': result = crearPedidosMasivos(payload); break;
-      case 'marcarSLAFuera':      result = marcarSLAFuera(payload); break;
+      case 'crearPedidosMasivos': result = crearPedidosMasivos(payload.pedidos); break;
+      case 'marcarSLAFuera':      result = marcarSLAFuera(payload.nro, payload.fuera_sla); break;
+      case 'guardarFotoOcr':      result = guardarFotoOcrSilent(payload.llave, payload.fotoBase64); break;
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
-      default: result = { success: false, message: "Acción desconocida" };
+      default:                    result = { success: false, msg: 'Acción desconocida' }; break;
     }
-    output.setContent(JSON.stringify(result));
+    return output.setContent(JSON.stringify(result));
   } catch (err) {
     output.setContent(JSON.stringify({ success: false, message: err.toString() }));
   }
@@ -82,15 +83,13 @@ function listarPedidos() {
   return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
 }
 
-function marcarSLAFuera(data) {
+function marcarSLAFuera(nro, fuera_sla) {
   const sheet = getSheet();
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0] == data.nro) {
-      const currentVal = rows[i][14];
-      const isEmpty = !currentVal || String(currentVal).trim() === '';
+    if (rows[i][0] == nro) {
       const cell = sheet.getRange(i + 1, 15);
-      if (isEmpty) {
+      if (fuera_sla) {
         cell.setValue(new Date()); // Marcar con fecha/hora actual
         return { success: true, marked: true };
       } else {
@@ -99,7 +98,7 @@ function marcarSLAFuera(data) {
       }
     }
   }
-  return { success: false, message: "Pedido no encontrado" };
+  return { success: false, msg: 'Pedido no encontrado para validar.' };
 }
 
 function validarPedido(data) {
@@ -152,6 +151,46 @@ function validarPedido(data) {
   sheet.getRange(rowIndex, 18).setValue(data.tiempoTranscurrido || ""); // R: Tiempo Transcurrido
 
   return { success: true };
+  return { success: true };
+}
+
+// ============== ENDPOINT PARA LA APP DEL REPARTIDOR ==============
+// Sube la foto pura a Drive y la asocia al Pedido sin validarlo aún.
+function guardarFotoOcrSilent(llaveBusqueda, fotoB64) {
+  if (!fotoB64 || !llaveBusqueda) return { success: false, msg: 'Faltan datos' };
+  
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  // Busca el pedido por Llave exacta (ignorando vacíos)
+  const llaveTarget = llaveBusqueda.toString().trim().toUpperCase();
+  let rowIndex = -1;
+  
+  for (let i = 1; i < data.length; i++) {
+    const llaveActual = (data[i][2] || '').toString().trim().toUpperCase(); // Columna C es indice 2 (Llave)
+    if (llaveActual === llaveTarget && llaveActual !== '') {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex === -1) {
+    return { success: false, msg: 'No se encontró la llave: ' + llaveTarget };
+  }
+
+  try {
+    const rootFolder = DriveApp.getFolderById('17E5VjE0dO-WjFvE-N2e4vE5WvY2YyY'); // Usar ID quemado si existe, o buscar por nombre
+    const mimeType = 'image/jpeg';
+    const blob = Utilities.newBlob(Utilities.base64Decode(fotoB64), mimeType, 'pre_ocr_' + llaveTarget + '_' + Date.now() + '.jpg');
+    const file = rootFolder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const link = file.getUrl();
+
+    // Guardar el enlace en la Columna E (Foto URL) sin tocar el resto (el estado sigue Pendiente)
+    sheet.getRange(rowIndex, 5).setValue(link);
+    return { success: true, url: link };
+  } catch (e) {
+    return { success: false, msg: 'Error de Drive: ' + e.message };
+  }
 }
 
 function crearPedidosMasivos(payload) {
