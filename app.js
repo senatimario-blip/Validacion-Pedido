@@ -739,23 +739,17 @@ window.openValidateModal = (nro) => {
         }
     }
 
-    const autoScanGroup = document.getElementById('auto-scan-group');
-    if (cleanUrl) {
+    if (cleanUrl && order.estado === 'Validado') {
         photoPreview.src = cleanUrl;
         photoPreview.classList.remove('hidden');
         uploadPlaceholder.classList.add('hidden');
         document.getElementById('photo-actions').classList.remove('hidden');
         document.getElementById('view-full-photo').href = cleanUrl;
-
-        // Show auto-scan if there is a URL
-        if (autoScanGroup) autoScanGroup.style.display = 'block';
-
-        // Disparar Auto Scan si NO ha sido validado ya
-        if (order.estado !== 'Validado') {
-            autoScanExistingPhoto(cleanUrl);
-        }
     } else {
-        if (autoScanGroup) autoScanGroup.style.display = 'none';
+        photoPreview.removeAttribute('src');
+        photoPreview.classList.add('hidden');
+        uploadPlaceholder.classList.remove('hidden');
+        document.getElementById('photo-actions').classList.add('hidden');
     }
 
     if (order.estado === 'Validado' && tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA' || (order.foto && (order.foto.includes('QR') || order.foto.includes('TARJETA')))) {
@@ -1561,48 +1555,6 @@ async function runOCR(file, rotation = 0) {
     validateAmounts();
 }
 
-// Funcionalidad de Auto Escaneo Inteligente (Reemplaza el Ctrl+V manual)
-async function autoScanExistingPhoto(url) {
-    if (!url) return;
-    const ocrOverlay = document.getElementById('ocr-overlay');
-    ocrOverlay.classList.remove('hidden');
-    valPhotoAmountInput.value = '';
-    valPhotoAmountInput.placeholder = 'Extrayendo auto...';
-
-    try {
-        let file;
-        try {
-            // Intenta descargar la foto directamente
-            const response = await fetch(url);
-            const blob = await response.blob();
-            file = new File([blob], "auto-scan.jpg", { type: blob.type || 'image/jpeg' });
-        } catch (corsErr) {
-            // Si hay error CORS, usa el proxy del backend (obtenerFotoBase64)
-            const resp = await fetchAPI('obtenerFotoBase64', { url: url });
-            if (resp.success && resp.base64) {
-                const bstr = atob(resp.base64);
-                let n = bstr.length;
-                const u8arr = new Uint8Array(n);
-                while (n--) {
-                    u8arr[n] = bstr.charCodeAt(n);
-                }
-                file = new File([u8arr], "auto-scan.jpg", { type: resp.mimeType || 'image/jpeg' });
-            } else {
-                throw new Error("No se pudo proxy la imagen");
-            }
-        }
-
-        // Corre el mismo motor de OCR de la app como si el usuario hubiera dado Ctrl+V
-        if (file) {
-            const valType = document.querySelector('input[name="valType"]:checked')?.value;
-            // Si el tipo es POS correrá Google Vision en el frontend (sin errores 403 de Gemini)
-            await runOCR(file, 0);
-        }
-    } catch (err) {
-        console.warn('Auto Scan Silencioso falló:', err);
-        ocrOverlay.classList.add('hidden');
-    }
-}
 
 function showOcrInfoChips(data) {
     let container = document.getElementById('ocr-info-chips');

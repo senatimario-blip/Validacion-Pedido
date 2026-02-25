@@ -24,7 +24,6 @@ function doPost(e) {
       case 'marcarSLAFuera':      result = marcarSLAFuera(payload.nro, payload.fuera_sla); break;
       case 'guardarFotoOcr':      result = guardarFotoOcrSilent(payload.llave, payload.fotoBase64); break;
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
-      case 'obtenerFotoBase64':   result = obtenerFotoBase64(payload); break;
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
     }
@@ -347,29 +346,3 @@ function processVoucherOCR(data) {
   return { success: false, message: 'OCR falló: ' + lastError };
 }
 
-function obtenerFotoBase64(data) {
-  if (!data.url) {
-    return { success: false, message: "No se proporcionó URL" };
-  }
-
-  try {
-    var fileId = null;
-    var match = data.url.match(/[\w-]{25,}/);
-    if (match) fileId = match[0];
-
-    var blob;
-    if (fileId) {
-      blob = DriveApp.getFileById(fileId).getBlob();
-    } else {
-      blob = UrlFetchApp.fetch(data.url).getBlob();
-    }
-
-    return { 
-      success: true, 
-      base64: Utilities.base64Encode(blob.getBytes()),
-      mimeType: blob.getContentType()
-    };
-  } catch(e) {
-    return { success: false, message: "Error Drive: " + e.toString() };
-  }
-}
