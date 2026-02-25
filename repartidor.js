@@ -31,8 +31,14 @@ const btnUiPos = document.getElementById('btn-ui-pos');
 const iconPos = document.getElementById('icon-pos');
 const previewPos = document.getElementById('preview-pos');
 
+const inputEvidencia = document.getElementById('input-foto-evidencia');
+const btnUiEvidencia = document.getElementById('btn-ui-evidencia');
+const iconEvidencia = document.getElementById('icon-evidencia');
+const previewEvidencia = document.getElementById('preview-evidencia');
+
 // Data
 let photoPosFile = null;
+let photoEvidenciaFile = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -87,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // File Inputs Handlers
     inputPos.addEventListener('change', (e) => handlePhotoCapture(e, 'pos'));
+    inputEvidencia.addEventListener('change', (e) => handlePhotoCapture(e, 'evidencia'));
 
     // Share to WhatsApp
     btnEnviarWsp.addEventListener('click', handleSendToWhatsApp);
@@ -307,6 +314,7 @@ function openCaptureModal(order) {
 
 function resetModalState() {
     photoPosFile = null;
+    photoEvidenciaFile = null;
 
     // Reset UI POS
     btnUiPos.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
@@ -314,6 +322,13 @@ function resetModalState() {
     iconPos.innerHTML = '<i class="fa-solid fa-receipt"></i>';
     previewPos.classList.add('hidden');
     previewPos.src = '';
+
+    // Reset UI Evidencia
+    btnUiEvidencia.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
+    iconEvidencia.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
+    iconEvidencia.innerHTML = '<i class="fa-solid fa-box-open"></i>';
+    previewEvidencia.classList.add('hidden');
+    previewEvidencia.src = '';
 
     checkReadyToShare();
 }
@@ -341,15 +356,27 @@ function handlePhotoCapture(e, type) {
                 const compressedFile = new File([blob], `photo_${type}.jpg`, { type: 'image/jpeg' });
                 const blobUrl = URL.createObjectURL(compressedFile);
 
-                photoPosFile = compressedFile;
-                previewPos.src = blobUrl;
-                previewPos.classList.remove('hidden');
-                // Style change
-                btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
-                btnUiPos.classList.replace('border-dashed', 'border-solid');
-                iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
-                iconPos.classList.replace('text-slate-300', 'text-white');
-                iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
+                if (type === 'evidencia') {
+                    photoEvidenciaFile = compressedFile;
+                    previewEvidencia.src = blobUrl;
+                    previewEvidencia.classList.remove('hidden');
+                    // Style change
+                    btnUiEvidencia.classList.replace('border-slate-600', 'border-emerald-500');
+                    btnUiEvidencia.classList.replace('border-dashed', 'border-solid');
+                    iconEvidencia.classList.replace('bg-slate-700', 'bg-emerald-500');
+                    iconEvidencia.classList.replace('text-slate-300', 'text-white');
+                    iconEvidencia.innerHTML = '<i class="fa-solid fa-check"></i>';
+                } else {
+                    photoPosFile = compressedFile;
+                    previewPos.src = blobUrl;
+                    previewPos.classList.remove('hidden');
+                    // Style change
+                    btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
+                    btnUiPos.classList.replace('border-dashed', 'border-solid');
+                    iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
+                    iconPos.classList.replace('text-slate-300', 'text-white');
+                    iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
+                }
 
                 checkReadyToShare();
             }, 'image/jpeg', 0.8);
@@ -360,7 +387,7 @@ function handlePhotoCapture(e, type) {
 }
 
 function checkReadyToShare() {
-    if (photoPosFile) {
+    if (photoPosFile && photoEvidenciaFile) {
         btnEnviarWsp.removeAttribute('disabled');
         btnEnviarWsp.classList.add('animate-pulse');
     } else {
@@ -431,21 +458,13 @@ async function handleSendToWhatsApp() {
             return; // Stop here, don't fuse or send to whatsapp
         }
 
-        // 2. Usar la foto POS directamente (ya no hay fusión)
-        const photoToSend = photoPosFile;
+        // 2. Preparar fotos a enviar a WS
+        const filesToSend = [photoPosFile, photoEvidenciaFile];
 
-        // 3. Calcular tiempo exacto
-        let elapsedMinHtml = '--';
-        if (selectedOrderForCapture.fecha && !isNaN(new Date(selectedOrderForCapture.fecha))) {
-            const start = new Date(selectedOrderForCapture.fecha);
-            const diffMin = Math.floor((new Date() - start) / 60000);
-            elapsedMinHtml = diffMin;
-        }
-
-        // 4. Preparar mensaje
+        // 3. Preparar mensaje con formato requerido
         const money = parseFloat(selectedOrderForCapture.monto).toFixed(2);
         const llave = selectedOrderForCapture.llave || `PED-${selectedOrderForCapture.nro}`;
-        const msgText = `✅ P. ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n⏱️ Tiempo Real: ${elapsedMinHtml} min\n💳 Tipo: ${selectedOrderForCapture.tipo_pago}\n🚴🏽 Repartidor: ${currentUser}`;
+        const msgText = `✅ PRODUCTO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🚴🏽 Repartidor: ${currentUser}`;
 
         // Para que WhatsApp (Web Share API) funcione, necesita que el usuario acabe de hacer CLIC.
         // Como la subida a Google Drive demora unos segundos, el navegador nos quitó ese "permiso de clic".
@@ -466,29 +485,37 @@ async function handleSendToWhatsApp() {
             if (result.isConfirmed) {
                 try {
                     // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
-                    if (navigator.canShare && navigator.canShare({ files: [photoToSend] })) {
+                    if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
                         await navigator.share({
                             title: 'Evidencia de Entrega',
                             text: msgText,
-                            files: [photoToSend]
+                            files: filesToSend
                         });
                     } else {
                         // Fallback si el dispositivo no soporta pasar archivos binarios directo (iOS viejo/Desktops)
                         Swal.fire({
                             icon: 'info',
                             title: 'Descarga tu foto',
-                            text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda esta imagen y pásala junto con los datos copiados.',
+                            text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda las imágenes mostradas a continuación.',
                         });
                         // Copiar texto al portapapeles
-                        try { await navigator.clipboard.writeText(msgText + "\n\n*Adjunta la foto que descargó el sistema.*"); } catch (e) { }
+                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
 
-                        // Forzar descarga de la foto
-                        const a = document.createElement('a');
-                        a.href = URL.createObjectURL(photoToSend);
-                        a.download = `entrega_${llave}.jpg`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
+                        // Forzar descarga de la primera foto
+                        const a1 = document.createElement('a');
+                        a1.href = URL.createObjectURL(photoPosFile);
+                        a1.download = `pos_${llave}.jpg`;
+                        document.body.appendChild(a1);
+                        a1.click();
+                        document.body.removeChild(a1);
+
+                        // Forzar descarga de la segunda foto
+                        const a2 = document.createElement('a');
+                        a2.href = URL.createObjectURL(photoEvidenciaFile);
+                        a2.download = `evidencia_${llave}.jpg`;
+                        document.body.appendChild(a2);
+                        a2.click();
+                        document.body.removeChild(a2);
 
                         // Redirigir a whatsapp universal sin archivo
                         window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
