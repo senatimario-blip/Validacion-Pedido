@@ -74,8 +74,8 @@ function listarPedidos() {
     vuelto:            row[12],  // M: Vuelto
     motivo_cancelacion: row[13], // N: Motivo Cancelación
     sla_fuera:         row[14],  // O: SLA Fuera Tiempo
-    fecha_entrega:     row[15],  // P: Fecha Entrega
-    hora_entrega:      row[16],  // Q: Hora Entrega
+    fecha_entrega:     displayData[index][15],  // P: Fecha Entrega como texto en hoja
+    hora_entrega:      displayData[index][16],  // Q: Hora Entrega como texto en hoja
     tiempo_transcurrido: displayData[index][17] // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
   })).filter(p => p.nro);
 

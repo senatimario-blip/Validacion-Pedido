@@ -657,6 +657,7 @@ window.openValidateModal = (nro) => {
         if (hStr.includes('T')) {
             let dT = new Date(hStr);
             if (!isNaN(dT.getTime())) {
+                dT.setUTCFullYear(2000); // Fix para evitar descuento de 13 mins por zona horaria de 1899
                 const fmtD = new Intl.DateTimeFormat('en-US', {
                     timeZone: 'America/Lima',
                     hour: 'numeric', minute: 'numeric',
@@ -670,6 +671,11 @@ window.openValidateModal = (nro) => {
             } else {
                 valHoraEntrega.value = hStr;
             }
+        } else if (hStr.includes(':')) {
+            const parts = hStr.split(':');
+            const hh = parts[0].padStart(2, '0');
+            const mm = parts[1].padStart(2, '0');
+            valHoraEntrega.value = `${hh}:${mm}`;
         } else {
             valHoraEntrega.value = hStr;
         }
