@@ -629,6 +629,12 @@ window.openValidateModal = (nro) => {
     document.getElementById('photo-actions').classList.add('hidden');
     valPhotoAmountInput.value = '';
 
+    const ocrChipsContainer = document.getElementById('ocr-info-chips');
+    if (ocrChipsContainer) {
+        ocrChipsContainer.innerHTML = '';
+        ocrChipsContainer.style.display = 'none';
+    }
+
     updateDriversDatalist();
     document.getElementById('val-driver-name').value = order.envio || '';
 
@@ -736,6 +742,17 @@ window.openValidateModal = (nro) => {
         uploadPlaceholder.classList.add('hidden');
         document.getElementById('photo-actions').classList.remove('hidden');
         document.getElementById('view-full-photo').href = cleanUrl;
+    }
+
+    if (order.estado === 'Validado' && tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA' || (order.foto && (order.foto.includes('QR') || order.foto.includes('TARJETA')))) {
+        if (order.monto_foto && parseFloat(order.monto_foto) > 0) {
+            valPhotoAmountInput.value = parseFloat(order.monto_foto).toFixed(2);
+        }
+        showOcrInfoChips({
+            fecha: order.fecha_entrega || '',
+            hora: order.hora_entrega || '',
+            tipoPago: tipoPago === 'QR' || (order.foto && order.foto.includes('QR')) ? 'QR' : 'TARJETA'
+        });
     }
 
     updateValidationUI(order.monto_foto, order.monto);
@@ -948,11 +965,15 @@ function updateValidationMode(mode) {
             valPhotoAmountInput.value = parseFloat(currentOrderForValidation.monto).toFixed(2);
             validateAmounts();
         }
+        const ocrChipsContainer = document.getElementById('ocr-info-chips');
+        if (ocrChipsContainer) ocrChipsContainer.style.display = 'none';
     } else {
         if (currentOrderForValidation && valPhotoAmountInput.value === parseFloat(currentOrderForValidation.monto).toFixed(2)) {
             valPhotoAmountInput.value = '';
             validateAmounts();
         }
+        const ocrChipsContainer = document.getElementById('ocr-info-chips');
+        if (ocrChipsContainer && ocrChipsContainer.innerHTML !== '') ocrChipsContainer.style.display = 'flex';
     }
 }
 
