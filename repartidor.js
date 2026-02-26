@@ -500,7 +500,7 @@ async function handleSendToWhatsApp() {
 
         if (!subidaExitosa) {
             // Restore button if the upload failed so they can try again or see the error
-            btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
+            btnEnviarWsp.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
             btnEnviarWsp.removeAttribute('disabled');
             return; // Stop here, don't fuse or send to whatsapp
         }
@@ -532,10 +532,10 @@ async function handleSendToWhatsApp() {
         modalCaptura.classList.remove('flex');
 
         Swal.fire({
-            title: '¡Foto Subida a la Oficina!',
-            text: 'Haz clic en el botón verde para compartirla por WhatsApp',
+            title: '¡Paso 1 Completado!',
+            text: 'La oficina ya tiene tu reporte temporal. Ahora avísales por WhatsApp.',
             icon: 'success',
-            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
+            confirmButtonText: '2. <i class="fa-brands fa-whatsapp pt-1"></i> Enviar a WhatsApp',
             confirmButtonColor: '#25D366',
             allowOutsideClick: false
         }).then(async (result) => {
@@ -589,7 +589,7 @@ async function handleSendToWhatsApp() {
                 }
 
                 // Restauramos el botón enviar por si se usa en la siguiente orden
-                btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar a WhatsApp</span>';
+                btnEnviarWsp.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-xl"></i><span class="text-lg">1. Enviar Foto a Oficina</span>';
                 btnEnviarWsp.removeAttribute('disabled');
             }
         });
