@@ -515,8 +515,8 @@ async function handleSendToWhatsApp() {
             });
         } catch (e) { console.warn('Error marcando Por Validar', e); }
 
-        // 2. Preparar fotos a enviar a WS (Evidencia va primero, luego Voucher/POS por pedido del usuario)
-        const filesToSend = [photoEvidenciaFile, photoPosFile];
+        // 2. Preparar fotos a enviar a WS (Restaurado al orden original porque WhatsApp rompía el texto)
+        const filesToSend = [photoPosFile, photoEvidenciaFile];
 
         // 3. Preparar mensaje con formato requerido
         const money = parseFloat(selectedOrderForCapture.monto).toFixed(2);
