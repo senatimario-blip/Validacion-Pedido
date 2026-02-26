@@ -499,6 +499,7 @@ function renderReportsTable() {
             <td>${validTick}</td>
             <td style="font-size: 0.8em; color: var(--text-muted);">${horaFormat}</td>
         `;
+        tbody.appendChild(tr);
     });
 
     // Generar bloque visual del Podio si hay pedidos ese día
