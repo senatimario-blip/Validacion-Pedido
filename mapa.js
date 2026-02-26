@@ -50,26 +50,41 @@ function renderMapaMotorizados() {
     }
 
     // 2. Filter only active orders (Pendiente, En Camino, Reservado, empty)
-    // Same as what the motorizado sees, essentially NOT Cancelado, NOT Validado
     const activeOrders = (typeof orders !== 'undefined' ? orders : []).filter(o =>
         o.estado !== 'Validado' &&
         o.estado !== 'Cancelado' &&
         o.estado !== 'Rechazado' &&
-        o.envio && o.envio.trim() !== ''
+        o.estado !== 'Por Validar'
     );
+
+    // 2.5 Crear categoría para No Asignados
+    motorizadosMap['___SIN_ASIGNAR___'] = {
+        name: '⚠️ SIN ASIGNAR',
+        orders: [],
+        totalMoney: 0,
+        isUnassigned: true
+    };
 
     // 3. Asignar los pedidos activos a sus respectivos motorizados
     activeOrders.forEach(o => {
-        const dName = o.envio.trim().toUpperCase();
+        let dName = (o.envio && o.envio.trim() !== '') ? o.envio.trim().toUpperCase() : '___SIN_ASIGNAR___';
         if (motorizadosMap[dName]) {
             motorizadosMap[dName].orders.push(o);
             motorizadosMap[dName].totalMoney += (parseFloat(o.monto) || 0);
         }
     });
 
+    // Remove empty SIN ASIGNAR if no pending orders are unassigned
+    if (motorizadosMap['___SIN_ASIGNAR___'].orders.length === 0) {
+        delete motorizadosMap['___SIN_ASIGNAR___'];
+    }
+
     // 4. Separar activos (con pedidos) de inactivos (sin pedidos) y ordenarlos alfabéticamente dentro de su grupo
     const allKeys = Object.keys(motorizadosMap);
     const motorizadosKeys = allKeys.sort((a, b) => {
+        if (a === '___SIN_ASIGNAR___') return -1;
+        if (b === '___SIN_ASIGNAR___') return 1;
+
         // Primero por cantidad de pedidos (descendente)
         const diff = motorizadosMap[b].orders.length - motorizadosMap[a].orders.length;
         if (diff !== 0) return diff;
@@ -79,11 +94,13 @@ function renderMapaMotorizados() {
         return 0;
     });
 
-    const totalActivos = motorizadosKeys.filter(k => motorizadosMap[k].orders.length > 0).length;
+    // Update the counter
+    let activeDriversKeys = motorizadosKeys.filter(k => k !== '___SIN_ASIGNAR___');
+    const totalActivos = activeDriversKeys.filter(k => motorizadosMap[k].orders.length > 0).length;
 
     // Update the counter
     if (countEl) {
-        countEl.innerHTML = `<i class="fa-solid fa-motorcycle"></i> ${totalActivos} Activos / ${motorizadosKeys.length} Total`;
+        countEl.innerHTML = `<i class="fa-solid fa-motorcycle"></i> ${totalActivos} Activos / ${activeDriversKeys.length} Total`;
     }
 
     if (motorizadosKeys.length === 0) {
@@ -115,6 +132,19 @@ function renderMapaMotorizados() {
             else if (tipoPagoDisplay.includes('TARJETA') || tipoPagoDisplay.includes('POS')) pColor = '#A78BFA';
             else if (tipoPagoDisplay.includes('ONLINE')) pColor = '#60A5FA';
 
+            let assignmentHtml = '';
+            if (data.isUnassigned) {
+                const driverOptions = activeDriversKeys.map(k => `<option value="${motorizadosMap[k].name}">${motorizadosMap[k].name}</option>`).join('');
+                assignmentHtml = `
+                <div style="margin-top: 8px; display:flex; gap:6px;">
+                    <select id="sel-assign-${o.nro}" style="flex:1; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
+                        <option value="">-- Seleccionar --</option>
+                        ${driverOptions}
+                    </select>
+                    <button onclick="asignarMotorizadoDesdeMapa(${o.nro})" style="background:#3b82f6; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:0.85em;">Asignar</button>
+                </div>`;
+            }
+
             return `
                 <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 0.85em;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
@@ -127,6 +157,7 @@ function renderMapaMotorizados() {
                             <i class="fa-solid fa-clock"></i> ${timeInfo.text}
                         </span>
                     </div>
+                    ${assignmentHtml}
                 </div>
             `;
         }).join('');
@@ -140,13 +171,14 @@ function renderMapaMotorizados() {
             `;
         }
 
-        const bgPanelColor = data.orders.length > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.2)';
-        const borderColor = data.orders.length > 0 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.02)';
-        const avatarBgColor = data.orders.length > 0 ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.05)';
-        const avatarBorderColor = data.orders.length > 0 ? 'rgba(59, 130, 246, 0.5)' : 'rgba(255,255,255,0.1)';
-        const avatarIconColor = data.orders.length > 0 ? '#60A5FA' : 'rgba(255,255,255,0.3)';
-        const titleColor = data.orders.length > 0 ? '#fff' : 'rgba(255,255,255,0.4)';
+        const bgPanelColor = data.orders.length > 0 ? (data.isUnassigned ? 'rgba(239, 68, 68, 0.05)' : 'rgba(255,255,255,0.03)') : 'rgba(0,0,0,0.2)';
+        const borderColor = data.orders.length > 0 ? (data.isUnassigned ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.1)') : 'rgba(255,255,255,0.02)';
+        const avatarBgColor = data.orders.length > 0 ? (data.isUnassigned ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)') : 'rgba(255,255,255,0.05)';
+        const avatarBorderColor = data.orders.length > 0 ? (data.isUnassigned ? 'rgba(239, 68, 68, 0.5)' : 'rgba(59, 130, 246, 0.5)') : 'rgba(255,255,255,0.1)';
+        const avatarIconColor = data.orders.length > 0 ? (data.isUnassigned ? '#ef4444' : '#60A5FA') : 'rgba(255,255,255,0.3)';
+        const titleColor = data.orders.length > 0 ? (data.isUnassigned ? '#ef4444' : '#fff') : 'rgba(255,255,255,0.4)';
         const amountColor = data.orders.length > 0 ? '#4ADE80' : 'rgba(255,255,255,0.2)';
+        const iconClass = data.isUnassigned ? 'fa-triangle-exclamation' : 'fa-helmet-safety';
 
         htmlBody += `
             <div style="background: ${bgPanelColor}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 16px; display:flex; flex-direction:column;">
@@ -154,11 +186,11 @@ function renderMapaMotorizados() {
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed ${borderColor};">
                     <div style="display:flex; align-items:center; gap: 10px;">
                         <div style="width: 40px; height: 40px; border-radius: 50%; background: ${avatarBgColor}; border: 1px solid ${avatarBorderColor}; display:flex; align-items:center; justify-content:center; color: ${avatarIconColor};">
-                            <i class="fa-solid fa-helmet-safety text-xl" style="font-size:1.2em;"></i>
+                            <i class="fa-solid ${iconClass} text-xl" style="font-size:1.2em;"></i>
                         </div>
                         <div>
                             <h3 style="margin: 0; font-size: 1.1em; font-weight: 700; color: ${titleColor};">${data.name}</h3>
-                            <span style="font-size: 0.8em; color: rgba(255,255,255,0.5);">${data.orders.length} pedidos en ruta</span>
+                            <span style="font-size: 0.8em; color: rgba(255,255,255,0.5);">${data.orders.length} ${data.isUnassigned ? 'pedidos sin repartidor' : 'pedidos en ruta'}</span>
                         </div>
                     </div>
                     <div style="text-align:right;">
@@ -244,3 +276,44 @@ setInterval(() => {
         renderMapaMotorizados(); // Tick the timers on screen dynamically
     }
 }, 60000); // 1 minute
+
+// Handler for the Assign button explicitly called from HTML
+window.asignarMotorizadoDesdeMapa = async function (nro) {
+    const selectEl = document.getElementById(`sel-assign-${nro}`);
+    if (!selectEl) return;
+
+    const newDriver = selectEl.value;
+    if (!newDriver || newDriver.trim() === '') {
+        Swal.fire('Atención', 'Selecciona un repartidor primero', 'warning');
+        return;
+    }
+
+    Swal.fire({
+        title: 'Asignando repartidor...',
+        allowEscapeKey: false,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    try {
+        // Requires fetchAPI from app.js which is already loaded
+        const response = await fetchAPI('asignarMotorizado', {
+            nro: nro,
+            envio: newDriver,
+            usuario: (typeof currentUser !== 'undefined' && currentUser.usuario) ? currentUser.usuario : 'Admin'
+        });
+
+        if (response.success) {
+            Swal.fire('Éxito', 'Repartidor asignado', 'success');
+            // Refresh main order list, which updates the view everywhere
+            if (typeof loadOrders === 'function') {
+                await loadOrders();
+                renderMapaMotorizados();
+            }
+        } else {
+            Swal.fire('Error', response.message || 'Error al asignar motorizado', 'error');
+        }
+    } catch (error) {
+        Swal.fire('Error', 'Error de red', 'error');
+    }
+};

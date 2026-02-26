@@ -27,6 +27,7 @@ function doPost(e) {
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
       case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
       case 'marcarPorValidar':    result = marcarPorValidar(payload.nro); break;
+      case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
@@ -131,6 +132,18 @@ function marcarPorValidar(nro) {
          // Si por alguna razón la oficina ya lo validó mientras el patita manejaba
          return { success: true, msg: 'El pedido ya había cambiado de estado' };
       }
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
+}
+
+function asignarMotorizado(data) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == data.nro) {
+      sheet.getRange(i + 1, 10).setValue(data.envio || ""); // Columna J: Responsable Envío
+      return { success: true };
     }
   }
   return { success: false, message: "Pedido no encontrado" };
