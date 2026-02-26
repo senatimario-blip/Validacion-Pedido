@@ -284,6 +284,52 @@ async function loadOrders() {
     document.getElementById('loading-indicator').classList.add('hidden');
 }
 
+// Auto-refresh silencioso cada 30 segundos
+setInterval(() => {
+    // Si la pantalla a la vista no es la de pedidos, o estamos loggeandonos, no hacemos nada
+    if (appSection.style.display === 'none' || currentUser == null) return;
+
+    const valModal = document.getElementById('modal-validate');
+    const newModal = document.getElementById('modal-new-order');
+    const isValOpen = valModal && valModal.classList.contains('active');
+    const isNewOpen = newModal && newModal.classList.contains('active');
+
+    // Verificamos modal de Swal (Alertas) o importes
+    const isSwalOpen = typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible();
+    const isImportOpen = document.getElementById('modal-import')?.classList.contains('active');
+    const isImportTextOpen = document.getElementById('modal-import-text')?.classList.contains('active');
+
+    // Módulos que no sean pedidos (Si mapa o reportes están activos y visibles, puede recargar por debajo sin problema, pero aseguramos de no saltar scroll si están frente a pedidos visuales)
+
+    if (!isValOpen && !isNewOpen && !isSwalOpen && !isImportOpen && !isImportTextOpen && API_URL) {
+        loadOrdersSilent();
+    }
+}, 30000); // 30 segundos
+
+async function loadOrdersSilent() {
+    try {
+        const response = await fetchAPI('listarPedidos');
+        if (response.success) {
+            orders = response.data.sort((a, b) => b.nro - a.nro);
+
+            // Re-aplicar el filtro de la tabla de forma silenciosa si estamos en la vista
+            const isOrdersView = !document.getElementById('pedidos-content').classList.contains('hidden');
+            if (isOrdersView) {
+                applyFilters();
+            }
+
+            if (typeof window.refreshDashboardIfVisible === 'function') {
+                window.refreshDashboardIfVisible();
+            }
+            if (!document.getElementById('mapa-content').classList.contains('hidden') && typeof renderMapaMotorizados === 'function') {
+                renderMapaMotorizados();
+            }
+        }
+    } catch (e) {
+        // Ignorar fallas de red en background
+    }
+}
+
 function renderOrders(data) {
     ordersTableBody.innerHTML = '';
     const totalOrders = data.length;
@@ -403,8 +449,8 @@ function renderOrders(data) {
                             diffMs = delDate.getTime() - orderDate.getTime();
                         }
                     }
-                } else if (order.estado === 'Pendiente') {
-                    // Calcular against now(Lima) solo para Pendientes
+                } else if (order.estado === 'Pendiente' || order.estado === 'Por Validar') {
+                    // Calcular against now(Lima) para Pendientes y Por Validar
                     const now = new Date();
                     const formatterNow = new Intl.DateTimeFormat('en-US', {
                         timeZone: 'America/Lima',
