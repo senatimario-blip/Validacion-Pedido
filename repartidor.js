@@ -521,7 +521,7 @@ async function handleSendToWhatsApp() {
         // 3. Preparar mensaje con formato requerido
         const money = parseFloat(selectedOrderForCapture.monto).toFixed(2);
         const llave = selectedOrderForCapture.llave || `PED-${selectedOrderForCapture.nro}`;
-        const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🚴🏽 Repartidor: ${currentUser}`;
+        const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🏍️ Repartidor: ${currentUser}`;
 
         // Para que WhatsApp (Web Share API) funcione, necesita que el usuario acabe de hacer CLIC.
         // Como la subida a Google Drive demora unos segundos, el navegador nos quitó ese "permiso de clic".
