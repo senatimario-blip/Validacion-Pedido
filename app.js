@@ -362,10 +362,9 @@ function renderOrders(data) {
 
         // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
         let tiempoHtml = '<span class="text-muted">-</span>';
+        let orderDate = null;
 
         try {
-            let orderDate = null;
-
             // Intento #1: Forzar parseo de la fecha como America/Lima usando Intl (Si es Date válido)
             const dRegistroOrig = new Date(order.fecha);
             if (!isNaN(dRegistroOrig.getTime())) {
