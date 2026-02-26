@@ -10,6 +10,8 @@ let selectedOrderForCapture = null;
 const pantallaLogin = document.getElementById('pantalla-login');
 const pantallaRuta = document.getElementById('pantalla-ruta');
 const inputDriver = document.getElementById('driver-name-input');
+const inputDriverPass = document.getElementById('driver-pass-input');
+const btnTogglePass = document.getElementById('btn-toggle-pass');
 const btnIngresar = document.getElementById('btn-ingresar');
 const lblDriverName = document.getElementById('lbl-driver-name');
 const lblPedidosCount = document.getElementById('lbl-pedidos-count');
@@ -31,24 +33,50 @@ const btnUiPos = document.getElementById('btn-ui-pos');
 const iconPos = document.getElementById('icon-pos');
 const previewPos = document.getElementById('preview-pos');
 
+const inputEvidencia = document.getElementById('input-foto-evidencia');
+const btnUiEvidencia = document.getElementById('btn-ui-evidencia');
+const iconEvidencia = document.getElementById('icon-evidencia');
+const previewEvidencia = document.getElementById('preview-evidencia');
+
 // Data
 let photoPosFile = null;
+let photoEvidenciaFile = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     // Check if previously logged in
     const savedDriver = localStorage.getItem('activeDriver');
     if (savedDriver) {
-        loginDriver(savedDriver);
+        autoLoginData(savedDriver);
+    }
+
+    if (btnTogglePass) {
+        btnTogglePass.addEventListener('click', () => {
+            const type = inputDriverPass.getAttribute('type') === 'password' ? 'text' : 'password';
+            inputDriverPass.setAttribute('type', type);
+            btnTogglePass.querySelector('i').classList.toggle('fa-eye');
+            btnTogglePass.querySelector('i').classList.toggle('fa-eye-slash');
+        });
     }
 
     inputDriver.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') btnIngresar.click();
+        if (e.key === 'Enter' && inputDriverPass) inputDriverPass.focus();
     });
+
+    if (inputDriverPass) {
+        inputDriverPass.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnIngresar.click();
+        });
+    }
 
     btnIngresar.addEventListener('click', () => {
         const name = inputDriver.value.trim();
-        if (name) loginDriver(name);
+        const pass = inputDriverPass.value.trim();
+        if (name && pass) {
+            loginDriver(name, pass);
+        } else {
+            Swal.fire({ icon: 'warning', title: 'Atención', text: 'Ingresa nombre y contraseña', confirmButtonColor: '#3085d6' });
+        }
     });
 
     btnCerrarRuta.addEventListener('click', () => {
@@ -87,14 +115,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // File Inputs Handlers
     inputPos.addEventListener('change', (e) => handlePhotoCapture(e, 'pos'));
+    inputEvidencia.addEventListener('change', (e) => handlePhotoCapture(e, 'evidencia'));
 
     // Share to WhatsApp
     btnEnviarWsp.addEventListener('click', handleSendToWhatsApp);
 });
 
-function loginDriver(name) {
+function autoLoginData(name) {
     currentUser = name;
-    localStorage.setItem('activeDriver', name);
     lblDriverName.textContent = name;
 
     pantallaLogin.classList.add('hidden');
@@ -103,6 +131,32 @@ function loginDriver(name) {
     pantallaRuta.classList.add('flex');
 
     fetchDriverOrders();
+}
+
+async function loginDriver(name, pass) {
+    btnIngresar.disabled = true;
+    const originalText = btnIngresar.innerHTML;
+    btnIngresar.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Validando...</span>';
+
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'loginMotorizado', user: name, pass: pass })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            localStorage.setItem('activeDriver', data.user);
+            autoLoginData(data.user);
+        } else {
+            Swal.fire({ icon: 'error', title: 'Error', text: data.message || 'Credenciales incorrectas', confirmButtonColor: '#3085d6' });
+        }
+    } catch (err) {
+        Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo conectar con el servidor', confirmButtonColor: '#3085d6' });
+    } finally {
+        btnIngresar.disabled = false;
+        btnIngresar.innerHTML = originalText;
+    }
 }
 
 async function fetchDriverOrders() {
@@ -168,7 +222,7 @@ function renderOrders() {
             registerDate = new Date(order.fecha);
         }
 
-        const tipoPagoDisplay = (order.tipo_pago || 'Desconocido').toUpperCase();
+        const tipoPagoDisplay = (order.pago || 'Desconocido').toUpperCase();
         let tipoIcon = 'wallet';
         let tipoColor = 'text-slate-400 bg-slate-800';
 
@@ -291,7 +345,7 @@ function openCaptureModal(order) {
     selectedOrderForCapture = order;
     lblModalLlave.textContent = order.llave || `PED-${order.nro}`;
 
-    const tipo = (order.tipo_pago || '').toUpperCase();
+    const tipo = (order.pago || '').toUpperCase();
     if (tipo.includes('ONLINE')) {
         lblTipoPagoModal.textContent = 'Evidencia Online';
     } else if (tipo.includes('EFECTIVO')) {
@@ -307,6 +361,7 @@ function openCaptureModal(order) {
 
 function resetModalState() {
     photoPosFile = null;
+    photoEvidenciaFile = null;
 
     // Reset UI POS
     btnUiPos.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
@@ -314,6 +369,13 @@ function resetModalState() {
     iconPos.innerHTML = '<i class="fa-solid fa-receipt"></i>';
     previewPos.classList.add('hidden');
     previewPos.src = '';
+
+    // Reset UI Evidencia
+    btnUiEvidencia.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
+    iconEvidencia.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
+    iconEvidencia.innerHTML = '<i class="fa-solid fa-box-open"></i>';
+    previewEvidencia.classList.add('hidden');
+    previewEvidencia.src = '';
 
     checkReadyToShare();
 }
@@ -341,15 +403,27 @@ function handlePhotoCapture(e, type) {
                 const compressedFile = new File([blob], `photo_${type}.jpg`, { type: 'image/jpeg' });
                 const blobUrl = URL.createObjectURL(compressedFile);
 
-                photoPosFile = compressedFile;
-                previewPos.src = blobUrl;
-                previewPos.classList.remove('hidden');
-                // Style change
-                btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
-                btnUiPos.classList.replace('border-dashed', 'border-solid');
-                iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
-                iconPos.classList.replace('text-slate-300', 'text-white');
-                iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
+                if (type === 'evidencia') {
+                    photoEvidenciaFile = compressedFile;
+                    previewEvidencia.src = blobUrl;
+                    previewEvidencia.classList.remove('hidden');
+                    // Style change
+                    btnUiEvidencia.classList.replace('border-slate-600', 'border-emerald-500');
+                    btnUiEvidencia.classList.replace('border-dashed', 'border-solid');
+                    iconEvidencia.classList.replace('bg-slate-700', 'bg-emerald-500');
+                    iconEvidencia.classList.replace('text-slate-300', 'text-white');
+                    iconEvidencia.innerHTML = '<i class="fa-solid fa-check"></i>';
+                } else {
+                    photoPosFile = compressedFile;
+                    previewPos.src = blobUrl;
+                    previewPos.classList.remove('hidden');
+                    // Style change
+                    btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
+                    btnUiPos.classList.replace('border-dashed', 'border-solid');
+                    iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
+                    iconPos.classList.replace('text-slate-300', 'text-white');
+                    iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
+                }
 
                 checkReadyToShare();
             }, 'image/jpeg', 0.8);
@@ -360,7 +434,7 @@ function handlePhotoCapture(e, type) {
 }
 
 function checkReadyToShare() {
-    if (photoPosFile) {
+    if (photoPosFile && photoEvidenciaFile) {
         btnEnviarWsp.removeAttribute('disabled');
         btnEnviarWsp.classList.add('animate-pulse');
     } else {
@@ -431,64 +505,99 @@ async function handleSendToWhatsApp() {
             return; // Stop here, don't fuse or send to whatsapp
         }
 
-        // 2. Usar la foto POS directamente (ya no hay fusión)
-        const photoToSend = photoPosFile;
+        // ----------------------------------------------------------------------
+        // Novedad: Marcar silenciosamente el pedido como "Por Validar" en office
+        // ----------------------------------------------------------------------
+        try {
+            await fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'marcarPorValidar', nro: selectedOrderForCapture.nro })
+            });
+        } catch (e) { console.warn('Error marcando Por Validar', e); }
 
-        // 3. Calcular tiempo exacto
-        let elapsedMinHtml = '--';
-        if (selectedOrderForCapture.fecha && !isNaN(new Date(selectedOrderForCapture.fecha))) {
-            const start = new Date(selectedOrderForCapture.fecha);
-            const diffMin = Math.floor((new Date() - start) / 60000);
-            elapsedMinHtml = diffMin;
-        }
+        // 2. Preparar fotos a enviar a WS
+        const filesToSend = [photoPosFile, photoEvidenciaFile];
 
-        // 4. Preparar mensaje
+        // 3. Preparar mensaje con formato requerido
         const money = parseFloat(selectedOrderForCapture.monto).toFixed(2);
         const llave = selectedOrderForCapture.llave || `PED-${selectedOrderForCapture.nro}`;
-        const msgText = `✅ P. ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n⏱️ Tiempo Real: ${elapsedMinHtml} min\n💳 Tipo: ${selectedOrderForCapture.tipo_pago}\n🚴🏽 Repartidor: ${currentUser}`;
+        const msgText = `✅ PRODUCTO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🚴🏽 Repartidor: ${currentUser}`;
 
-        // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
-        if (navigator.canShare && navigator.canShare({ files: [photoToSend] })) {
-            await navigator.share({
-                title: 'Evidencia de Entrega',
-                text: msgText,
-                files: [photoToSend]
-            });
-            Swal.fire('¡Éxito!', 'Redirigiendo a WhatsApp...', 'success');
-        } else {
-            // Fallback si el dispositivo no soporta pasar archivos binarios directo (iOS viejo/Desktops)
-            Swal.fire({
-                icon: 'info',
-                title: 'Descarga tu foto',
-                text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda esta imagen y pásala junto con los datos copiados.',
-            });
-            // Copiar texto al portapapeles
-            try { await navigator.clipboard.writeText(msgText + "\n\n*Adjunta la foto que descargó el sistema.*"); } catch (e) { }
+        // Para que WhatsApp (Web Share API) funcione, necesita que el usuario acabe de hacer CLIC.
+        // Como la subida a Google Drive demora unos segundos, el navegador nos quitó ese "permiso de clic".
+        // La solución es pedirle al motorizado 1 clic final ("Continuar") para abrir WhatsApp exitosamente.
 
-            // Forzar descarga de la foto
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(photoToSend);
-            a.download = `entrega_${llave}.jpg`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-
-            // Redirigir a whatsapp universal sin archivo
-            window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-        }
-
-        // 6. Cerrar modal y limpiar
+        // Escondemos el modal negro de la cámara ya que la parte de Drive terminó
         modalCaptura.classList.add('hidden');
         modalCaptura.classList.remove('flex');
 
-        // Remove from list visually since it's delivered
-        currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
-        renderOrders();
+        Swal.fire({
+            title: '¡Foto Subida a la Oficina!',
+            text: 'Haz clic en el botón verde para compartirla por WhatsApp',
+            icon: 'success',
+            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
+            confirmButtonColor: '#25D366',
+            allowOutsideClick: false
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
+                    if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
+                        await navigator.share({
+                            title: 'Evidencia de Entrega',
+                            text: msgText,
+                            files: filesToSend
+                        });
+                    } else {
+                        // Fallback si el dispositivo no soporta pasar archivos binarios directo (iOS viejo/Desktops)
+                        Swal.fire({
+                            icon: 'info',
+                            title: 'Descarga tu foto',
+                            text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda las imágenes mostradas a continuación.',
+                        });
+                        // Copiar texto al portapapeles
+                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
+
+                        // Forzar descarga de la primera foto
+                        const a1 = document.createElement('a');
+                        a1.href = URL.createObjectURL(photoPosFile);
+                        a1.download = `pos_${llave}.jpg`;
+                        document.body.appendChild(a1);
+                        a1.click();
+                        document.body.removeChild(a1);
+
+                        // Forzar descarga de la segunda foto
+                        const a2 = document.createElement('a');
+                        a2.href = URL.createObjectURL(photoEvidenciaFile);
+                        a2.download = `evidencia_${llave}.jpg`;
+                        document.body.appendChild(a2);
+                        a2.click();
+                        document.body.removeChild(a2);
+
+                        // Redirigir a whatsapp universal sin archivo
+                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    }
+
+                    // 6. Eliminar el pedido de la lista visual porque ya fue entregado exitosamente
+                    currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
+                    renderOrders();
+
+                } catch (shareError) {
+                    if (shareError.name !== 'AbortError') { // AbortError es cuando el usuario cancela el diálogo de compartir
+                        Swal.fire('Error Compartiendo', shareError.message || shareError.toString(), 'error');
+                    }
+                }
+
+                // Restauramos el botón enviar por si se usa en la siguiente orden
+                btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar a WhatsApp</span>';
+                btnEnviarWsp.removeAttribute('disabled');
+            }
+        });
 
     } catch (e) {
         console.error(e);
-        if (e.name !== 'AbortError') { // AbortError es cuando el usuario cancela el share intencionalmente
-            Swal.fire('Error', 'Hubo un problema procesando las imágenes.', 'error');
+        if (e.name !== 'AbortError') {
+            Swal.fire('Error de Sistema', e.message || e.toString(), 'error');
             btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
             btnEnviarWsp.removeAttribute('disabled');
         } else {
