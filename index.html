@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Validación de Pedidos | Portal Seguro</title>
 
+    <!-- Archivo Manifest y Configuraciones PWA (Modo Administrador) -->
+    <link rel="manifest" href="manifest_admin.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="Logo_mio.png">
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -675,6 +680,21 @@
     <script src="app.js?v=8"></script>
     <script src="dashboard.js?v=8"></script>
     <script src="mapa.js?v=8"></script>
+
+    <!-- Registro del Service Worker para PWA (Panel Admin) -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw_admin.js')
+                    .then(registration => {
+                        console.log('ServiceWorker Admin registrado con éxito', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Error al registrar ServiceWorker Admin', error);
+                    });
+            });
+        }
+    </script>
 </body>
 
 </html>
