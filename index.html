@@ -166,6 +166,15 @@
                             <p class="stat-subtext" id="stat-pending-count">0 pedidos</p>
                         </div>
                     </div>
+                    <div class="stat-card" style="border-left: 4px solid #3b82f6;">
+                        <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;"><i
+                                class="fa-solid fa-person-biking"></i></div>
+                        <div class="stat-info">
+                            <h4>Por Validar</h4>
+                            <p class="stat-value" id="stat-porvalidar-amount" style="color: #60a5fa;">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-porvalidar-count">0 pedidos</p>
+                        </div>
+                    </div>
                     <div class="stat-card validated" id="card-validated" style="cursor: pointer;">
                         <div class="stat-icon validated"><i class="fa-solid fa-check-double"></i></div>
                         <div class="stat-info">
@@ -191,6 +200,8 @@
                         <div class="filter-tabs">
                             <button class="filter-tab active" data-filter="all">Todos</button>
                             <button class="filter-tab" data-filter="Validado">Validados</button>
+                            <button class="filter-tab" data-filter="Por Validar"
+                                style="color: #60a5fa; border-bottom: 2px solid transparent;">Por Validar</button>
                             <button class="filter-tab" data-filter="Pendiente">Pendientes</button>
                             <button class="filter-tab" data-filter="Cancelado">Cancelados</button>
                         </div>

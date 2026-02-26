@@ -25,6 +25,8 @@ function doPost(e) {
       case 'guardarFotoOcr':      result = guardarFotoOcrSilent(payload.llave, payload.fotoBase64); break;
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
+      case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
+      case 'marcarPorValidar':    result = marcarPorValidar(payload.nro); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
@@ -47,6 +49,22 @@ function login(user, pass) {
     }
   }
   return { success: false, message: "Credenciales incorrectas" };
+}
+
+function loginMotorizado(user, pass) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Motorizados');
+  if (!sheet) return { success: false, message: "Hoja de Motorizados no encontrada" };
+  
+  const data = sheet.getDataRange().getValues();
+  // Asumimos Fila 1 = Encabezados, Fila 2 en adelante = Datos (Col0: Nombre, Col1: Contraseña)
+  for (let i = 1; i < data.length; i++) {
+    const dbUser = String(data[i][0]).trim();
+    const dbPass = String(data[i][1]).trim();
+    if (dbUser.toLowerCase() === String(user).trim().toLowerCase() && dbPass === String(pass).trim()) {
+      return { success: true, user: dbUser };
+    }
+  }
+  return { success: false, message: "Contraseña incorrecta o usuario no encontrado" };
 }
 
 function listarPedidos() {
@@ -99,6 +117,23 @@ function marcarSLAFuera(nro, fuera_sla) {
     }
   }
   return { success: false, msg: 'Pedido no encontrado para validar.' };
+}
+
+function marcarPorValidar(nro) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == nro) {
+      if (rows[i][6] === 'Pendiente' || rows[i][6] === 'En Camino' || rows[i][6] === 'Reservado') {
+        sheet.getRange(i + 1, 7).setValue('Por Validar'); // G: Estado = Por Validar
+        return { success: true };
+      } else {
+         // Si por alguna razón la oficina ya lo validó mientras el patita manejaba
+         return { success: true, msg: 'El pedido ya había cambiado de estado' };
+      }
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
 }
 
 function validarPedido(data) {

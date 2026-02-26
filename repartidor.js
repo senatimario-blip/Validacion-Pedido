@@ -10,6 +10,8 @@ let selectedOrderForCapture = null;
 const pantallaLogin = document.getElementById('pantalla-login');
 const pantallaRuta = document.getElementById('pantalla-ruta');
 const inputDriver = document.getElementById('driver-name-input');
+const inputDriverPass = document.getElementById('driver-pass-input');
+const btnTogglePass = document.getElementById('btn-toggle-pass');
 const btnIngresar = document.getElementById('btn-ingresar');
 const lblDriverName = document.getElementById('lbl-driver-name');
 const lblPedidosCount = document.getElementById('lbl-pedidos-count');
@@ -45,16 +47,36 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check if previously logged in
     const savedDriver = localStorage.getItem('activeDriver');
     if (savedDriver) {
-        loginDriver(savedDriver);
+        autoLoginData(savedDriver);
+    }
+
+    if (btnTogglePass) {
+        btnTogglePass.addEventListener('click', () => {
+            const type = inputDriverPass.getAttribute('type') === 'password' ? 'text' : 'password';
+            inputDriverPass.setAttribute('type', type);
+            btnTogglePass.querySelector('i').classList.toggle('fa-eye');
+            btnTogglePass.querySelector('i').classList.toggle('fa-eye-slash');
+        });
     }
 
     inputDriver.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') btnIngresar.click();
+        if (e.key === 'Enter' && inputDriverPass) inputDriverPass.focus();
     });
+
+    if (inputDriverPass) {
+        inputDriverPass.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnIngresar.click();
+        });
+    }
 
     btnIngresar.addEventListener('click', () => {
         const name = inputDriver.value.trim();
-        if (name) loginDriver(name);
+        const pass = inputDriverPass.value.trim();
+        if (name && pass) {
+            loginDriver(name, pass);
+        } else {
+            Swal.fire({ icon: 'warning', title: 'Atención', text: 'Ingresa nombre y contraseña', confirmButtonColor: '#3085d6' });
+        }
     });
 
     btnCerrarRuta.addEventListener('click', () => {
@@ -99,9 +121,8 @@ document.addEventListener('DOMContentLoaded', () => {
     btnEnviarWsp.addEventListener('click', handleSendToWhatsApp);
 });
 
-function loginDriver(name) {
+function autoLoginData(name) {
     currentUser = name;
-    localStorage.setItem('activeDriver', name);
     lblDriverName.textContent = name;
 
     pantallaLogin.classList.add('hidden');
@@ -110,6 +131,32 @@ function loginDriver(name) {
     pantallaRuta.classList.add('flex');
 
     fetchDriverOrders();
+}
+
+async function loginDriver(name, pass) {
+    btnIngresar.disabled = true;
+    const originalText = btnIngresar.innerHTML;
+    btnIngresar.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Validando...</span>';
+
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'loginMotorizado', user: name, pass: pass })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            localStorage.setItem('activeDriver', data.user);
+            autoLoginData(data.user);
+        } else {
+            Swal.fire({ icon: 'error', title: 'Error', text: data.message || 'Credenciales incorrectas', confirmButtonColor: '#3085d6' });
+        }
+    } catch (err) {
+        Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo conectar con el servidor', confirmButtonColor: '#3085d6' });
+    } finally {
+        btnIngresar.disabled = false;
+        btnIngresar.innerHTML = originalText;
+    }
 }
 
 async function fetchDriverOrders() {
@@ -457,6 +504,16 @@ async function handleSendToWhatsApp() {
             btnEnviarWsp.removeAttribute('disabled');
             return; // Stop here, don't fuse or send to whatsapp
         }
+
+        // ----------------------------------------------------------------------
+        // Novedad: Marcar silenciosamente el pedido como "Por Validar" en office
+        // ----------------------------------------------------------------------
+        try {
+            await fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'marcarPorValidar', nro: selectedOrderForCapture.nro })
+            });
+        } catch (e) { console.warn('Error marcando Por Validar', e); }
 
         // 2. Preparar fotos a enviar a WS
         const filesToSend = [photoPosFile, photoEvidenciaFile];

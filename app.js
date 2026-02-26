@@ -333,7 +333,7 @@ function renderOrders(data) {
                     // --- NUEVA LÓGICA DE COLORES ---
                     let color, bg;
 
-                    if (order.estado === 'Pendiente') {
+                    if (order.estado === 'Pendiente' || order.estado === 'Por Validar') {
                         // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
                         color = mins <= 35 ? '#4ade80' : '#f87171';
                         bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
@@ -2098,6 +2098,8 @@ function updateStats(data = orders) {
     let pendingCount = 0, pendingAmount = 0;
     let rejectedCount = 0, rejectedAmount = 0;
 
+    let porValidarCount = 0, porValidarAmount = 0;
+
     data.forEach(o => {
         if (o.estado === 'Reservado') return;
 
@@ -2112,6 +2114,9 @@ function updateStats(data = orders) {
         } else if (o.estado === 'Pendiente') {
             pendingCount++;
             pendingAmount += monto;
+        } else if (o.estado === 'Por Validar') {
+            porValidarCount++;
+            porValidarAmount += monto;
         } else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
             rejectedCount++;
             rejectedAmount += monto;
@@ -2129,6 +2134,11 @@ function updateStats(data = orders) {
 
     document.getElementById('stat-rejected-amount').textContent = `S/ ${formatMoney(rejectedAmount)}`;
     document.getElementById('stat-rejected-count').textContent = `${rejectedCount} pedidos`;
+
+    const pvAmountEl = document.getElementById('stat-porvalidar-amount');
+    const pvCountEl = document.getElementById('stat-porvalidar-count');
+    if (pvAmountEl) pvAmountEl.textContent = `S/ ${formatMoney(porValidarAmount)}`;
+    if (pvCountEl) pvCountEl.textContent = `${porValidarCount} pedidos`;
 }
 
 function applyFilters() {
