@@ -175,9 +175,8 @@ function calculateElapsedTimeForMap(fechaStr) {
             if (diffMs < 0) diffMs = 0;
 
             const mins = Math.floor(diffMs / 60000);
+            result.text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
 
-            result.text = mins >= 60 ?\`\${Math.floor(mins / 60)}h \${mins % 60}m\` : \`\${mins} min\`;
-            
             if (mins >= 35) {
                 result.color = '#F87171'; // Red
                 result.bg = 'rgba(248, 113, 113, 0.15)';
@@ -189,8 +188,8 @@ function calculateElapsedTimeForMap(fechaStr) {
                 result.bg = 'rgba(74, 222, 128, 0.1)';
             }
         }
-    } catch(e) {}
-    
+    } catch (e) { }
+
     return result;
 }
 
