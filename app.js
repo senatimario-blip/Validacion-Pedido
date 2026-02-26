@@ -319,7 +319,7 @@ async function loadOrdersSilent() {
             orders = response.data.sort((a, b) => b.nro - a.nro);
 
             // Re-aplicar el filtro de la tabla de forma silenciosa si estamos en la vista
-            const isOrdersView = !document.getElementById('pedidos-content').classList.contains('hidden');
+            const isOrdersView = window.getComputedStyle(document.getElementById('app-content')).display !== 'none';
             if (isOrdersView) {
                 applyFilters();
             }
@@ -568,7 +568,7 @@ function renderOrders(data) {
 function startGlobalTimers() {
     setInterval(() => {
         // Solo actualizar si la tabla de pedidos está visible y hay filas
-        const isOrdersView = !document.getElementById('pedidos-content').classList.contains('hidden');
+        const isOrdersView = window.getComputedStyle(document.getElementById('app-content')).display !== 'none';
         if (!isOrdersView || ordersTableBody.children.length === 0) return;
 
         const now = new Date();
