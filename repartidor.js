@@ -515,7 +515,7 @@ async function handleSendToWhatsApp() {
             });
         } catch (e) { console.warn('Error marcando Por Validar', e); }
 
-        // 2. Preparar fotos a enviar a WS
+        // 2. Preparar fotos a enviar a WS (Restaurado al orden original porque al invertirlo WhatsApp separaba el texto)
         const filesToSend = [photoPosFile, photoEvidenciaFile];
 
         // 3. Preparar mensaje con formato requerido
