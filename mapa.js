@@ -28,7 +28,28 @@ function renderMapaMotorizados() {
     const countEl = document.getElementById('mapa-active-count');
     if (!container) return;
 
-    // Filter only active orders (Pendiente, En Camino, Reservado, empty)
+    // 1. Obtener todos los motorizados únciso de toda la historia disponible para dibujarlos siempre
+    const motorizadosMap = {};
+    if (typeof orders !== 'undefined') {
+        const uniqueDrivers = new Set();
+        orders.forEach(o => {
+            if (o.envio && o.envio.trim() !== '') {
+                uniqueDrivers.add(o.envio.trim().toUpperCase());
+            }
+        });
+
+        uniqueDrivers.forEach(dName => {
+            // Find the original casing for the name
+            const originalName = orders.find(o => o.envio && o.envio.trim().toUpperCase() === dName).envio.trim();
+            motorizadosMap[dName] = {
+                name: originalName,
+                orders: [],
+                totalMoney: 0
+            };
+        });
+    }
+
+    // 2. Filter only active orders (Pendiente, En Camino, Reservado, empty)
     // Same as what the motorizado sees, essentially NOT Cancelado, NOT Validado
     const activeOrders = (typeof orders !== 'undefined' ? orders : []).filter(o =>
         o.estado !== 'Validado' &&
@@ -37,34 +58,40 @@ function renderMapaMotorizados() {
         o.envio && o.envio.trim() !== ''
     );
 
-    // Group by 'envio' (motorizado name)
-    const motorizadosMap = {};
+    // 3. Asignar los pedidos activos a sus respectivos motorizados
     activeOrders.forEach(o => {
         const dName = o.envio.trim().toUpperCase();
-        if (!motorizadosMap[dName]) {
-            motorizadosMap[dName] = {
-                name: o.envio.trim(),
-                orders: [],
-                totalMoney: 0
-            };
+        if (motorizadosMap[dName]) {
+            motorizadosMap[dName].orders.push(o);
+            motorizadosMap[dName].totalMoney += (parseFloat(o.monto) || 0);
         }
-        motorizadosMap[dName].orders.push(o);
-        motorizadosMap[dName].totalMoney += (parseFloat(o.monto) || 0);
     });
 
-    const motorizadosKeys = Object.keys(motorizadosMap).sort();
+    // 4. Separar activos (con pedidos) de inactivos (sin pedidos) y ordenarlos alfabéticamente dentro de su grupo
+    const allKeys = Object.keys(motorizadosMap);
+    const motorizadosKeys = allKeys.sort((a, b) => {
+        // Primero por cantidad de pedidos (descendente)
+        const diff = motorizadosMap[b].orders.length - motorizadosMap[a].orders.length;
+        if (diff !== 0) return diff;
+        // Si tienen igual cantidad, orden alfabético
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    });
+
+    const totalActivos = motorizadosKeys.filter(k => motorizadosMap[k].orders.length > 0).length;
 
     // Update the counter
     if (countEl) {
-        countEl.innerHTML = `<i class="fa-solid fa-motorcycle"></i> ${motorizadosKeys.length} Activos`;
+        countEl.innerHTML = `<i class="fa-solid fa-motorcycle"></i> ${totalActivos} Activos / ${motorizadosKeys.length} Total`;
     }
 
     if (motorizadosKeys.length === 0) {
         container.innerHTML = `
             <div style="grid-column: 1 / -1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 40px; color: rgba(255,255,255,0.4);">
-                <i class="fa-solid fa-mug-hot text-4xl mb-4" style="font-size:3em; margin-bottom:15px;"></i>
-                <h3 style="font-size:1.2em; font-weight:600;">Sin Rutas Activas</h3>
-                <p>No hay motorizados con pedidos pendientes en este momento.</p>
+                <i class="fa-solid fa-users-slash text-4xl mb-4" style="font-size:3em; margin-bottom:15px;"></i>
+                <h3 style="font-size:1.2em; font-weight:600;">Sin Motorizados Registrados</h3>
+                <p>No hay registro histórico de ningún motorizado en el sistema aún.</p>
             </div>
         `;
         return;
@@ -104,22 +131,39 @@ function renderMapaMotorizados() {
             `;
         }).join('');
 
+        if (data.orders.length === 0) {
+            ordersHtml = `
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 20px 0; color: rgba(255,255,255,0.3); text-align:center;">
+                    <i class="fa-solid fa-bed text-2xl mb-2" style="font-size: 2em; margin-bottom: 8px;"></i>
+                    <span style="font-size: 0.9em;">En espera / Sin ruta</span>
+                </div>
+            `;
+        }
+
+        const bgPanelColor = data.orders.length > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.2)';
+        const borderColor = data.orders.length > 0 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.02)';
+        const avatarBgColor = data.orders.length > 0 ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.05)';
+        const avatarBorderColor = data.orders.length > 0 ? 'rgba(59, 130, 246, 0.5)' : 'rgba(255,255,255,0.1)';
+        const avatarIconColor = data.orders.length > 0 ? '#60A5FA' : 'rgba(255,255,255,0.3)';
+        const titleColor = data.orders.length > 0 ? '#fff' : 'rgba(255,255,255,0.4)';
+        const amountColor = data.orders.length > 0 ? '#4ADE80' : 'rgba(255,255,255,0.2)';
+
         htmlBody += `
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px; display:flex; flex-direction:column;">
+            <div style="background: ${bgPanelColor}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 16px; display:flex; flex-direction:column;">
                 
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed rgba(255,255,255,0.1);">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed ${borderColor};">
                     <div style="display:flex; align-items:center; gap: 10px;">
-                        <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); display:flex; align-items:center; justify-content:center; color: #60A5FA;">
+                        <div style="width: 40px; height: 40px; border-radius: 50%; background: ${avatarBgColor}; border: 1px solid ${avatarBorderColor}; display:flex; align-items:center; justify-content:center; color: ${avatarIconColor};">
                             <i class="fa-solid fa-helmet-safety text-xl" style="font-size:1.2em;"></i>
                         </div>
                         <div>
-                            <h3 style="margin: 0; font-size: 1.1em; font-weight: 700; color: #fff;">${data.name}</h3>
+                            <h3 style="margin: 0; font-size: 1.1em; font-weight: 700; color: ${titleColor};">${data.name}</h3>
                             <span style="font-size: 0.8em; color: rgba(255,255,255,0.5);">${data.orders.length} pedidos en ruta</span>
                         </div>
                     </div>
                     <div style="text-align:right;">
                         <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); text-transform: uppercase;">A Cobrar</div>
-                        <div style="font-size: 1.1em; font-weight: 700; color: #4ADE80;">S/ ${data.totalMoney.toFixed(2)}</div>
+                        <div style="font-size: 1.1em; font-weight: 700; color: ${amountColor};">S/ ${data.totalMoney.toFixed(2)}</div>
                     </div>
                 </div>
 
