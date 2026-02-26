@@ -175,7 +175,7 @@ function renderOrders() {
             registerDate = new Date(order.fecha);
         }
 
-        const tipoPagoDisplay = (order.tipo_pago || 'Desconocido').toUpperCase();
+        const tipoPagoDisplay = (order.pago || 'Desconocido').toUpperCase();
         let tipoIcon = 'wallet';
         let tipoColor = 'text-slate-400 bg-slate-800';
 
@@ -298,7 +298,7 @@ function openCaptureModal(order) {
     selectedOrderForCapture = order;
     lblModalLlave.textContent = order.llave || `PED-${order.nro}`;
 
-    const tipo = (order.tipo_pago || '').toUpperCase();
+    const tipo = (order.pago || '').toUpperCase();
     if (tipo.includes('ONLINE')) {
         lblTipoPagoModal.textContent = 'Evidencia Online';
     } else if (tipo.includes('EFECTIVO')) {
