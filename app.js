@@ -24,6 +24,12 @@ let currentFilter = 'all';
 let currentFilteredOrders = [];
 let dateRange = { start: null, end: null };
 
+// Alerts State
+let alertsEnabled = false;
+let notifiedDelayed = new Set();
+let notifiedPorValidar = new Set();
+let audioCtx = null;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     if (API_URL) apiUrlInput.value = API_URL;
@@ -39,6 +45,95 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // --- Authentication ---
+
+// --- Alerts Logic ---
+const toggleAlertsBtn = document.getElementById('toggle-alerts-btn');
+
+if (toggleAlertsBtn) {
+    toggleAlertsBtn.addEventListener('click', () => {
+        alertsEnabled = !alertsEnabled;
+        if (alertsEnabled) {
+            // Initialize AudioContext on first user interaction
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) audioCtx = new AudioContext();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            // Request Notification Permission
+            if (window.Notification && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+                Notification.requestPermission();
+            }
+
+            toggleAlertsBtn.style.background = 'rgba(74, 222, 128, 0.1)';
+            toggleAlertsBtn.style.color = '#4ade80';
+            toggleAlertsBtn.style.border = '1px solid rgba(74, 222, 128, 0.3)';
+            toggleAlertsBtn.innerHTML = '<i class="fa-solid fa-bell"></i> <span id="lbl-alerts">Alertas: ON</span>';
+            Swal.fire({ toast: true, position: 'top-end', text: 'Alertas sonoras y visuales encendidas', icon: 'success', timer: 2000, showConfirmButton: false });
+        } else {
+            toggleAlertsBtn.style.background = 'rgba(239, 68, 68, 0.1)';
+            toggleAlertsBtn.style.color = '#ef4444';
+            toggleAlertsBtn.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+            toggleAlertsBtn.innerHTML = '<i class="fa-solid fa-bell-slash"></i> <span id="lbl-alerts">Alertas: OFF</span>';
+        }
+    });
+}
+
+function playAlertSound(type) {
+    if (!alertsEnabled || !audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'delayed') {
+            // Alarm Beep (Doble pitido rápido rojo)
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime); // low volume
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.2);
+
+            setTimeout(() => {
+                if (audioCtx && audioCtx.state === 'running') {
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.type = 'square';
+                    osc2.frequency.setValueAtTime(400, audioCtx.currentTime);
+                    osc2.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1);
+                    gain2.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                    osc2.start(audioCtx.currentTime);
+                    osc2.stop(audioCtx.currentTime + 0.2);
+                }
+            }, 250);
+
+        } else if (type === 'por_validar') {
+            // Ding / Campanilla (Verde/Éxito)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+            osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.5);
+        }
+    } catch (e) { }
+}
+
+function showSystemNotification(title, body) {
+    if (!alertsEnabled || !window.Notification) return;
+    if (Notification.permission === 'granted') {
+        new Notification(title, { body: body });
+    }
+}
 
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -337,6 +432,24 @@ function renderOrders(data) {
                         // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
                         color = mins <= 35 ? '#4ade80' : '#f87171';
                         bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+
+                        // EVALUAR ALERTAS (Solo consideramos eventos del día actual)
+                        const isToday = order.fecha && order.fecha.startsWith(new Date().toISOString().split('T')[0]);
+                        if (isToday) {
+                            // 1. Alerta por demoras (minutos >= 35)
+                            if (mins >= 35 && !notifiedDelayed.has(order.nro)) {
+                                notifiedDelayed.add(order.nro);
+                                playAlertSound('delayed');
+                                showSystemNotification('🚨 Pedido Retrasado', `El pedido #${order.nro} ha cruzado los ${mins} minutos en espera.`);
+                            }
+
+                            // 2. Alerta de listo por validar (estado = Por Validar)
+                            if (order.estado === 'Por Validar' && !notifiedPorValidar.has(order.nro)) {
+                                notifiedPorValidar.add(order.nro);
+                                playAlertSound('por_validar');
+                                showSystemNotification('✅ Entrega Subida', `El motorizado ha adjuntado evidencia para el pedido #${order.nro}.`);
+                            }
+                        }
                     } else {
                         // AZUL SUAVE si está a tiempo, NARANJA si pasó los 35 min
                         color = mins <= 35 ? '#60a5fa' : '#fb923c';
