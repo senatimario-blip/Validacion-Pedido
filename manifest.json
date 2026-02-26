@@ -1,0 +1,23 @@
+{
+  "name": "Motorizado Entregas",
+  "short_name": "Repartidor",
+  "description": "Aplicación para el registro de entregas por parte de los repartidores.",
+  "start_url": "./repartidor.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3b82f6",
+  "icons": [
+    {
+      "src": "./Logo_mio.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./Logo_mio.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

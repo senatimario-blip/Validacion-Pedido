@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Motorizado | Entregas</title>
 
+    <!-- Archivo Manifest y Configuraciones PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="Logo_mio.png">
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -228,6 +233,21 @@
 
     <!-- Lógica de la App del Repartidor -->
     <script src="repartidor.js?v=5"></script>
+
+    <!-- Registro del Service Worker para PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registrado con éxito', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Error al registrar ServiceWorker', error);
+                    });
+            });
+        }
+    </script>
 </body>
 
 </html>
