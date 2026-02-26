@@ -106,16 +106,21 @@ document.getElementById('logout-btn').addEventListener('click', () => {
 // --- Navigation ---
 const navPedidos = document.getElementById('nav-pedidos');
 const navReportes = document.getElementById('nav-reportes');
+const navMapa = document.getElementById('nav-mapa'); // NUEVO
 const contentPedidos = document.getElementById('app-content');
 const contentReportes = document.getElementById('reports-content');
+const contentMapa = document.getElementById('mapa-content'); // NUEVO
 
 navPedidos.addEventListener('click', (e) => {
     e.preventDefault();
     navPedidos.classList.add('active');
     navReportes.classList.remove('active');
+    navMapa.classList.remove('active');
     document.getElementById('nav-dashboard').classList.remove('active');
+
     contentPedidos.style.display = 'block';
     contentReportes.classList.add('hidden');
+    contentMapa.classList.add('hidden');
     const dv = document.getElementById('dashboard-view');
     if (dv) dv.style.display = 'none';
 });
@@ -124,8 +129,11 @@ navReportes.addEventListener('click', (e) => {
     e.preventDefault();
     navReportes.classList.add('active');
     navPedidos.classList.remove('active');
+    navMapa.classList.remove('active');
     document.getElementById('nav-dashboard').classList.remove('active');
+
     contentPedidos.style.display = 'none';
+    contentMapa.classList.add('hidden');
     contentReportes.style.display = '';
     contentReportes.classList.remove('hidden');
     const dv = document.getElementById('dashboard-view');
@@ -138,6 +146,27 @@ navReportes.addEventListener('click', (e) => {
     document.getElementById('report-date-filter').value = `${yyyy}-${mm}-${dd}`;
 
     renderReportsTable();
+});
+
+// NUEVO MANEJADOR DE MAPA
+navMapa.addEventListener('click', (e) => {
+    e.preventDefault();
+    navMapa.classList.add('active');
+    navPedidos.classList.remove('active');
+    navReportes.classList.remove('active');
+    document.getElementById('nav-dashboard').classList.remove('active');
+
+    contentPedidos.style.display = 'none';
+    contentReportes.classList.add('hidden');
+    contentReportes.style.display = 'none';
+    const dv = document.getElementById('dashboard-view');
+    if (dv) dv.style.display = 'none';
+
+    contentMapa.classList.remove('hidden');
+
+    if (typeof renderMapaMotorizados === 'function') {
+        renderMapaMotorizados();
+    }
 });
 
 // --- Orders Management ---

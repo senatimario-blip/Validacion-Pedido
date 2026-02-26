@@ -100,6 +100,7 @@
                 <li class="active" id="nav-pedidos"><a href="#"><i class="fa-solid fa-table-list"></i> Pedidos</a></li>
                 <li id="nav-reportes"><a href="#"><i class="fa-solid fa-file-invoice"></i> Reportes</a></li>
                 <li id="nav-dashboard"><a href="#"><i class="fa-solid fa-chart-pie"></i> Dashboard</a></li>
+                <li id="nav-mapa"><a href="#"><i class="fa-solid fa-map-location-dot"></i> Motorizados</a></li>
             </ul>
             <button id="logout-btn" class="logout-link">
                 <i class="fa-solid fa-right-from-bracket"></i> Salir
@@ -264,6 +265,35 @@
                     </div>
                 </div>
             </div> <!-- End Reports Content -->
+
+            <!-- END REPORTS CONTENT -->
+
+            <!-- CONTENEDOR PRINCIPAL: MAPA MOTORIZADOS -->
+            <div id="mapa-content" class="hidden"
+                style="height: 100%; display: flex; flex-direction: column; overflow: hidden;">
+                <header class="top-bar glass-panel" style="justify-content: space-between; flex-shrink: 0;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span style="font-weight: 600; font-size: 1.1em;"><i class="fa-solid fa-map-location-dot"></i>
+                            Monitor de Motorizados</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span id="mapa-active-count"
+                            style="font-size: 0.9em; color: rgba(255,255,255,0.7); font-weight: bold; background: rgba(59, 130, 246, 0.2); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.4);">
+                            <i class="fa-solid fa-motorcycle"></i> 0 Activos
+                        </span>
+                        <button id="btn-refresh-mapa" class="btn-icon" title="Actualizar Datos">
+                            <i class="fa-solid fa-rotate-right"></i>
+                        </button>
+                    </div>
+                </header>
+                <div class="content-panel glass-panel"
+                    style="flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 20px;">
+                    <div id="mapa-grid"
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+                        <!-- Tarjetas de motorizados inyectadas por JS -->
+                    </div>
+                </div>
+            </div>
 
         </main>
     </section>
@@ -619,6 +649,7 @@
 
     <script src="app.js"></script>
     <script src="dashboard.js"></script>
+    <script src="mapa.js"></script>
 </body>
 
 </html>
