@@ -282,6 +282,12 @@ async function loadOrders() {
     }
     // AQUÍ ESTABA EL ERROR: Borré el link de github que estaba pegado al final
     document.getElementById('loading-indicator').classList.add('hidden');
+
+    // Iniciar actualizaciones locales segundo a segundo si no estaba corriendo
+    if (!window.globalTimerRunning) {
+        startGlobalTimers();
+        window.globalTimerRunning = true;
+    }
 }
 
 // Auto-refresh silencioso cada 30 segundos
@@ -511,6 +517,12 @@ function renderOrders(data) {
 
         // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
         const tr = document.createElement('tr');
+        // Guardar metadata en el TR para poder actualizarlo en tiempo real localmente
+        tr.setAttribute('data-nro', order.nro);
+        tr.setAttribute('data-estado', order.estado);
+        if (orderDate && !isNaN(orderDate.getTime())) {
+            tr.setAttribute('data-time', orderDate.getTime());
+        }
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
             <td>${formatDate(order.fecha)}</td>
@@ -551,6 +563,53 @@ function renderOrders(data) {
         `;
         ordersTableBody.appendChild(tr);
     });
+}
+
+// --- ACTUALIZACIÓN DINÁMICA DE TIEMPO SIN RECARGAR API ---
+function startGlobalTimers() {
+    setInterval(() => {
+        // Solo actualizar si la tabla de pedidos está visible y hay filas
+        const isOrdersView = !document.getElementById('pedidos-content').classList.contains('hidden');
+        if (!isOrdersView || ordersTableBody.children.length === 0) return;
+
+        const now = new Date();
+        const formatterNow = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Lima',
+            year: 'numeric', month: 'numeric', day: 'numeric',
+            hour: 'numeric', minute: 'numeric', second: 'numeric',
+            hour12: false
+        });
+        const partsNow = formatterNow.formatToParts(now);
+        const getPN = (type) => parseInt(partsNow.find(p => p.type === type).value, 10);
+        let nH = getPN('hour');
+        if (nH === 24) nH = 0;
+        const limaNowUtc = Date.UTC(getPN('year'), getPN('month') - 1, getPN('day'), nH, getPN('minute'), 0);
+
+        // Recorrer filas en pantalla con estado Pendiente o Por Validar
+        Array.from(ordersTableBody.children).forEach(tr => {
+            const estado = tr.getAttribute('data-estado');
+            const startTime = parseInt(tr.getAttribute('data-time'), 10);
+
+            if ((estado === 'Pendiente' || estado === 'Por Validar') && !isNaN(startTime)) {
+                let diffMs = limaNowUtc - startTime;
+                if (diffMs < 0) diffMs = 0;
+
+                let mins = Math.floor(diffMs / 60000);
+
+                // Evaluar Colores dinámicos
+                let color = mins <= 35 ? '#4ade80' : '#f87171';
+                let bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                let text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
+
+                let tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
+
+                // Actualizar la celda exacta del tiempo (es la columna índice 7)
+                if (tr.children[7]) {
+                    tr.children[7].innerHTML = tiempoHtml;
+                }
+            }
+        });
+    }, 60000); // Actualiza la UI visual cada 60 segundos (1 minuto) exactos
 }
 
 window.toggleSLA = async (nro) => {
