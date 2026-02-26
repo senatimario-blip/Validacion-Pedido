@@ -499,8 +499,137 @@ function renderReportsTable() {
             <td>${validTick}</td>
             <td style="font-size: 0.8em; color: var(--text-muted);">${horaFormat}</td>
         `;
-        tbody.appendChild(tr);
     });
+
+    // Generar bloque visual del Podio si hay pedidos ese día
+    renderPodioMotorizados(filteredForReport);
+}
+
+function renderPodioMotorizados(data) {
+    const podioContainer = document.getElementById('podio-motorizados');
+    const podioGrid = document.getElementById('podio-grid');
+    if (!podioContainer || !podioGrid) return;
+
+    // 1. Agrupar data
+    const drivers = {};
+    data.forEach(o => {
+        if (!o.envio || String(o.envio).trim() === '') return;
+        const driverName = String(o.envio).trim();
+
+        if (!drivers[driverName]) {
+            drivers[driverName] = {
+                name: driverName,
+                total: 0,
+                onTime: 0,
+                delayed: 0,
+                cancelled: 0,
+                monto: 0
+            };
+        }
+
+        drivers[driverName].total++;
+        drivers[driverName].monto += (parseFloat(o.monto) || 0);
+
+        if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
+            drivers[driverName].cancelled++;
+            return;
+        }
+
+        if (o.estado !== 'Validado') return; // Ignore pendientes here 
+
+        // Evaluar retraso
+        let delayed = o.sla_fuera ? true : false;
+
+        if (!delayed && o.tiempo_transcurrido) {
+            let mins = 0;
+            if (typeof o.tiempo_transcurrido === 'string' && o.tiempo_transcurrido.includes(':') && !o.tiempo_transcurrido.includes('T')) {
+                let parts = o.tiempo_transcurrido.split(':');
+                let h = parseInt(parts[0] || '0', 10);
+                let m = parseInt(parts[1] || '0', 10);
+                if (!isNaN(h) && !isNaN(m)) mins = (h * 60) + m;
+            } else {
+                try {
+                    const d = new Date(o.tiempo_transcurrido);
+                    if (!isNaN(d.getTime())) {
+                        mins = (d.getUTCHours() * 60) + d.getUTCMinutes();
+                    }
+                } catch (e) { }
+            }
+            if (mins >= 35) delayed = true;
+        }
+
+        if (delayed) {
+            drivers[driverName].delayed++;
+        } else {
+            drivers[driverName].onTime++;
+        }
+    });
+
+    const driverKeys = Object.keys(drivers);
+    if (driverKeys.length === 0) {
+        podioContainer.style.display = 'none';
+        return;
+    }
+
+    // Ordenar mejor rendimiento (más a tiempo, menos demoras)
+    driverKeys.sort((a, b) => {
+        const dA = drivers[a], dB = drivers[b];
+        // 1. Mayor cantidad A Tiempo
+        if (dB.onTime !== dA.onTime) return dB.onTime - dA.onTime;
+        // 2. Menor cantidad Retraso
+        if (dA.delayed !== dB.delayed) return dA.delayed - dB.delayed;
+        // 3. Monto
+        return dB.monto - dA.monto;
+    });
+
+    podioGrid.innerHTML = driverKeys.map((k, index) => {
+        const d = drivers[k];
+        const pct = d.total - d.cancelled > 0 ? Math.round((d.onTime / (d.total - d.cancelled)) * 100) : 0;
+
+        let positionBadge = '';
+        if (index === 0) positionBadge = '<i class="fa-solid fa-trophy" style="color: #fbbf24; font-size:1.5em; margin-right:8px;"></i>';
+        else if (index === 1) positionBadge = '<i class="fa-solid fa-medal" style="color: #9ca3af; font-size:1.3em; margin-right:8px;"></i>';
+        else if (index === 2) positionBadge = '<i class="fa-solid fa-medal" style="color: #b45309; font-size:1.3em; margin-right:8px;"></i>';
+        else positionBadge = `<span style="display:inline-block; width:25px; text-align:center; color:rgba(255,255,255,0.3); font-weight:bold; margin-right:8px;">#${index + 1}</span>`;
+
+        // Color gradient depending on efficiency
+        let glow = pct >= 90 ? '#4ade80' : (pct >= 70 ? '#fb923c' : '#f87171');
+
+        return `
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; position: relative; overflow: hidden;">
+                <div style="position: absolute; top:0; left:0; width:4px; height:100%; background: ${glow};"></div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div style="display: flex; align-items: center;">
+                        ${positionBadge}
+                        <h4 style="margin: 0; font-size: 1.1em; color: white;">${d.name}</h4>
+                    </div>
+                    <div style="text-align: right; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px;">
+                        <span style="font-weight: bold; font-size: 1.1em; color: ${glow};">${pct}%</span>
+                        <div style="font-size: 0.65em; color: rgba(255,255,255,0.5); text-transform: uppercase;">Efectividad</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em;">
+                    <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.2); padding: 8px; border-radius: 8px; text-align: center;">
+                        <div style="color: #4ade80; font-weight: bold; font-size: 1.2em;">${d.onTime}</div>
+                        <div style="color: rgba(255,255,255,0.6); font-size: 0.75em;">A Tiempo</div>
+                    </div>
+                    <div style="background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.2); padding: 8px; border-radius: 8px; text-align: center;">
+                        <div style="color: #f87171; font-weight: bold; font-size: 1.2em;">${d.delayed}</div>
+                        <div style="color: rgba(255,255,255,0.6); font-size: 0.75em;">Demoras (>35m)</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-top: 15px; font-size: 0.8em; color: rgba(255,255,255,0.5); border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
+                    <div>Entregas: <strong style="color: white;">${d.total - d.cancelled}</strong></div>
+                    <div>Cancelados: <strong style="color: #f87171;">${d.cancelled}</strong></div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    podioContainer.style.display = 'block';
 }
 
 // --- Modals & Forms ---
