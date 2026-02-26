@@ -89,20 +89,6 @@
                     placeholder="Ej. Victor L.">
             </div>
 
-            <label class="block text-sm font-medium text-slate-300 mt-4 mb-2">Contraseña</label>
-            <div class="relative">
-                <span class="absolute inset-y-0 left-0 flex items-center pl-3">
-                    <i class="fa-solid fa-lock text-slate-400"></i>
-                </span>
-                <input type="password" id="driver-pass-input"
-                    class="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-10 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-                    placeholder="Tu clave">
-                <button id="btn-toggle-pass" type="button"
-                    class="absolute inset-y-0 right-0 flex items-center pr-3 group transition-opacity">
-                    <i class="fa-solid fa-eye text-slate-500 group-hover:text-slate-300"></i>
-                </button>
-            </div>
-
             <button id="btn-ingresar"
                 class="w-full bg-primary hover:bg-blue-600 text-white font-bold rounded-xl py-4 mt-6 flex items-center justify-center gap-2 transition-colors active:scale-95">
                 <span>Ingresar a Ruta</span>
@@ -189,25 +175,6 @@
                 </div>
             </div>
 
-            <!-- Boton Captura Evidencia -->
-            <div class="w-full relative mt-4">
-                <input type="file" accept="image/*" capture="environment" id="input-foto-evidencia"
-                    class="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer">
-                <div id="btn-ui-evidencia"
-                    class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
-                    <div class="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl"
-                        id="icon-evidencia">
-                        <i class="fa-solid fa-box-open"></i>
-                    </div>
-                    <div class="text-center">
-                        <span class="font-bold text-lg block text-white">Foto Evidencia</span>
-                        <span class="text-sm text-slate-400">Fachada, Puerta o Cliente</span>
-                    </div>
-                    <img id="preview-evidencia"
-                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-slate-600">
-                </div>
-            </div>
-
             <!-- Canvas Oculto para Fusionar (Ya no se usa pero lo dejamos por si acaso) -->
             <canvas id="canvas-fusion" class="hidden"></canvas>
 
@@ -217,8 +184,8 @@
         <div class="p-4 bg-cardDark border-t border-slate-800">
             <button id="btn-enviar-wsp" disabled
                 class="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
-                <i class="fa-solid fa-cloud-arrow-up text-xl"></i>
-                <span class="text-lg">1. Enviar Foto a Oficina</span>
+                <i class="fa-brands fa-whatsapp text-xl"></i>
+                <span class="text-lg">Enviar a WhatsApp</span>
             </button>
         </div>
     </div>
@@ -227,7 +194,7 @@
     <!-- Se usará un tono corto codificado en base64 corto u oscilador puro en JS para evitar pedir descargar assets extra -->
 
     <!-- Lógica de la App del Repartidor -->
-    <script src="repartidor.js?v=6"></script>
+    <script src="repartidor.js"></script>
 </body>
 
 </html>
