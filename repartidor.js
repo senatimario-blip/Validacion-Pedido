@@ -221,7 +221,7 @@ function renderOrders() {
         return;
     }
 
-    currentOrders.forEach(order => {
+    currentOrders.forEach((order, index) => {
         // Parse time for the clock
         let registerDate = null;
         if (order.fecha) {
@@ -255,9 +255,19 @@ function renderOrders() {
 
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
-                <div>
-                    <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">Llave / Ticket</span>
-                    <span class="text-xl font-bold tracking-tight">${order.llave || `PED-${order.nro}`}</span>
+                <div class="flex items-start gap-3">
+                    <div class="flex flex-col gap-1 z-10">
+                        <button onclick="moveOrderUp(${index}, event)" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors border border-slate-700 active:scale-95 ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}" ${index === 0 ? 'disabled' : ''}>
+                            <i class="fa-solid fa-chevron-up text-sm"></i>
+                        </button>
+                        <button onclick="moveOrderDown(${index}, event)" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors border border-slate-700 active:scale-95 ${index === currentOrders.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}" ${index === currentOrders.length - 1 ? 'disabled' : ''}>
+                            <i class="fa-solid fa-chevron-down text-sm"></i>
+                        </button>
+                    </div>
+                    <div>
+                        <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">Llave / Ticket</span>
+                        <span class="text-xl font-bold tracking-tight">${order.llave || `PED-${order.nro}`}</span>
+                    </div>
                 </div>
                 <div class="text-right">
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
@@ -285,6 +295,29 @@ function renderOrders() {
         }
     });
 }
+
+// --- Manual Sorting Logic ---
+window.moveOrderUp = function (index, event) {
+    if (event) event.stopPropagation();
+    if (index > 0) {
+        // Swap
+        const temp = currentOrders[index - 1];
+        currentOrders[index - 1] = currentOrders[index];
+        currentOrders[index] = temp;
+        renderOrders();
+    }
+};
+
+window.moveOrderDown = function (index, event) {
+    if (event) event.stopPropagation();
+    if (index < currentOrders.length - 1) {
+        // Swap
+        const temp = currentOrders[index + 1];
+        currentOrders[index + 1] = currentOrders[index];
+        currentOrders[index] = temp;
+        renderOrders();
+    }
+};
 
 // --- Timers Logic ---
 const audioAlerta = new Audio('data:audio/mp3;base64,//OExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'); // Minimal silent audio to initialize object
