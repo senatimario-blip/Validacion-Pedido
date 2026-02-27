@@ -358,6 +358,8 @@ function renderOrders(data) {
             else if (tipo.includes('TARJETA')) detalleHtml = '<span style="color:#a78bfa; font-weight:bold; font-size:0.85em;">💳 TARJETA</span>';
             else if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) detalleHtml = '<span style="color:#2dd4bf; font-weight:bold; font-size:0.85em;">📱 QR</span>';
             else if (tipo !== '') detalleHtml = `<span style="color:#cbd5e1; font-weight:bold; font-size:0.85em;">${tipo}</span>`;
+        } else if (order.pago && order.pago.trim() !== '') {
+            detalleHtml = `<span style="color:#94a3b8; font-size:0.85em;">${order.pago}</span>`;
         }
 
         // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
@@ -524,11 +526,11 @@ function renderOrders(data) {
         }
         tr.innerHTML = `
             <td>#${dynamicCorrelative}</td>
-            <td>${formatDate(order.fecha)}</td>
             <td>${order.llave}</td>
+            <td>${formatDate(order.fecha)}</td>
             <td>S/ ${formatMoney(order.monto)}</td>
-            <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span></td>
             <td>${detalleHtml}</td>
+            <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span></td>
             <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
             <td>${tiempoHtml}</td>
             <td>
@@ -902,6 +904,15 @@ document.querySelectorAll('.close-modal').forEach(btn => {
     });
 });
 
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const swalOpen = typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible();
+        if (!swalOpen) {
+            document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('active'));
+        }
+    }
+});
+
 document.getElementById('new-key').addEventListener('input', function () {
     this.value = this.value.toUpperCase();
 });
@@ -918,6 +929,7 @@ newOrderForm.addEventListener('submit', async (e) => {
         hora: timePart,
         llave: document.getElementById('new-key').value,
         envio: document.getElementById('new-envio').value,
+        pago: document.getElementById('new-pago').value,
         monto: document.getElementById('new-amount').value,
         usuario: currentUser.usuario
     };
@@ -990,7 +1002,7 @@ window.openValidateModal = (nro) => {
         extraInfoDiv.innerHTML += `<span style="${chipStyle}"><i class="fa-solid fa-clock" style="color:#a78bfa;"></i> ${horaChip}</span>`;
     }
     if (order.pago) {
-        extraInfoDiv.innerHTML += `<span style="${chipStyle}"><i class="fa-solid fa-credit-card" style="color:#4ade80;"></i> ${order.pago}</span>`;
+        extraInfoDiv.innerHTML += `<span style="${chipStyle}" title="Pago Original Ingresado"><i class="fa-solid fa-credit-card" style="color:#4ade80;"></i> Orig: ${order.pago}</span>`;
     }
 
     photoInput.value = '';
@@ -1073,7 +1085,24 @@ window.openValidateModal = (nro) => {
     updateValidationMode(null);
 
     const cleanUrl = extractPhotoUrl(order.foto);
-    const tipoPago = (order.tipo_pago || '').toString().trim().toUpperCase();
+
+    // Si aún no hay tipoPago validado, intentar inferirlo del pago original (order.pago)
+    let tipoPago = (order.tipo_pago || '').toString().trim().toUpperCase();
+    if (!tipoPago && order.pago) {
+        const pStr = order.pago.toUpperCase();
+        if (pStr.includes('CONTADO')) {
+            tipoPago = 'EFECTIVO';
+        } else if (pStr.includes('TARJETA DE CRÉDITO') || pStr.includes('TARJETA DE CREDITO') || pStr.includes('QR') || pStr.includes('YAPE') || pStr.includes('PLIN')) {
+            if (pStr.includes('LINEA') || pStr.includes('LÍNEA')) {
+                tipoPago = 'ONLINE';
+            } else if (pStr.includes('QR') || pStr.includes('YAPE') || pStr.includes('PLIN')) {
+                tipoPago = 'QR';
+            } else {
+                tipoPago = 'TARJETA';
+            }
+        }
+    }
+
     if (tipoPago === 'EFECTIVO') {
         document.querySelector('input[name="valType"][value="efectivo"]').checked = true;
         updateValidationMode('efectivo');
@@ -1612,7 +1641,8 @@ function parseIziPayVoucherData(text) {
     const fechaPatterns = [
         /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/,
         /(\d{2,4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/,
-        /\b(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})\b/i
+        /\b(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})\b/i,
+        /\b(\d{1,2})\s+([a-zA-Z]{3,})[.\/]?\s+(\d{4})\b/i
     ];
 
     for (let line of lines) {
@@ -1654,11 +1684,11 @@ function parseIziPayVoucherData(text) {
                 valor = valor.replace(/[^\d.,]/g, '').replace(',', '.');
                 if (parseFloat(valor) > 0) {
                     monto = parseFloat(valor);
-                    break;
+                    break; // Pasa al siguiente renglón una vez que encuentra un monto válido en este.
                 }
             }
         }
-        if (monto > 0) break;
+        // Eliminado: if (monto > 0) break; para que lea hasta el final y atrape el ÚLTIMO monto.
     }
 
     const textLower = text.toLowerCase();
@@ -1676,24 +1706,53 @@ function processVoucherTimes(extractedFecha, extractedHora) {
     const horaInput = document.getElementById('val-hora-entrega');
     const elapsedEl = document.getElementById('val-tiempo-transcurrido');
 
-    // 1. NORMALIZAR LA FECHA (Convertir DD/MM/YY a DD/MM/YYYY)
+    // 1. NORMALIZAR LA FECHA (Convertir DD/MM/YY o "26 feb. 2026" a DD/MM/YYYY)
     let fechaNormalizada = extractedFecha || '';
     if (fechaNormalizada) {
-        // Reemplazar guiones o puntos por barras en caso de que el OCR lea 23-02-26
-        fechaNormalizada = fechaNormalizada.replace(/[\-\.]/g, '/');
-        const partes = fechaNormalizada.split('/');
+        // Chequear si contiene letras (es decir, viene en formato texto como "26 feb. 2026")
+        if (/[a-zA-Z]/.test(fechaNormalizada)) {
+            const meses = {
+                'ene': '01', 'enero': '01',
+                'feb': '02', 'febrero': '02',
+                'mar': '03', 'marzo': '03',
+                'abr': '04', 'abril': '04',
+                'may': '05', 'mayo': '05',
+                'jun': '06', 'junio': '06',
+                'jul': '07', 'julio': '07',
+                'ago': '08', 'agosto': '08',
+                'sep': '09', 'set': '09', 'septiembre': '09', 'setiembre': '09',
+                'oct': '10', 'octubre': '10',
+                'nov': '11', 'noviembre': '11',
+                'dic': '12', 'diciembre': '12'
+            };
 
-        if (partes.length === 3) {
-            let dia = partes[0].padStart(2, '0');
-            let mes = partes[1].padStart(2, '0');
-            let anio = partes[2];
+            // Extraer el número del día, la palabra del mes, y el año. (acepta puntos o barras como "feb/" o "feb.")
+            const textMatch = fechaNormalizada.match(/(\d{1,2})\s+(?:de\s+)?([a-zA-Z]+)[.\/]?\s+(?:de\s+)?(\d{4})/i);
 
-            // Si el año tiene 2 dígitos (ej. "26"), convertir a 4 dígitos ("2026")
-            if (anio.length === 2) {
-                anio = '20' + anio;
+            if (textMatch) {
+                const dia = textMatch[1].padStart(2, '0');
+                const mesStr = textMatch[2].toLowerCase().substring(0, 3); // Tomar las 3 primeras letras para buscar
+                const mes = meses[mesStr] || '01'; // Fallback a 01 si no encuentra
+                const anio = textMatch[3];
+                fechaNormalizada = `${dia}/${mes}/${anio}`;
             }
+        } else {
+            // Reemplazar guiones o puntos por barras en caso de que el OCR lea 23-02-26 numérico
+            fechaNormalizada = fechaNormalizada.replace(/[\-\.]/g, '/');
+            const partes = fechaNormalizada.split('/');
 
-            fechaNormalizada = `${dia}/${mes}/${anio}`;
+            if (partes.length >= 3) {
+                let dia = partes[0].padStart(2, '0');
+                let mes = partes[1].padStart(2, '0');
+                let anio = partes[2];
+
+                // Si el año tiene 2 dígitos (ej. "26"), convertir a 4 dígitos ("2026")
+                if (anio.length === 2) {
+                    anio = '20' + anio;
+                }
+
+                fechaNormalizada = `${dia}/${mes}/${anio}`;
+            }
         }
     }
 
@@ -1778,12 +1837,12 @@ async function runOCR(file, rotation = 0) {
     document.getElementById('val-hora-entrega').value = '';
     document.getElementById('val-tiempo-transcurrido').textContent = '--';
 
-    let bestData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA' };
+    let bestData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', esOnlineValido: false };
     let engine = '';
     const valType = document.querySelector('input[name="valType"]:checked')?.value;
 
     try {
-        if (valType === 'pos') {
+        if (valType === 'pos' || valType === 'online') {
             let apiKey = localStorage.getItem('gcp_api_key');
             if (!apiKey) {
                 const { value: key } = await Swal.fire({
@@ -1826,13 +1885,14 @@ async function runOCR(file, rotation = 0) {
 
                 const textAnnotations = data.responses[0]?.textAnnotations;
                 if (!textAnnotations || textAnnotations.length === 0) throw new Error('No se detectó texto en la imagen');
-
+                const fullText = textAnnotations[0].description.toLowerCase();
                 const parsed = parseIziPayVoucherData(textAnnotations[0].description);
                 bestData = {
                     amount: parsed.amount || 0,
                     fecha: parsed.fecha || '',
                     hora: parsed.hora || '',
-                    tipoPago: parsed.tipoPago || 'TARJETA'
+                    tipoPago: parsed.tipoPago || 'TARJETA',
+                    esOnlineValido: fullText.includes('débito en línea') || fullText.includes('debito en linea')
                 };
             } catch (err) {
                 console.error('[OCR] Google Cloud Vision error:', err);
@@ -1857,7 +1917,8 @@ async function runOCR(file, rotation = 0) {
                             amount: parseFloat(d.total) || 0,
                             fecha: d.fecha || '',
                             hora: d.hora || '',
-                            tipoPago: d.tipoPago || 'TARJETA'
+                            tipoPago: d.tipoPago || 'TARJETA',
+                            esOnlineValido: !!d.esOnlineValido
                         };
                         engine = `Gemini (${d.model || 'AI'})`;
                     }
@@ -1866,7 +1927,7 @@ async function runOCR(file, rotation = 0) {
                 }
             }
 
-            if (bestData.amount <= 0) {
+            if (bestData.amount <= 0 && valType !== 'online') {
                 engine = 'Tesseract';
 
                 function mergeData(passData) {
@@ -1893,21 +1954,35 @@ async function runOCR(file, rotation = 0) {
 
             showOcrInfoChips(bestData);
 
-            const Toast = Swal.mixin({
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 4000,
-                timerProgressBar: true,
-            });
-            let detailParts = [`S/ ${bestData.amount.toFixed(2)}`];
-            if (bestData.fecha) detailParts.push(`📅 ${bestData.fecha}`);
-            if (bestData.hora) detailParts.push(`🕐 ${bestData.hora}`);
-            detailParts.push(bestData.tipoPago === 'QR' ? '📱 QR' : '💳 Tarjeta');
-            Toast.fire({
-                icon: 'success',
-                title: `${engine}: ${detailParts.join(' | ')}`
-            });
+            // Warning for ONLINE voucher if text is missing
+            if (valType === 'online' && !bestData.esOnlineValido) {
+                Swal.fire({
+                    title: 'Verificación ONLINE Fallida',
+                    html: `El comprobante no contiene el texto exacto <b>"Tarjeta de crédito o débito en línea"</b>.<br>Por favor, compruebe que sea el comprobante correcto.`,
+                    icon: 'warning'
+                });
+            } else {
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 4000,
+                    timerProgressBar: true,
+                });
+                let detailParts = [`S/ ${bestData.amount.toFixed(2)}`];
+                if (bestData.fecha) detailParts.push(`📅 ${bestData.fecha}`);
+                if (bestData.hora) detailParts.push(`🕐 ${bestData.hora}`);
+                if (valType === 'online') {
+                    detailParts.push('🌐 ONLINE Verificado');
+                } else {
+                    detailParts.push(bestData.tipoPago === 'QR' ? '📱 QR' : '💳 Tarjeta');
+                }
+
+                Toast.fire({
+                    icon: 'success',
+                    title: `${engine}: ${detailParts.join(' | ')}`
+                });
+            }
         } else {
             const Toast = Swal.mixin({
                 toast: true,
@@ -2748,6 +2823,7 @@ function parseCSV(csvText) {
         const key = parts[1].trim().toUpperCase();
         let amountStr = parts[2].trim();
         let envio = parts[3] ? parts[3].trim().replace(/\r/g, '') : "";
+        let pago = parts[4] ? parts[4].trim().replace(/\r/g, '') : "";
 
         amountStr = amountStr.replace(/S\//gi, '').replace(/\s/g, '');
 
@@ -2762,6 +2838,7 @@ function parseCSV(csvText) {
             fecha: finalDate,
             monto: amount,
             envio: envio,
+            pago: pago,
             raw: line
         });
     });
@@ -2828,6 +2905,7 @@ function renderImportTable(importedOrders) {
             <td>${order.fecha}</td>
             <td>S/ ${order.monto}</td>
             <td>${order.envio || ''}</td>
+            <td>${order.pago || ''}</td>
             <td>${status}</td>
         `;
         tbody.appendChild(tr);
@@ -2846,7 +2924,14 @@ document.getElementById('btn-confirm-import').addEventListener('click', async ()
 
     checkboxes.forEach(cb => {
         if (cb.orderData) {
-            selectedOrders.push(cb.orderData);
+            selectedOrders.push({
+                llave: cb.orderData.llave,
+                fecha: cb.orderData.fecha,
+                monto: cb.orderData.monto,
+                envio: cb.orderData.envio,
+                pago: cb.orderData.pago || '',
+                nro: null
+            });
         }
     });
 

@@ -288,7 +288,7 @@ function crearPedido(data) {
     data.monto,
     "", 0, "Pendiente", "", "",
     data.envio || "",
-    "", "", "", ""
+    data.pago || "", "", "", ""
   ]);
   return { success: true };
 }
@@ -327,11 +327,12 @@ function processVoucherOCR(data) {
     return { success: false, message: "Faltan datos de imagen (imageBase64, mimeType)" };
   }
 
-  var prompt = 'Analiza esta imagen de un voucher/comprobante de pago POS (IziPay u otro). '
+  var prompt = 'Analiza esta imagen que puede ser un voucher POS o una captura de pantalla ONLINE. '
     + 'Extrae estos campos y devuelve SOLO JSON valido sin markdown ni backticks: '
-    + '{"fecha":"DD/MM/YY","hora":"HH:MM","total":0.00,"tipoPago":"QR o TARJETA","comercio":"nombre","tipoTarjeta":"VISA etc"} '
-    + 'Reglas: total es monto TOTAL en decimal. tipoPago es QR si menciona QR/Yape/Plin/Billetera, sino TARJETA. '
-    + 'Si no es visible usa "" o 0. SOLO JSON.';
+    + '{"fecha":"DD/MM/YY","total":0.00,"tipoPago":"QR o TARJETA","esOnlineValido":false} '
+    + 'Reglas: total es monto TOTAL en decimal. tipoPago es QR si menciona QR/Yape/Plin, sino TARJETA. '
+    + 'esOnlineValido DEBE ser true SOLO SI se encuentra exactamente el texto "Tarjeta de crédito o débito en línea" en cualquier parte de la imagen, de lo contrario false. '
+    + 'Ignora la hora. Si no es visible usa "" o 0. SOLO JSON.';
 
   // Try models in order
   var models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
