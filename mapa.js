@@ -137,11 +137,10 @@ function renderMapaMotorizados() {
                 const driverOptions = activeDriversKeys.map(k => `<option value="${motorizadosMap[k].name}">${motorizadosMap[k].name}</option>`).join('');
                 assignmentHtml = `
                 <div style="margin-top: 8px; display:flex; gap:6px;">
-                    <select id="sel-assign-${o.nro}" style="flex:1; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
+                    <select id="sel-assign-${o.nro}" onchange="asignarMotorizadoDesdeMapa(${o.nro})" style="flex:1; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
                         <option value="">-- Seleccionar --</option>
                         ${driverOptions}
                     </select>
-                    <button onclick="asignarMotorizadoDesdeMapa(${o.nro})" style="background:#3b82f6; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:0.85em;">Asignar</button>
                 </div>`;
             }
 
@@ -271,8 +270,8 @@ function calculateElapsedTimeForMap(fechaStr) {
 
 // Make sure to add the timer auto-refresher once the view is opened
 setInterval(() => {
-    const mapaContent = document.getElementById('mapa-content');
-    if (mapaContent && !mapaContent.classList.contains('hidden')) {
+    const mapaGrid = document.getElementById('mapa-grid');
+    if (mapaGrid && mapaGrid.offsetParent !== null) {
         renderMapaMotorizados(); // Tick the timers on screen dynamically
     }
 }, 60000); // 1 minute
@@ -284,7 +283,6 @@ window.asignarMotorizadoDesdeMapa = async function (nro) {
 
     const newDriver = selectEl.value;
     if (!newDriver || newDriver.trim() === '') {
-        Swal.fire('Atención', 'Selecciona un repartidor primero', 'warning');
         return;
     }
 

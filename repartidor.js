@@ -9,6 +9,7 @@ let selectedOrderForCapture = null;
 // DOM Elements
 const pantallaLogin = document.getElementById('pantalla-login');
 const pantallaRuta = document.getElementById('pantalla-ruta');
+const pantallaMapa = document.getElementById('pantalla-mapa');
 const inputDriver = document.getElementById('driver-name-input');
 const inputDriverPass = document.getElementById('driver-pass-input');
 const btnTogglePass = document.getElementById('btn-toggle-pass');
@@ -44,6 +45,17 @@ let photoEvidenciaFile = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    window.loadOrders = fetchDriverOrders; // For mapa.js compatibility
+    // Compatibility for mapa.js which relies on fetchAPI from app.js
+    window.fetchAPI = async function (action, data = {}) {
+        const payload = { action, ...data };
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        return await response.json();
+    };
+
     // Check if previously logged in
     const savedDriver = localStorage.getItem('activeDriver');
     if (savedDriver) {
@@ -98,9 +110,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 pantallaLogin.classList.remove('hidden');
                 pantallaLogin.classList.add('flex');
                 inputDriver.value = '';
+                inputDriverPass.value = '';
             }
         });
     });
+
+    const btnCerrarMapa = document.getElementById('btn-cerrar-mapa');
+    if (btnCerrarMapa) {
+        btnCerrarMapa.addEventListener('click', () => {
+            Swal.fire({
+                title: '¿Cerrar sesión?',
+                text: "Saldrás de la vista de administrador.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Sí, salir'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    localStorage.removeItem('activeDriver');
+                    currentUser = null;
+                    pantallaMapa.classList.add('hidden');
+                    pantallaMapa.classList.remove('flex');
+                    pantallaLogin.classList.remove('hidden');
+                    pantallaLogin.classList.add('flex');
+                    inputDriver.value = '';
+                    inputDriverPass.value = '';
+                }
+            });
+        });
+    }
 
     btnActualizar.addEventListener('click', () => {
         if (currentUser) fetchDriverOrders();
@@ -123,14 +162,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function autoLoginData(name) {
     currentUser = name;
-    lblDriverName.textContent = name;
 
     pantallaLogin.classList.add('hidden');
     pantallaLogin.classList.remove('flex');
-    pantallaRuta.classList.remove('hidden');
-    pantallaRuta.classList.add('flex');
 
-    fetchDriverOrders();
+    if (name.toLowerCase() === 'admin') {
+        pantallaMapa.classList.remove('hidden');
+        pantallaMapa.classList.add('flex');
+        fetchDriverOrders();
+    } else {
+        lblDriverName.textContent = name;
+        pantallaRuta.classList.remove('hidden');
+        pantallaRuta.classList.add('flex');
+        fetchDriverOrders();
+    }
 }
 
 async function loginDriver(name, pass) {
@@ -160,9 +205,14 @@ async function loginDriver(name, pass) {
 }
 
 async function fetchDriverOrders() {
-    containerPedidos.innerHTML = '';
-    containerPedidos.appendChild(loadingPedidos);
-    loadingPedidos.classList.remove('hidden');
+    if (currentUser && currentUser.toLowerCase() === 'admin') {
+        const loadingMapa = document.getElementById('loading-mapa');
+        if (loadingMapa) loadingMapa.classList.remove('hidden');
+    } else {
+        containerPedidos.innerHTML = '';
+        containerPedidos.appendChild(loadingPedidos);
+        loadingPedidos.classList.remove('hidden');
+    }
     stopAllTimers();
 
     try {
@@ -173,25 +223,29 @@ async function fetchDriverOrders() {
         const data = await response.json();
 
         if (data && data.success) {
-            // Check if server returned the array as expected, else fallback to empty
             const rawOrders = Array.isArray(data.data) ? data.data : [];
+            window.orders = rawOrders; // Global for mapa.js
 
-            // Filtrar y ordenar
-            currentOrders = rawOrders.filter(o =>
-                (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === '') &&
-                o.envio &&
-                o.envio.toLowerCase() === currentUser.toLowerCase()
-            ).sort((a, b) => b.nro - a.nro);
+            if (currentUser && currentUser.toLowerCase() === 'admin') {
+                if (typeof renderMapaMotorizados === 'function') {
+                    renderMapaMotorizados();
+                }
+            } else {
+                currentOrders = rawOrders.filter(o =>
+                    (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === '') &&
+                    o.envio &&
+                    o.envio.toLowerCase() === currentUser.toLowerCase()
+                ).sort((a, b) => b.nro - a.nro);
 
-            renderOrders();
+                renderOrders();
+            }
         } else {
             console.warn('Servidor respondió sin éxito o data es null', data);
             throw new Error(data ? data.message : 'Error parseando datos');
         }
     } catch (error) {
         console.error("Fetch error capturado:", error);
-        // Evitamos alertar si el usuario está tipeando o no está en pantalla de ruta
-        if (!pantallaRuta.classList.contains('hidden')) {
+        if (!pantallaRuta.classList.contains('hidden') || (pantallaMapa && !pantallaMapa.classList.contains('hidden'))) {
             Swal.fire({
                 icon: 'warning',
                 toast: true,
@@ -203,6 +257,8 @@ async function fetchDriverOrders() {
         }
     } finally {
         loadingPedidos.classList.add('hidden');
+        const loadingMapa = document.getElementById('loading-mapa');
+        if (loadingMapa) loadingMapa.classList.add('hidden');
     }
 }
 
