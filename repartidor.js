@@ -255,14 +255,9 @@ function renderOrders() {
 
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
-                <div class="flex items-start gap-3">
-                    <div class="flex flex-col gap-1 z-10">
-                        <button onclick="moveOrderUp(${index}, event)" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors border border-slate-700 active:scale-95 ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}" ${index === 0 ? 'disabled' : ''}>
-                            <i class="fa-solid fa-chevron-up text-sm"></i>
-                        </button>
-                        <button onclick="moveOrderDown(${index}, event)" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors border border-slate-700 active:scale-95 ${index === currentOrders.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}" ${index === currentOrders.length - 1 ? 'disabled' : ''}>
-                            <i class="fa-solid fa-chevron-down text-sm"></i>
-                        </button>
+                <div class="flex items-center gap-3">
+                    <div class="handle w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
+                        <i class="fa-solid fa-grip-vertical text-lg"></i>
                     </div>
                     <div>
                         <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">Llave / Ticket</span>
@@ -294,30 +289,21 @@ function renderOrders() {
             startTimer(order.nro, registerDate);
         }
     });
+    // --- Drag and Drop Sorting Logic ---
+    if (window.Sortable) {
+        Sortable.create(containerPedidos, {
+            animation: 150,
+            handle: '.handle',
+            ghostClass: 'opacity-40',
+            onEnd: function (evt) {
+                if (evt.oldIndex === evt.newIndex) return;
+                // Sync underlying array conceptually if needed, avoiding full re-render
+                const movedItem = currentOrders.splice(evt.oldIndex, 1)[0];
+                currentOrders.splice(evt.newIndex, 0, movedItem);
+            }
+        });
+    }
 }
-
-// --- Manual Sorting Logic ---
-window.moveOrderUp = function (index, event) {
-    if (event) event.stopPropagation();
-    if (index > 0) {
-        // Swap
-        const temp = currentOrders[index - 1];
-        currentOrders[index - 1] = currentOrders[index];
-        currentOrders[index] = temp;
-        renderOrders();
-    }
-};
-
-window.moveOrderDown = function (index, event) {
-    if (event) event.stopPropagation();
-    if (index < currentOrders.length - 1) {
-        // Swap
-        const temp = currentOrders[index + 1];
-        currentOrders[index + 1] = currentOrders[index];
-        currentOrders[index] = temp;
-        renderOrders();
-    }
-};
 
 // --- Timers Logic ---
 const audioAlerta = new Audio('data:audio/mp3;base64,//OExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'); // Minimal silent audio to initialize object
