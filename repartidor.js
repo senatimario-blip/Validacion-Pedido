@@ -172,9 +172,12 @@ async function fetchDriverOrders() {
         });
         const data = await response.json();
 
-        if (data.success) {
+        if (data && data.success) {
+            // Check if server returned the array as expected, else fallback to empty
+            const rawOrders = Array.isArray(data.data) ? data.data : [];
+
             // Filtrar y ordenar
-            currentOrders = data.data.filter(o =>
+            currentOrders = rawOrders.filter(o =>
                 (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === '') &&
                 o.envio &&
                 o.envio.toLowerCase() === currentUser.toLowerCase()
@@ -182,18 +185,22 @@ async function fetchDriverOrders() {
 
             renderOrders();
         } else {
-            throw new Error('Error parseando datos');
+            console.warn('Servidor respondió sin éxito o data es null', data);
+            throw new Error(data ? data.message : 'Error parseando datos');
         }
     } catch (error) {
-        console.error("Fetch error:", error);
-        Swal.fire({
-            icon: 'error',
-            toast: true,
-            position: 'top-end',
-            title: 'Error de red al actualizar',
-            showConfirmButton: false,
-            timer: 3000
-        });
+        console.error("Fetch error capturado:", error);
+        // Evitamos alertar si el usuario está tipeando o no está en pantalla de ruta
+        if (!pantallaRuta.classList.contains('hidden')) {
+            Swal.fire({
+                icon: 'warning',
+                toast: true,
+                position: 'top-end',
+                title: 'Conexión débil o sin datos',
+                showConfirmButton: false,
+                timer: 3000
+            });
+        }
     } finally {
         loadingPedidos.classList.add('hidden');
     }
