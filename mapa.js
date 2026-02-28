@@ -2,6 +2,14 @@
 // mapa.js — Monitor de Motorizados y sus rutas
 // ============================================================
 
+// Local storage key para guardar el orden personalizado de los pedidos por motorizado
+const SORT_STATE_KEY = 'motorizado_order_sort_state';
+let driverSortState = JSON.parse(localStorage.getItem(SORT_STATE_KEY) || '{}');
+
+function saveDriverSortState() {
+    localStorage.setItem(SORT_STATE_KEY, JSON.stringify(driverSortState));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const btnRefreshMapa = document.getElementById('btn-refresh-mapa');
     if (btnRefreshMapa) {
@@ -118,9 +126,35 @@ function renderMapaMotorizados() {
 
     motorizadosKeys.forEach(mKey => {
         const data = motorizadosMap[mKey];
-        data.orders.sort((a, b) => b.nro - a.nro); // Show newest on top
 
-        let ordersHtml = data.orders.map(o => {
+        // 1. Sort initially by newest (nro)
+        data.orders.sort((a, b) => b.nro - a.nro);
+
+        // 2. Sort by priority: Local manual reorder > Backend orden_ruta > default
+        const savedOrderKeys = driverSortState[mKey] || [];
+
+        data.orders.sort((a, b) => {
+            // PRIORITY 1: If user has manually reordered this driver during this session, use that order
+            if (savedOrderKeys.length > 0) {
+                const indexA = savedOrderKeys.indexOf(a.nro.toString());
+                const indexB = savedOrderKeys.indexOf(b.nro.toString());
+                if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+            }
+
+            // PRIORITY 2: Backend orden_ruta (from Google Sheet column S)
+            const orderA = a.orden_ruta !== undefined && a.orden_ruta !== '' ? Number(a.orden_ruta) : -1;
+            const orderB = b.orden_ruta !== undefined && b.orden_ruta !== '' ? Number(b.orden_ruta) : -1;
+
+            if (orderA !== -1 && orderB !== -1) return orderA - orderB;
+            if (orderA !== -1) return -1;
+            if (orderB !== -1) return 1;
+
+            return 0; // Natural fallback
+        });
+
+        let ordersHtml = data.orders.map((o, index) => {
             const timeInfo = calculateElapsedTimeForMap(o.fecha);
 
             // Payment type logic based on recent change (order.pago default)
@@ -144,19 +178,39 @@ function renderMapaMotorizados() {
                 </div>`;
             }
 
+            const isFirst = index === 0;
+            const isLast = index === data.orders.length - 1;
+
             return `
-                <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 0.85em;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                        <strong style="color: #fff;">${o.llave || '#' + o.nro}</strong>
-                        <strong style="color: #4ADE80;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
+                <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" draggable="true" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 0.85em; display: flex; gap: 10px; align-items: center; transition: all 0.2s ease;">
+                    
+                    <!-- Sorting Controls -->
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding-right: 8px; border-right: 1px solid rgba(255,255,255,0.1);">
+                        <button onclick="moveMotorizadoOrder('${mKey}', '${o.nro}', -1)" style="background: none; border: none; color: ${isFirst ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.7)'}; cursor: ${isFirst ? 'default' : 'pointer'}; padding: 2px;" ${isFirst ? 'disabled' : ''}>
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                        <div class="drag-handle" style="color: rgba(255,255,255,0.5); cursor: grab; padding: 4px;">
+                            <i class="fa-solid fa-grip-lines"></i>
+                        </div>
+                        <button onclick="moveMotorizadoOrder('${mKey}', '${o.nro}', 1)" style="background: none; border: none; color: ${isLast ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.7)'}; cursor: ${isLast ? 'default' : 'pointer'}; padding: 2px;" ${isLast ? 'disabled' : ''}>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </button>
                     </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span style="color: ${pColor}; font-weight: 600; font-size:0.9em;"><i class="fa-solid fa-wallet"></i> ${tipoPagoDisplay}</span>
-                        <span style="color: ${timeInfo.color}; background: ${timeInfo.bg}; padding: 2px 6px; border-radius: 4px; font-weight: bold;">
-                            <i class="fa-solid fa-clock"></i> ${timeInfo.text}
-                        </span>
+
+                    <!-- Order Content -->
+                    <div style="flex: 1;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <strong style="color: #fff; font-size: 1.1em;">${o.llave || '#' + o.nro}</strong>
+                            <strong style="color: #4ADE80; font-size: 1.1em;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="color: ${pColor}; font-weight: 600; font-size:0.9em;"><i class="fa-solid fa-wallet"></i> ${tipoPagoDisplay}</span>
+                            <span style="color: ${timeInfo.color}; background: ${timeInfo.bg}; padding: 2px 6px; border-radius: 4px; font-weight: bold;">
+                                <i class="fa-solid fa-clock"></i> ${timeInfo.text}
+                            </span>
+                        </div>
+                        ${assignmentHtml}
                     </div>
-                    ${assignmentHtml}
                 </div>
             `;
         }).join('');
@@ -198,7 +252,7 @@ function renderMapaMotorizados() {
                     </div>
                 </div>
 
-                <div style="flex: 1; overflow-y: auto; max-height: 400px; padding-right: 4px;" class="no-scrollbar">
+                <div style="flex: 1; overflow-y: auto; max-height: 400px; padding-right: 4px;" class="no-scrollbar driver-order-list" data-driver="${mKey}">
                     ${ordersHtml}
                 </div>
             </div>
@@ -206,6 +260,127 @@ function renderMapaMotorizados() {
     });
 
     container.innerHTML = htmlBody;
+
+    // Initialize Drag and Drop Event Listeners
+    initDragAndDrop();
+}
+
+// Handler for manual up/down arrows
+window.moveMotorizadoOrder = function (driverKey, orderNro, direction) {
+    if (!driverSortState[driverKey]) {
+        // Initialize state based on current DOM order if not set
+        const listContainer = document.querySelector(`.driver-order-list[data-driver="${driverKey}"]`);
+        if (!listContainer) return;
+        const items = Array.from(listContainer.querySelectorAll('.motorizado-order-card'));
+        driverSortState[driverKey] = items.map(el => el.getAttribute('data-nro'));
+    }
+
+    const stateArr = driverSortState[driverKey];
+    const currentIndex = stateArr.indexOf(orderNro.toString());
+
+    if (currentIndex === -1) return;
+    const newIndex = currentIndex + direction;
+
+    if (newIndex >= 0 && newIndex < stateArr.length) {
+        // Swap
+        const temp = stateArr[currentIndex];
+        stateArr[currentIndex] = stateArr[newIndex];
+        stateArr[newIndex] = temp;
+
+        // saveDriverSortState(); // Removed local storage save
+        renderMapaMotorizados(); // Re-render to show changes
+
+        // Sync to Backend
+        syncRutaBackend(driverKey, stateArr);
+    }
+};
+
+function initDragAndDrop() {
+    const draggables = document.querySelectorAll('.motorizado-order-card');
+    const containers = document.querySelectorAll('.driver-order-list');
+
+    draggables.forEach(draggable => {
+        draggable.addEventListener('dragstart', () => {
+            draggable.classList.add('dragging');
+        });
+
+        draggable.addEventListener('dragend', () => {
+            draggable.classList.remove('dragging');
+
+            // Save new order state after drop
+            const driverKey = draggable.getAttribute('data-driver');
+            const listContainer = document.querySelector(`.driver-order-list[data-driver="${driverKey}"]`);
+            if (listContainer) {
+                const items = Array.from(listContainer.querySelectorAll('.motorizado-order-card'));
+                const newArr = items.map(el => el.getAttribute('data-nro'));
+                driverSortState[driverKey] = newArr; // Update local state for immediate re-render
+                // saveDriverSortState(); // Removed local storage save
+                renderMapaMotorizados(); // Re-render to fix arrows disabled state
+
+                // Sync to Backend
+                syncRutaBackend(driverKey, newArr);
+            }
+        });
+    });
+
+    containers.forEach(container => {
+        container.addEventListener('dragover', e => {
+            e.preventDefault();
+            const draggingEl = document.querySelector('.dragging');
+            if (!draggingEl) return;
+
+            // Allow dragging only within the same driver's list
+            if (draggingEl.getAttribute('data-driver') !== container.getAttribute('data-driver')) {
+                return;
+            }
+
+            const afterElement = getDragAfterElement(container, e.clientY);
+
+            if (afterElement == null) {
+                container.appendChild(draggingEl);
+            } else {
+                container.insertBefore(draggingEl, afterElement);
+            }
+        });
+    });
+}
+
+// Function to send sort update to Backend
+async function syncRutaBackend(driverKey, orderedIds) {
+    if (typeof fetchAPI !== 'function') return;
+
+    // Optional: show a mini toast to say "Syncing..."
+
+    try {
+        const response = await fetchAPI('guardarOrdenRutaMotorizado', {
+            responsable: driverKey,
+            orderedIds: orderedIds
+        });
+
+        if (response && response.success) {
+            console.log(`Ruta guardada para: ${driverKey}`, response);
+            // Optionally, we could loadOrders() here to refresh the DB truth, but since
+            // it refreshes every 60s anyway, avoiding it makes the UI faster.
+        } else {
+            console.error('Failed to sync ruta', response);
+        }
+    } catch (e) {
+        console.error('Error syncing ruta:', e);
+    }
+}
+
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.motorizado-order-card:not(.dragging)')];
+
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 // Helper time formatting tool for the map

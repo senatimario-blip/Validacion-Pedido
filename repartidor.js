@@ -235,7 +235,23 @@ async function fetchDriverOrders() {
                     (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === '') &&
                     o.envio &&
                     o.envio.toLowerCase() === currentUser.toLowerCase()
-                ).sort((a, b) => b.nro - a.nro);
+                ).sort((a, b) => {
+                    // Try to extract strict numbers, fallback to large number if not set or invalid
+                    const orderA = a.orden_ruta !== undefined && a.orden_ruta !== '' && !isNaN(a.orden_ruta) ? parseInt(a.orden_ruta, 10) : Number.MAX_SAFE_INTEGER;
+                    const orderB = b.orden_ruta !== undefined && b.orden_ruta !== '' && !isNaN(b.orden_ruta) ? parseInt(b.orden_ruta, 10) : Number.MAX_SAFE_INTEGER;
+
+                    // Compare valid assigned routes
+                    if (orderA !== Number.MAX_SAFE_INTEGER && orderB !== Number.MAX_SAFE_INTEGER) {
+                        return orderA - orderB;
+                    }
+
+                    // Put assigned routes BEFORE unassigned ones
+                    if (orderA !== Number.MAX_SAFE_INTEGER) return -1;
+                    if (orderB !== Number.MAX_SAFE_INTEGER) return 1;
+
+                    // If neither has an assigned route from the backend, sort by nro descending (newest first)
+                    return b.nro - a.nro;
+                });
 
                 renderOrders();
             }
@@ -364,18 +380,40 @@ function renderOrders() {
 // --- Timers Logic ---
 const audioAlerta = new Audio('data:audio/mp3;base64,//OExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'); // Minimal silent audio to initialize object
 // A simple oscillator beep function as fallback for mobile without actual sound files
-function playBeep() {
+// Sonido suave para zona naranja (advertencia)
+function playBeepSoft() {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); // Gentle volume
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        setTimeout(() => oscillator.stop(), 300); // 300ms pip
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime); // Tono bajo suave (La4)
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime); // Volumen muy suave
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        setTimeout(() => osc.stop(), 500);
+    } catch (e) { console.log("Audio not supported"); }
+}
+
+// Pitido urgente para zona roja (¡atención!)
+function playBeepUrgent() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // Triple pitido urgente: pip-pip-pip
+        [0, 0.25, 0.5].forEach(delay => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square'; // Onda cuadrada = más agresivo
+            osc.frequency.setValueAtTime(1200, audioCtx.currentTime + delay); // Tono alto urgente
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime + delay);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + 0.15);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(audioCtx.currentTime + delay);
+            osc.stop(audioCtx.currentTime + delay + 0.15);
+        });
     } catch (e) { console.log("Audio not supported"); }
 }
 
@@ -393,20 +431,28 @@ function startTimer(orderId, startTime) {
 
         text.textContent = `${diffMins} min`;
 
-        if (diffMins >= 35) {
+        if (diffMins >= 30) {
+            // ROJO: ¡Retrasado! Parpadeo + pitido urgente
             box.className = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/50 animate-pulse';
             text.className = 'font-mono font-bold text-red-500';
             icon.className = 'fa-solid fa-clock text-red-500';
-        } else if (diffMins >= 30) {
+            // Pitido fuerte cada minuto para llamar atención
+            if (now.getSeconds() >= 0 && now.getSeconds() < 10) {
+                playBeepUrgent();
+                if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+            }
+        } else if (diffMins >= 20) {
+            // NARANJA: Advertencia, apúrate
             box.className = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/20 border border-orange-500/50';
             text.className = 'font-mono font-bold text-orange-500';
             icon.className = 'fa-solid fa-clock text-orange-500';
-            // Play a soft beep every 1 minute once it hits 30 (not ideal for battery but meets requirement)
-            if (now.getSeconds() === 0 && (now.getMinutes() % 1 === 0)) {
-                playBeep();
+            // Sonido suave de advertencia cada minuto
+            if (now.getSeconds() >= 0 && now.getSeconds() < 10) {
+                playBeepSoft();
                 if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             }
         } else {
+            // VERDE: Todo bien, a tiempo
             box.className = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20';
             text.className = 'font-mono font-bold text-emerald-400';
             icon.className = 'fa-solid fa-clock text-emerald-400';

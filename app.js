@@ -179,15 +179,17 @@ function showApp() {
     appSection.style.display = 'grid'; // Grid layout
     document.getElementById('user-name-display').textContent = currentUser.nombre;
 
-    // Role based UI
+    // Role based UI (null-safe)
+    const importBtn = document.getElementById('import-btn');
+    const importTextBtn = document.getElementById('import-text-btn');
     if (currentUser.rol !== 'Admin') {
-        newOrderBtn.style.display = 'none';
-        document.getElementById('import-btn').style.display = 'none';
-        document.getElementById('import-text-btn').style.display = 'none';
+        if (newOrderBtn) newOrderBtn.style.display = 'none';
+        if (importBtn) importBtn.style.display = 'none';
+        if (importTextBtn) importTextBtn.style.display = 'none';
     } else {
-        newOrderBtn.style.display = 'flex';
-        document.getElementById('import-btn').style.display = 'flex';
-        document.getElementById('import-text-btn').style.display = 'flex';
+        if (newOrderBtn) newOrderBtn.style.display = 'flex';
+        if (importBtn) importBtn.style.display = 'flex';
+        if (importTextBtn) importTextBtn.style.display = 'flex';
     }
 
     loadOrders();
@@ -518,6 +520,13 @@ function renderOrders(data) {
 
         // 3. CONSTRUIR LA FILA DE LA TABLA (11 Columnas exactas)
         const tr = document.createElement('tr');
+        // Efecto cebra: filas pares con fondo ligeramente diferente
+        const rowBg = index % 2 === 0 ? 'rgba(255, 255, 255, 0.03)' : 'rgba(30, 58, 95, 0.15)';
+        tr.style.backgroundColor = rowBg;
+        tr.style.transition = 'background-color 0.2s ease';
+        // Hover highlight para facilitar seguimiento visual
+        tr.addEventListener('mouseenter', () => { tr.style.backgroundColor = 'rgba(59, 130, 246, 0.15)'; });
+        tr.addEventListener('mouseleave', () => { tr.style.backgroundColor = rowBg; });
         // Guardar metadata en el TR para poder actualizarlo en tiempo real localmente
         tr.setAttribute('data-nro', order.nro);
         tr.setAttribute('data-estado', order.estado);
@@ -615,11 +624,15 @@ function startGlobalTimers() {
 
 window.toggleSLA = async (nro) => {
     try {
-        const res = await fetchAPI('marcarSLAFuera', { nro, usuario: currentUser.usuario });
+        // Buscar el estado actual del SLA para hacer toggle
+        const order = orders.find(o => o.nro == nro);
+        const currentlySLA = order && order.sla_fuera ? true : false;
+
+        const res = await fetchAPI('marcarSLAFuera', { nro, fuera_sla: !currentlySLA });
         if (res.success) {
             loadOrders();
         } else {
-            Swal.fire('Error', res.message, 'error');
+            Swal.fire('Error', res.message || res.msg, 'error');
         }
     } catch (e) {
         Swal.fire('Error', 'Error de conexión', 'error');
@@ -854,49 +867,51 @@ function renderPodioMotorizados(data) {
 
 // --- Modals & Forms ---
 
-newOrderBtn.addEventListener('click', () => {
-    let maxNro = 0;
-    if (orders && orders.length > 0) {
-        maxNro = orders.reduce((max, o) => {
-            const val = parseInt(o.nro);
-            return (!isNaN(val)) ? Math.max(max, val) : max;
-        }, 0);
-    }
+if (newOrderBtn) {
+    newOrderBtn.addEventListener('click', () => {
+        let maxNro = 0;
+        if (orders && orders.length > 0) {
+            maxNro = orders.reduce((max, o) => {
+                const val = parseInt(o.nro);
+                return (!isNaN(val)) ? Math.max(max, val) : max;
+            }, 0);
+        }
 
-    if (orders.length > 0 && maxNro === 0) {
-        maxNro = orders.length;
-    }
+        if (orders.length > 0 && maxNro === 0) {
+            maxNro = orders.length;
+        }
 
-    document.getElementById('new-nro').value = maxNro + 1;
+        document.getElementById('new-nro').value = maxNro + 1;
 
-    const currentCount = currentFilteredOrders ? currentFilteredOrders.length : 0;
-    document.getElementById('new-correlative-display').value = `# ${currentCount + 1}`;
+        const currentCount = currentFilteredOrders ? currentFilteredOrders.length : 0;
+        document.getElementById('new-correlative-display').value = `# ${currentCount + 1}`;
 
-    let dateText = '';
-    const fmtLocal = (s) => s.split('-').reverse().join('/');
+        let dateText = '';
+        const fmtLocal = (s) => s.split('-').reverse().join('/');
 
-    if (dateRange.start && dateRange.end) {
-        dateText = `${fmtLocal(dateRange.start)} - ${fmtLocal(dateRange.end)}`;
-    } else {
-        const singleDate = document.getElementById('date-filter').value;
-        dateText = singleDate ? fmtLocal(singleDate) : 'Todas las fechas';
-    }
+        if (dateRange.start && dateRange.end) {
+            dateText = `${fmtLocal(dateRange.start)} - ${fmtLocal(dateRange.end)}`;
+        } else {
+            const singleDate = document.getElementById('date-filter').value;
+            dateText = singleDate ? fmtLocal(singleDate) : 'Todas las fechas';
+        }
 
-    const activeTabObj = document.querySelector('.filter-tab.active');
-    const statusText = activeTabObj ? activeTabObj.textContent.trim() : 'Todos';
+        const activeTabObj = document.querySelector('.filter-tab.active');
+        const statusText = activeTabObj ? activeTabObj.textContent.trim() : 'Todos';
 
-    document.getElementById('active-filter-details').textContent = `(${dateText} | ${statusText})`;
+        document.getElementById('active-filter-details').textContent = `(${dateText} | ${statusText})`;
 
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    document.getElementById('new-date').value = `${yyyy}-${mm}-${dd}`;
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        document.getElementById('new-date').value = `${yyyy}-${mm}-${dd}`;
 
-    document.getElementById('new-time').value = '';
+        document.getElementById('new-time').value = '';
 
-    document.getElementById('modal-new-order').classList.add('active');
-});
+        document.getElementById('modal-new-order').classList.add('active');
+    });
+}
 
 document.querySelectorAll('.close-modal').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2772,15 +2787,18 @@ window.rejectOrder = async (nro) => {
 
 let allParsedOrders = [];
 
-document.getElementById('import-btn').addEventListener('click', () => {
-    document.getElementById('modal-import').classList.add('active');
+const importBtnEl = document.getElementById('import-btn');
+if (importBtnEl) {
+    importBtnEl.addEventListener('click', () => {
+        document.getElementById('modal-import').classList.add('active');
 
-    document.getElementById('import-file').value = '';
-    document.getElementById('import-preview-container').classList.add('hidden');
-    document.getElementById('import-drop-zone').querySelector('.upload-placeholder').classList.remove('hidden');
-    document.getElementById('btn-confirm-import').disabled = true;
-    allParsedOrders = [];
-});
+        document.getElementById('import-file').value = '';
+        document.getElementById('import-preview-container').classList.add('hidden');
+        document.getElementById('import-drop-zone').querySelector('.upload-placeholder').classList.remove('hidden');
+        document.getElementById('btn-confirm-import').disabled = true;
+        allParsedOrders = [];
+    });
+}
 
 document.getElementById('import-file').addEventListener('click', (e) => e.stopPropagation());
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repartidor-app-v1';
+const CACHE_NAME = 'repartidor-app-v2';
 
 // Recursos mínimos a cachear para que la PWA sea instalable
 const urlsToCache = [
@@ -14,16 +14,18 @@ self.addEventListener('install', event => {
                 return cache.addAll(urlsToCache);
             })
     );
+    // Forzar que el nuevo SW tome control inmediatamente
     self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
-    // Eliminar cachés antiguas si hubiera nuevas versiones
+    // Eliminar TODAS las cachés antiguas al activar nueva versión
     event.waitUntil(
         caches.keys().then(cacheNames => {
             return Promise.all(
                 cacheNames.map(cacheName => {
                     if (cacheName !== CACHE_NAME) {
+                        console.log('[SW] Eliminando caché antigua:', cacheName);
                         return caches.delete(cacheName);
                     }
                 })
@@ -33,12 +35,25 @@ self.addEventListener('activate', event => {
     return self.clients.claim();
 });
 
+// ESTRATEGIA: Network First (Red primero, Caché como respaldo)
+// Siempre intenta descargar la versión más nueva del servidor.
+// Solo usa el caché cuando no hay conexión a internet.
 self.addEventListener('fetch', event => {
     event.respondWith(
-        caches.match(event.request)
-            .then(response => {
-                // Enviar repuesta del caché si existe, sino, hacer la petición a la red
-                return response || fetch(event.request);
+        fetch(event.request)
+            .then(networkResponse => {
+                // Si la red respondió bien, actualizar el caché con la versión nueva
+                if (networkResponse && networkResponse.status === 200) {
+                    const responseClone = networkResponse.clone();
+                    caches.open(CACHE_NAME).then(cache => {
+                        cache.put(event.request, responseClone);
+                    });
+                }
+                return networkResponse;
+            })
+            .catch(() => {
+                // Sin internet: servir desde el caché (modo offline)
+                return caches.match(event.request);
             })
     );
 });

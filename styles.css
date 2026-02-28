@@ -985,3 +985,21 @@ body {
 
     /* Remove specific column hiding if any, ensure everything prints */
 }
+
+/* Motorizado Drag & Drop Custom Styles */
+.motorizado-order-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, background 0.2s ease !important;
+}
+
+.motorizado-order-card.dragging {
+    opacity: 0.5;
+    background: rgba(99, 102, 241, 0.2) !important;
+    border: 1px dashed var(--primary) !important;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5) !important;
+    transform: scale(0.98);
+    cursor: grabbing !important;
+}
+
+.driver-order-list {
+    min-height: 50px; /* Make sure empty lists can still receive drops */
+}

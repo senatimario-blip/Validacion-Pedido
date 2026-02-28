@@ -28,6 +28,7 @@ function doPost(e) {
       case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
       case 'marcarPorValidar':    result = marcarPorValidar(payload.nro); break;
       case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
+      case 'guardarOrdenRutaMotorizado': result = guardarOrdenRutaMotorizado(payload); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
@@ -73,10 +74,10 @@ function listarPedidos() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: true, data: [] };
 
-  // Leer 18 columnas (A..R)
-  const data = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
+  // Leer 19 columnas (A..S)
+  const data = sheet.getRange(2, 1, lastRow - 1, 19).getValues();
   // Traemos también los Textos (Display Values) para ignorar el formato histórico de Time/Dates en Sheets
-  const displayData = sheet.getRange(2, 1, lastRow - 1, 18).getDisplayValues();
+  const displayData = sheet.getRange(2, 1, lastRow - 1, 19).getDisplayValues();
 
   const pedidos = data.map((row, index) => ({
     nro:               row[0],
@@ -96,7 +97,8 @@ function listarPedidos() {
     sla_fuera:         row[14],  // O: SLA Fuera Tiempo
     fecha_entrega:     displayData[index][15],  // P: Fecha Entrega como texto en hoja
     hora_entrega:      displayData[index][16],  // Q: Hora Entrega como texto en hoja
-    tiempo_transcurrido: displayData[index][17] // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
+    tiempo_transcurrido: displayData[index][17], // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
+    orden_ruta:        row[18]   // S: Ordenamiento explícito para la ruta del motorizado
   })).filter(p => p.nro);
 
   return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
@@ -395,3 +397,39 @@ function processVoucherOCR(data) {
   return { success: false, message: 'OCR falló: ' + lastError };
 }
 
+function guardarOrdenRutaMotorizado(payload) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Pedidos');
+    if (!sheet) return { success: false, message: 'Hoja Pedidos no encontrada' };
+
+    const data = sheet.getDataRange().getValues();
+    const orderedIds = payload.orderedIds || [];
+    const responsable = payload.responsable;
+
+    if (!responsable) return { success: false, message: 'Falta nombre del responsable' };
+
+    let updatesCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+       const rowNro = data[i][0].toString();
+       const rowResp = (data[i][9] || '').toString().trim(); // Col J 
+       
+       if (rowResp.toLowerCase() === responsable.toLowerCase()) {
+         // Find this NRO in the orderedIds array
+         const orderIndex = orderedIds.indexOf(rowNro);
+         
+         if (orderIndex !== -1) {
+            // Found it, set its route order (Index 0, 1, 2...)
+            // Guardamos en la columna S (Index 18 original es 0-based, por tanto Columna 19 es 1-based getRange)
+            // A=1, B=2 ... R=18, S=19. Si la columna "Orden Ruta" es la S, entonces es 19. 
+            sheet.getRange(i + 1, 19).setValue(orderIndex);
+            updatesCount++;
+         }
+       }
+    }
+
+    return { success: true, message: `Rutas guardadas: ${updatesCount}` };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
