@@ -156,6 +156,11 @@ document.addEventListener('DOMContentLoaded', () => {
     inputPos.addEventListener('change', (e) => handlePhotoCapture(e, 'pos'));
     inputEvidencia.addEventListener('change', (e) => handlePhotoCapture(e, 'evidencia'));
 
+    // Respaldo: clic programático en los botones visuales para abrir la cámara
+    // (el overlay con opacity-0 no siempre funciona en móviles)
+    btnUiPos.addEventListener('click', () => inputPos.click());
+    btnUiEvidencia.addEventListener('click', () => inputEvidencia.click());
+
     // Share to WhatsApp
     btnEnviarWsp.addEventListener('click', handleSendToWhatsApp);
 });
