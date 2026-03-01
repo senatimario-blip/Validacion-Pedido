@@ -19,7 +19,7 @@ const valPhotoAmountInput = document.getElementById('val-photo-amount');
 // State
 let currentUser = null;
 let orders = [];
-let API_URL = localStorage.getItem('api_url') || '';
+let API_URL = localStorage.getItem('api_url') || 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
 let currentFilter = 'all';
 let currentFilteredOrders = [];
 let dateRange = { start: null, end: null };
