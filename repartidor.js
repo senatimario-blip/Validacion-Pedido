@@ -278,9 +278,9 @@ async function fetchDriverOrders() {
                 }
             } else {
                 currentOrders = rawOrders.filter(o =>
-                    (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === '') &&
+                    (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '') &&
                     o.envio &&
-                    o.envio.toLowerCase() === currentUser.toLowerCase()
+                    String(o.envio).trim().toLowerCase() === String(currentUser).trim().toLowerCase()
                 ).sort((a, b) => {
                     // Try to extract strict numbers, fallback to large number if not set or invalid
                     const orderA = a.orden_ruta !== undefined && a.orden_ruta !== '' && !isNaN(a.orden_ruta) ? parseInt(a.orden_ruta, 10) : Number.MAX_SAFE_INTEGER;
