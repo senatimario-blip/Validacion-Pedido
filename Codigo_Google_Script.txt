@@ -39,12 +39,14 @@ function doPost(e) {
   return output;
 }
 
+const SPREADSHEET_ID = '1wFzE3tJCLsx-bBoOnLcyCsBngPu75JLfUaFTK_mX62U';
+
 function getSheet() {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Pedidos');
+  return SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Pedidos');
 }
 
 function login(user, pass) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Usuarios');
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Usuarios');
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) == user && String(data[i][1]) == pass) {
@@ -55,7 +57,7 @@ function login(user, pass) {
 }
 
 function loginMotorizado(user, pass) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Motorizados');
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Motorizados');
   if (!sheet) return { success: false, message: "Hoja de Motorizados no encontrada" };
   
   const data = sheet.getDataRange().getValues();
@@ -412,7 +414,7 @@ function processVoucherOCR(data) {
 
 function guardarOrdenRutaMotorizado(payload) {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Pedidos');
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Pedidos');
     if (!sheet) return { success: false, message: 'Hoja Pedidos no encontrada' };
 
     const data = sheet.getDataRange().getValues();
