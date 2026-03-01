@@ -42,6 +42,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('date-filter').value = `${yyyy}-${mm}-${dd}`;
 
     checkSession();
+
+    // Configurar manejador de errores de imagen para bypass de 429
+    if (photoPreview) {
+        photoPreview.onerror = () => handleImageError(photoPreview);
+    }
 });
 
 // --- Authentication ---
@@ -391,8 +396,8 @@ function renderOrders(data) {
                 let diffMs = null;
                 let staticMins = null; // Para cuando viene de HH:MM:SS de Google Sheets
 
-                // Usamos el tiempo guardado si ya está Validado y existe la columna
-                if (order.estado === 'Validado' && order.tiempo_transcurrido) {
+                // Usamos el tiempo guardado si ya está procesado (Validado/Cancelado) and existe la columna
+                if ((order.estado === 'Validado' || order.estado === 'Cancelado' || order.estado === 'Rechazado') && order.tiempo_transcurrido) {
                     let valTiempo = order.tiempo_transcurrido;
 
                     // Si viene como string HH:MM:SS
@@ -568,8 +573,8 @@ function renderOrders(data) {
                     title="${order.sla_fuera ? 'Fuera de SLA ⏱️ — Clic para desmarcar' : 'Marcar como fuera de SLA (>35 min)'}"
                     style="${order.sla_fuera ? 'opacity:1;' : 'opacity:0.4;'}">
                     <i class="fa-solid fa-stopwatch"></i>
-                </button>` : ''}`}
-            </td>
+                </button>` : ''}
+            `}</td>
         `;
         ordersTableBody.appendChild(tr);
     });
@@ -1048,17 +1053,23 @@ window.openValidateModal = (nro) => {
     const valHoraEntrega = document.getElementById('val-hora-entrega');
 
     if (order.fecha_entrega) {
-        const d = new Date(order.fecha_entrega);
-        if (!isNaN(d.getTime())) {
-            const fmt = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/Lima',
-                year: 'numeric', month: '2-digit', day: '2-digit'
-            });
-            const parts = fmt.formatToParts(d);
-            const getP = (type) => parts.find(p => p.type === type).value;
-            valFechaEntrega.value = `${getP('day')}/${getP('month')}/${getP('year')}`;
+        let fe = String(order.fecha_entrega).trim();
+        // Si ya viene en formato DD/MM/YYYY, lo usamos tal cual para evitar que Date() lo invierta
+        if (fe.includes('/') && fe.split('/').length === 3) {
+            valFechaEntrega.value = fe;
         } else {
-            valFechaEntrega.value = order.fecha_entrega;
+            const d = new Date(fe);
+            if (!isNaN(d.getTime())) {
+                const fmt = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Lima',
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                });
+                const parts = fmt.formatToParts(d);
+                const getP = (type) => parts.find(p => p.type === type).value;
+                valFechaEntrega.value = `${getP('day')}/${getP('month')}/${getP('year')}`;
+            } else {
+                valFechaEntrega.value = fe;
+            }
         }
     } else {
         valFechaEntrega.value = '';
@@ -1159,12 +1170,13 @@ window.openValidateModal = (nro) => {
         }
     }
 
-    if (cleanUrl && order.estado === 'Validado') {
-        photoPreview.src = cleanUrl;
+    if (cleanUrl && (order.estado === 'Validado' || order.estado === 'Por Validar')) {
+        photoPreview.setAttribute('data-nro', order.nro); // Para el fallback onerror
+        photoPreview.src = getDirectPhotoUrl(order.foto);
         photoPreview.classList.remove('hidden');
         uploadPlaceholder.classList.add('hidden');
         document.getElementById('photo-actions').classList.remove('hidden');
-        document.getElementById('view-full-photo').href = cleanUrl;
+        document.getElementById('view-full-photo').href = extractPhotoUrl(order.foto);
     } else {
         photoPreview.removeAttribute('src');
         photoPreview.classList.add('hidden');
@@ -1339,7 +1351,7 @@ function updateValidationMode(mode) {
     const ocrBtn = document.getElementById('ocr-trigger-btn');
     const helperParams = document.getElementById('ocr-helper-text');
 
-    if (mode === 'efectivo') {
+    if (mode === 'efectivo' || mode === 'online') {
         const dateInput = document.getElementById('val-fecha-entrega');
         if (!dateInput.value) {
             const now = new Date();
@@ -1532,10 +1544,33 @@ document.getElementById('rotate-photo-btn')?.addEventListener('click', () => {
     updatePhotoTransform(true);
 });
 
-document.getElementById('ocr-trigger-btn')?.addEventListener('click', () => {
+document.getElementById('ocr-trigger-btn')?.addEventListener('click', async () => {
     const file = photoInput.files[0];
     if (file) {
         runOCR(file, currentRotation);
+    } else if (photoPreview.src && !photoPreview.classList.contains('hidden')) {
+        // Nueva lógica: Si la foto ya está previsualizada (viene del servidor)
+        try {
+            Swal.fire({ title: 'Descargando imagen...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+            const res = await fetchAPI('getPhotoBase64', { nro: currentOrderForValidation.nro });
+            Swal.close();
+
+            if (res.success) {
+                // Convertir base64 a un objeto File-like para runOCR
+                const byteString = atob(res.base64);
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+                const blob = new Blob([ab], { type: res.mimeType });
+                const virtualFile = new File([blob], "voucher.jpg", { type: res.mimeType });
+
+                runOCR(virtualFile, currentRotation);
+            } else {
+                Swal.fire('Error', 'No se pudo obtener la imagen del servidor: ' + res.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('Error', 'Error al conectar con el servidor.', 'error');
+        }
     } else {
         Swal.fire('Info', 'Sube una foto primero para poder escanearla.', 'info');
     }
@@ -2495,18 +2530,69 @@ function setLoading(active) {
 
 function extractPhotoUrl(fotoStr) {
     if (!fotoStr || typeof fotoStr !== 'string') return '';
-    if (fotoStr.startsWith('PAGO-')) return '';
+    let s = fotoStr.trim();
+    if (s.startsWith('PAGO-') || s === '') return '';
 
-    let url = fotoStr.split(' ')[0];
+    // Obtener solo el primer segmento (URL)
+    let url = s.split(/\s+/)[0];
 
-    if (url.includes('drive.google.com')) {
-        const idMatch = url.match(/\/d\/(.+?)\//) || url.match(/id=(.+?)(&|$)/);
-        if (idMatch) {
-            return `https://lh3.googleusercontent.com/d/${idMatch[1]}`;
-        }
+    // Si contiene un ID de Drive, devolvemos el link oficial para mayor estabilidad en clics
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch) {
+        return `https://drive.google.com/uc?id=${idMatch[1]}&export=view`;
+    }
+
+    if (url.length >= 20 && url.length <= 60 && !url.includes('/') && !url.includes('.')) {
+        return `https://drive.google.com/uc?id=${url}&export=view`;
     }
 
     return url;
+}
+
+// NUEVA FUNCION: Obtener URL directa para <img> con fallback
+function getDirectPhotoUrl(fotoStr) {
+    if (!fotoStr || typeof fotoStr !== 'string') return '';
+    let s = fotoStr.trim();
+    let url = s.split(/\s+/)[0];
+    let id = '';
+
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch) id = idMatch[1];
+    else if (url.length >= 20 && url.length <= 60 && !url.includes('/') && !url.includes('.')) id = url;
+
+    if (id) {
+        // Opción 1: lh3 (Rápido pero propenso a 429)
+        return `https://lh3.googleusercontent.com/d/${id}`;
+    }
+    return url;
+}
+
+// MANEJADOR DE ERRORES DE CARGA (Para bypass de 429)
+async function handleImageError(img) {
+    const src = img.src;
+    const nro = img.getAttribute('data-nro');
+
+    if (src.includes('lh3.googleusercontent.com')) {
+        // Fallback 1: Probar con uc?id (Google Direct Download)
+        const id = src.split('/').pop();
+        console.warn("lh3 falló (posible 429). Probando fallback uc?id...");
+        img.src = `https://drive.google.com/uc?id=${id}`;
+    }
+    else if (src.includes('drive.google.com/uc') && nro) {
+        // Fallback 2: El "Ultimo Recurso" - Pedir Base64 al servidor (Bypassea todo)
+        console.warn("uc?id falló. Iniciando descarga desde servidor...");
+        try {
+            const res = await fetchAPI('getPhotoBase64', { nro: nro });
+            if (res.success) {
+                img.src = `data:${res.mimeType};base64,${res.base64}`;
+                console.log("Imagen cargada exitosamente via Servidor (Base64)");
+            } else {
+                console.error("Fallo total al cargar imagen:", res.message);
+            }
+        } catch (e) {
+            console.error("Error en fallback de servidor:", e);
+        }
+    }
 }
 
 function formatMoney(amount) {
@@ -2696,6 +2782,7 @@ window.rejectOrder = async (nro) => {
 
     updateDriversDatalist();
 
+    // ====== PASO 1: Seleccionar motivo ======
     const driverFieldHtml = order.envio
         ? `<div id="swal-driver-group" style="display:none; margin-top:15px; text-align:left;">
                <label style="display:block; margin-bottom:6px; color:#475569; font-weight: 600; font-size:0.95em;">Repartidor asignado:</label>
@@ -2711,7 +2798,7 @@ window.rejectOrder = async (nro) => {
                    style="margin: 0; width: 100%; box-sizing: border-box; background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a !important; font-size: 1rem; border-radius: 8px;">
            </div>`;
 
-    const { value: formValues, isConfirmed } = await Swal.fire({
+    const { value: step1Values, isConfirmed: step1Confirmed } = await Swal.fire({
         title: '¿Por qué se cancela el pedido?',
         icon: 'warning',
         html: `
@@ -2728,7 +2815,7 @@ window.rejectOrder = async (nro) => {
         showCancelButton: true,
         confirmButtonColor: '#d33',
         cancelButtonColor: '#666',
-        confirmButtonText: '<i class="fa-solid fa-ban"></i> Cancelar Pedido',
+        confirmButtonText: '<i class="fa-solid fa-arrow-right"></i> Continuar',
         cancelButtonText: 'Volver',
         didOpen: () => {
             document.querySelectorAll('input[name="swal-motivo"]').forEach(radio => {
@@ -2742,46 +2829,266 @@ window.rejectOrder = async (nro) => {
         },
         preConfirm: () => {
             const motivo = document.querySelector('input[name="swal-motivo"]:checked').value;
-
             if (motivo === 'Por Repartidor') {
+                let driver = '';
                 if (order.envio) {
-                    return { motivo, driver: order.envio };
-                }
-                const driverInput = document.getElementById('swal-driver');
-                driverInput?.blur();
-                const driver = (driverInput?.value || '').trim();
-                if (!driver) {
-                    Swal.showValidationMessage('Debes consignar el nombre del Driver');
-                    return false;
+                    driver = order.envio;
+                } else {
+                    const driverInput = document.getElementById('swal-driver');
+                    driverInput?.blur();
+                    driver = (driverInput?.value || '').trim();
+                    if (!driver) {
+                        Swal.showValidationMessage('Debes consignar el nombre del Driver');
+                        return false;
+                    }
                 }
                 return { motivo, driver };
             }
-
             return { motivo, driver: '' };
         }
     });
 
-    if (isConfirmed && formValues) {
-        const { motivo, driver } = formValues;
+    if (!step1Confirmed || !step1Values) return;
+    const { motivo, driver } = step1Values;
+
+    // ====== Para Consumidor y Punto de Venta: cancelar directo ======
+    if (motivo !== 'Por Repartidor') {
         Swal.fire({ title: 'Cancelando...', didOpen: () => Swal.showLoading() });
         try {
             const res = await fetchAPI('rechazarPedido', {
-                nro,
-                usuario: currentUser.usuario,
-                motivo: motivo,
-                envio: driver
+                nro, usuario: currentUser.usuario, motivo, envio: driver
             });
             if (res.success) {
                 Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong>`, 'success');
                 loadOrders();
+            } else { Swal.fire('Error', res.message, 'error'); }
+        } catch (e) { Swal.fire('Error', 'Error de conexión', 'error'); }
+        return;
+    }
+
+    // ====== PASO 2 (solo Por Repartidor): Ventana de evidencia ======
+    // Usar fecha/hora de cuando el repartidor subió la foto (columnas P y Q)
+    let fechaHora = 'Sin registro de fecha';
+    if (order.fecha_entrega || order.hora_entrega) {
+        const fe = order.fecha_entrega || '';
+        const he = order.hora_entrega || '';
+        fechaHora = (fe + (fe && he ? ' — ' : '') + he) || 'Sin registro';
+    } else if (order.fecha) {
+        // Fallback: fecha del pedido
+        try {
+            const d = new Date(order.fecha);
+            fechaHora = d.toLocaleDateString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric' })
+                + ' — ' + d.toLocaleTimeString('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: true });
+        } catch (e) { fechaHora = 'Sin registro'; }
+    }
+
+    // Obtener URL de la foto ya subida por el repartidor
+    const stableLink = extractPhotoUrl(order.foto);
+    const directPreview = getDirectPhotoUrl(order.foto);
+    const hasFoto = directPreview && directPreview.length > 10;
+
+    const fotoHtml = hasFoto
+        ? `<div style="border:2px solid #22c55e; border-radius:16px; padding:8px; background:#f0fdf4; text-align:center;">
+               <img src="${directPreview}" data-nro="${order.nro}" style="max-height:350px; max-width:100%; border-radius:12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);" 
+                onerror="handleImageError(this)">
+               <div style="margin-top:8px; font-size:0.8em; color:#16a34a; font-weight:600;">
+                    <i class="fa-solid fa-circle-check"></i> Foto subida por el repartidor 
+                    <br>
+                    <a href="${stableLink}" target="_blank" style="color:#2563eb; text-decoration:underline; display:inline-block; margin-top:5px;">
+                        <i class="fa-solid fa-up-right-from-square"></i> Ver en Google Drive
+                    </a>
+               </div>
+           </div>`
+        : `<div style="border:2px dashed #ef4444; border-radius:16px; padding:40px; text-align:center; background:#fef2f2;">
+               <i class="fa-solid fa-image" style="font-size:3em; color:#fca5a5; margin-bottom:12px; display:block;"></i>
+               <span style="color:#ef4444; font-weight:600; font-size:1.1em; display:block;">El repartidor aún no ha subido la evidencia</span>
+               <span style="color:#94a3b8; font-size:0.85em;">La foto debe aparecer en la columna "Foto" del pedido</span>
+           </div>`;
+
+    const { isConfirmed: step2Confirmed } = await Swal.fire({
+        title: '📷 Evidencia del Repartidor',
+        width: 600,
+        html: `
+            <div style="text-align:left;">
+                <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:16px;">
+                    <div style="flex:1; background:#f1f5f9; border-radius:10px; padding:12px; border:1px solid #e2e8f0;">
+                        <div style="font-size:0.75em; color:#64748b; text-transform:uppercase; font-weight:600; margin-bottom:4px;">Pedido</div>
+                        <div style="font-weight:700; font-size:1.1em; color:#0f172a;">${order.llave || '#' + order.nro}</div>
+                    </div>
+                    <div style="flex:1; background:#f1f5f9; border-radius:10px; padding:12px; border:1px solid #e2e8f0;">
+                        <div style="font-size:0.75em; color:#64748b; text-transform:uppercase; font-weight:600; margin-bottom:4px;">Repartidor</div>
+                        <div style="font-weight:700; font-size:1.1em; color:#0f172a;"><i class="fa-solid fa-motorcycle" style="color:#3b82f6;"></i> ${driver}</div>
+                    </div>
+                </div>
+                <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:10px 14px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                        <i class="fa-solid fa-calendar-check" style="color:#d97706; font-size:1.2em;"></i>
+                        <div style="font-size:0.75em; color:#92400e; text-transform:uppercase; font-weight:600;">Registro de Evidencia</div>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="cancel-fecha-ev" value="${order.fecha_entrega || ''}" placeholder="dd/mm/aaaa" style="flex:1; padding:8px; border-radius:6px; border:1px solid #fcd34d; background:#fff; color:#000; font-weight:700; text-align:center;">
+                        <input type="time" id="cancel-hora-ev" value="${order.hora_entrega || ''}" style="flex:1; padding:8px; border-radius:6px; border:1px solid #fcd34d; background:#fff; color:#000; font-weight:700; text-align:center;">
+                    </div>
+                </div>
+
+                <div id="cancel-elapsed-container" style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:10px 14px; margin-bottom:16px; display:flex; align-items:center; gap:10px; display:none;">
+                    <i class="fa-solid fa-hourglass-half" style="color:#3b82f6; font-size:1.2em;"></i>
+                    <div>
+                        <div style="font-size:0.75em; color:#1e40af; text-transform:uppercase; font-weight:600;">Tiempo Transcurrido</div>
+                        <div id="cancel-elapsed-text" style="font-weight:700; color:#1e3a8a; font-size:1.05em;">--</div>
+                    </div>
+                </div>
+
+                <label style="display:block; margin-bottom:8px; color:#475569; font-weight:600; font-size:0.95em;">
+                    <i class="fa-solid fa-image"></i> Evidencia de llamadas:
+                </label>
+                ${fotoHtml}
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonColor: hasFoto ? '#d33' : '#94a3b8',
+        cancelButtonColor: '#666',
+        confirmButtonText: hasFoto ? '<i class="fa-solid fa-check"></i> Confirmar Cancelación' : '<i class="fa-solid fa-ban"></i> Cancelar sin foto',
+        cancelButtonText: 'Volver',
+        didOpen: () => {
+            const hInput = document.getElementById('cancel-hora-ev');
+            const fInput = document.getElementById('cancel-fecha-ev');
+            const elapsedText = document.getElementById('cancel-elapsed-text');
+            const elapsedContainer = document.getElementById('cancel-elapsed-container');
+
+            const calculate = () => {
+                const horaVal = hInput?.value;
+                const fechaVal = fInput?.value;
+                if (!horaVal || !order.fecha) {
+                    if (elapsedContainer) elapsedContainer.style.display = 'none';
+                    return;
+                }
+                try {
+                    const hParts = horaVal.split(':');
+                    const hh = parseInt(hParts[0] || '0', 10);
+                    const mm = parseInt(hParts[1] || '0', 10);
+                    const dRegistro = new Date(order.fecha);
+
+                    const formatter = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'America/Lima',
+                        year: 'numeric', month: 'numeric', day: 'numeric',
+                        hour: 'numeric', minute: 'numeric', second: 'numeric',
+                        hour12: false
+                    });
+                    const parts = formatter.formatToParts(dRegistro);
+                    const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+                    let rH = getP('hour'); if (rH === 24) rH = 0;
+                    let registroMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0);
+                    let entregaMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), hh, mm, 0);
+
+                    const diffMs = entregaMs - registroMs;
+                    if (diffMs > 0 && elapsedText && elapsedContainer) {
+                        const diffMins = Math.round(diffMs / 60000);
+                        const h = Math.floor(diffMins / 60);
+                        const m = diffMins % 60;
+                        elapsedText.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
+                        elapsedContainer.style.display = 'flex';
+                    } else if (elapsedContainer) {
+                        elapsedContainer.style.display = 'none';
+                    }
+                } catch (e) { console.error('Error calculando tiempo:', e); }
+            };
+
+            hInput?.addEventListener('input', calculate);
+            fInput?.addEventListener('input', calculate);
+            calculate(); // Ejecutar al abrir
+        }
+    });
+
+    if (!step2Confirmed) return;
+
+    // Obtener los valores (posiblemente editados)
+    const fechaFinal = document.getElementById('cancel-fecha-ev')?.value || '';
+    const horaFinal = document.getElementById('cancel-hora-ev')?.value || '';
+    let durationFormatted = "";
+
+    // Calcular duración final para guardar en columna R
+    if (horaFinal && order.fecha) {
+        try {
+            const hParts = horaFinal.split(':');
+            const hh = parseInt(hParts[0] || '0', 10);
+            const mm = parseInt(hParts[1] || '0', 10);
+            const dRegistro = new Date(order.fecha);
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Lima',
+                year: 'numeric', month: 'numeric', day: 'numeric',
+                hour: 'numeric', minute: 'numeric', second: 'numeric',
+                hour12: false
+            });
+            const parts = formatter.formatToParts(dRegistro);
+            const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+            let rH = getP('hour'); if (rH === 24) rH = 0;
+            let registroMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0);
+            let entregaMs = Date.UTC(getP('year'), getP('month') - 1, getP('day'), hh, mm, 0);
+
+            const diffMs = entregaMs - registroMs;
+            if (diffMs >= 0) {
+                const totalSecs = Math.floor(diffMs / 1000);
+                const h = Math.floor(totalSecs / 3600);
+                const m = Math.floor((totalSecs % 3600) / 60);
+                const s = totalSecs % 60;
+                durationFormatted = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            }
+        } catch (e) { console.error('Error calculando duración final:', e); }
+    }
+
+    // ====== Enviar cancelación ======
+    Swal.fire({ title: 'Cancelando...', didOpen: () => Swal.showLoading() });
+    try {
+        const res = await fetchAPI('rechazarPedido', {
+            nro,
+            usuario: currentUser.usuario,
+            motivo,
+            envio: driver,
+            fechaEntrega: fechaFinal,
+            horaEntrega: horaFinal,
+            tiempoTranscurrido: durationFormatted
+        });
+        if (res.success) {
+            Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong><br><small>Evidencia registrada ✅</small>`, 'success');
+            loadOrders();
+        } else { Swal.fire('Error', res.message, 'error'); }
+    } catch (e) { Swal.fire('Error', 'Error de conexión', 'error'); }
+}
+
+window.marcarPorValidarManual = async (nro) => {
+    const { isConfirmed } = await Swal.fire({
+        title: '¿Pasar a "Por Validar"?',
+        text: "Usa esto solo si el repartidor no pudo usar la App. El pedido pasará a la lista de espera para validación manual.",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#3b82f6',
+        confirmButtonText: 'Sí, mover',
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (isConfirmed) {
+        setLoading(true);
+        try {
+            const res = await fetchAPI('marcarPorValidar', { nro });
+            if (res.success) {
+                Swal.fire('Listo', 'Pedido movido a "Por Validar"', 'success');
+                loadOrders();
+                // Si estamos en el monitor de motorizados, refrescar también
+                if (typeof renderMapaMotorizados === 'function') {
+                    renderMapaMotorizados();
+                }
             } else {
-                Swal.fire('Error', res.message, 'error');
+                Swal.fire('Error', res.message || 'No se pudo mover el pedido', 'error');
             }
         } catch (e) {
             Swal.fire('Error', 'Error de conexión', 'error');
         }
+        setLoading(false);
     }
-}
+};
+
 
 // --- Bulk Import Logic ---
 

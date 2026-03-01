@@ -199,9 +199,14 @@ function renderMapaMotorizados() {
 
                     <!-- Order Content -->
                     <div style="flex: 1;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                        <div id="controls-top-${o.nro}" style="display:flex; justify-content:space-between; margin-bottom:4px;">
                             <strong style="color: #fff; font-size: 1.1em;">${o.llave || '#' + o.nro}</strong>
-                            <strong style="color: #4ADE80; font-size: 1.1em;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
+                            <div style="display:flex; gap:6px;">
+                                <button onclick="marcarPorValidarManual(${o.nro})" title="Forzar 'Por Validar' (Excepción)" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 0.9em;">
+                                    <i class="fa-solid fa-motorcycle"></i>
+                                </button>
+                                <strong style="color: #4ADE80; font-size: 1.1em;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
+                            </div>
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <span style="color: ${pColor}; font-weight: 600; font-size:0.9em;"><i class="fa-solid fa-wallet"></i> ${tipoPagoDisplay}</span>

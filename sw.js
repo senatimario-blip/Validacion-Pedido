@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repartidor-app-v2';
+const CACHE_NAME = 'repartidor-app-v3';
 
 // Recursos mínimos a cachear para que la PWA sea instalable
 const urlsToCache = [
@@ -36,13 +36,16 @@ self.addEventListener('activate', event => {
 });
 
 // ESTRATEGIA: Network First (Red primero, Caché como respaldo)
-// Siempre intenta descargar la versión más nueva del servidor.
-// Solo usa el caché cuando no hay conexión a internet.
+// Solo cachear GET de recursos estáticos. POST y APIs externas pasan directo.
 self.addEventListener('fetch', event => {
+    // NO interceptar POST ni llamadas a APIs externas
+    if (event.request.method !== 'GET' || event.request.url.includes('script.google.com')) {
+        return; // Dejar que el navegador maneje normalmente
+    }
+
     event.respondWith(
         fetch(event.request)
             .then(networkResponse => {
-                // Si la red respondió bien, actualizar el caché con la versión nueva
                 if (networkResponse && networkResponse.status === 200) {
                     const responseClone = networkResponse.clone();
                     caches.open(CACHE_NAME).then(cache => {
@@ -52,7 +55,6 @@ self.addEventListener('fetch', event => {
                 return networkResponse;
             })
             .catch(() => {
-                // Sin internet: servir desde el caché (modo offline)
                 return caches.match(event.request);
             })
     );

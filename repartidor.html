@@ -158,6 +158,66 @@
         </button>
     </div>
 
+    <!-- MENU DE ACCION (SELECTOR) -->
+    <div id="modal-selector-accion"
+        class="fixed inset-0 bg-black/60 z-40 hidden flex-col justify-end transition-opacity">
+        <div class="bg-cardDark rounded-t-3xl p-6 slide-up shadow-2xl border-t border-slate-700">
+            <div class="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-6"></div>
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h3 class="text-xl font-bold" id="lbl-selector-llave">PED-000</h3>
+                    <p class="text-slate-400 text-sm">¿Qué acción deseas realizar?</p>
+                </div>
+                <button onclick="closeActionSelector()"
+                    class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 pb-8">
+                <!-- POS -->
+                <button onclick="selectAction('pos')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-purple-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center text-2xl border border-purple-500/20">
+                        <i class="fa-solid fa-receipt"></i>
+                    </div>
+                    <span class="font-bold">📱 POS / Voucher</span>
+                </button>
+
+                <!-- EFECTIVO -->
+                <button onclick="selectAction('efectivo')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-emerald-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-2xl border border-emerald-500/20">
+                        <i class="fa-solid fa-money-bill-wave"></i>
+                    </div>
+                    <span class="font-bold">💵 Efectivo</span>
+                </button>
+
+                <!-- ONLINE -->
+                <button onclick="selectAction('online')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-blue-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-2xl border border-blue-500/20">
+                        <i class="fa-solid fa-globe"></i>
+                    </div>
+                    <span class="font-bold">📲 Online / Transf.</span>
+                </button>
+
+                <!-- CANCELAR -->
+                <button onclick="selectAction('cancelar')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-red-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-red-500/10 flex items-center justify-center text-2xl border border-red-500/20">
+                        <i class="fa-solid fa-ban"></i>
+                    </div>
+                    <span class="font-bold">❌ Cancelar Delivery</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL DE CAPTURA (Cámara 1 y 2) -->
     <div id="modal-captura" class="fixed inset-0 bg-black/95 z-50 hidden flex-col transition-opacity">
         <div class="flex items-center justify-between p-4 border-b border-slate-800">
@@ -225,6 +285,79 @@
                 class="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
                 <i class="fa-brands fa-whatsapp text-xl"></i>
                 <span class="text-lg">Enviar a WhatsApp</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL DE CANCELACIÓN -->
+    <div id="modal-cancelacion" class="fixed inset-0 bg-black/95 z-50 hidden flex-col transition-opacity">
+        <div class="flex items-center justify-between p-4 border-b border-red-900/50">
+            <div>
+                <span class="text-xs text-red-400 font-medium uppercase tracking-wider block">Reportar
+                    Cancelación</span>
+                <span class="text-xl font-bold text-red-300" id="lbl-cancel-llave">PED-000</span>
+            </div>
+            <button id="btn-cerrar-cancel"
+                class="w-10 h-10 rounded-full bg-red-900/40 flex items-center justify-center text-red-300">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 p-6 flex flex-col items-center justify-center gap-6 overflow-y-auto">
+
+            <div class="text-center mb-2">
+                <div class="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-3">
+                    <i class="fa-solid fa-ban text-3xl text-red-400"></i>
+                </div>
+                <p class="text-red-200 font-semibold text-lg">Pedido Cancelado</p>
+                <p class="text-slate-400 text-sm mt-1">Adjunta las evidencias requeridas para reportar la cancelación.
+                </p>
+            </div>
+
+            <!-- Slot 1: Evidencia de Cancelación (screenshot llamadas / motivo) -->
+            <div class="w-full relative">
+                <input type="file" accept="image/*" id="input-cancel-evidencia" class="hidden">
+                <div id="btn-ui-cancel-evidencia"
+                    class="bg-slate-800 border-2 border-dashed border-red-500/40 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    <div class="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-2xl"
+                        id="icon-cancel-evidencia">
+                        <i class="fa-solid fa-phone-slash"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="font-bold text-lg block text-white">Evidencia de Cancelación</span>
+                        <span class="text-sm text-slate-400">Screenshot de llamadas o motivo</span>
+                    </div>
+                    <img id="preview-cancel-evidencia"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-red-500/40">
+                </div>
+            </div>
+
+            <!-- Slot 2: Foto de Fachada -->
+            <div class="w-full relative">
+                <input type="file" accept="image/*" id="input-cancel-fachada" class="hidden">
+                <div id="btn-ui-cancel-fachada"
+                    class="bg-slate-800 border-2 border-dashed border-red-500/40 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    <div class="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-2xl"
+                        id="icon-cancel-fachada">
+                        <i class="fa-solid fa-building"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="font-bold text-lg block text-white">Foto de Fachada</span>
+                        <span class="text-sm text-slate-400">Fachada del lugar de entrega</span>
+                    </div>
+                    <img id="preview-cancel-fachada"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-red-500/40">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="p-4 bg-cardDark border-t border-red-900/50">
+            <button id="btn-enviar-cancel" disabled
+                class="w-full bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
+                <i class="fa-brands fa-whatsapp text-xl"></i>
+                <span class="text-lg">Enviar Cancelación a WhatsApp</span>
             </button>
         </div>
     </div>

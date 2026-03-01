@@ -26,9 +26,10 @@ function doPost(e) {
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
       case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
-      case 'marcarPorValidar':    result = marcarPorValidar(payload.nro); break;
+      case 'marcarPorValidar':    result = marcarPorValidar(payload.nro, payload.fechaEntrega, payload.horaEntrega); break;
       case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
       case 'guardarOrdenRutaMotorizado': result = guardarOrdenRutaMotorizado(payload); break;
+      case 'getPhotoBase64':      result = getPhotoBase64(payload.nro); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
@@ -122,13 +123,18 @@ function marcarSLAFuera(nro, fuera_sla) {
   return { success: false, msg: 'Pedido no encontrado para validar.' };
 }
 
-function marcarPorValidar(nro) {
+function marcarPorValidar(nro, fechaEntrega, horaEntrega) {
   const sheet = getSheet();
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] == nro) {
       if (rows[i][6] === 'Pendiente' || rows[i][6] === 'En Camino' || rows[i][6] === 'Reservado') {
         sheet.getRange(i + 1, 7).setValue('Por Validar'); // G: Estado = Por Validar
+        
+        // Si vienen datos de fecha/hora (desde la App del Repartidor al cancelar)
+        if (fechaEntrega) sheet.getRange(i + 1, 16).setValue(fechaEntrega); // P
+        if (horaEntrega) sheet.getRange(i + 1, 17).setValue(horaEntrega); // Q
+        
         return { success: true };
       } else {
          // Si por alguna razón la oficina ya lo validó mientras el patita manejaba
@@ -233,7 +239,6 @@ function guardarFotoOcrSilent(llaveBusqueda, fotoB64) {
     const file = rootFolder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const link = file.getUrl();
-
     // Guardar el enlace en la Columna E (Foto URL) sin tocar el resto (el estado sigue Pendiente)
     sheet.getRange(rowIndex, 5).setValue(link);
     return { success: true, url: link };
@@ -305,6 +310,14 @@ function rechazarPedido(data) {
       sheet.getRange(i + 1, 9).setValue(new Date());           // I
       sheet.getRange(i + 1, 10).setValue(data.envio || "");    // J: Responsable Envío
       sheet.getRange(i + 1, 14).setValue(data.motivo || "");   // N: Motivo Cancelación
+      
+      // Guardar fecha/hora de evidencia (posiblemente editada por el admin)
+      if (data.fechaEntrega) sheet.getRange(i + 1, 16).setValue(data.fechaEntrega); // P
+      if (data.horaEntrega) sheet.getRange(i + 1, 17).setValue(data.horaEntrega);   // Q
+
+      // Guardar tiempo transcurrido (R)
+      if (data.tiempoTranscurrido) sheet.getRange(i + 1, 18).setValue(data.tiempoTranscurrido);
+      
       return { success: true };
     }
   }
@@ -429,6 +442,40 @@ function guardarOrdenRutaMotorizado(payload) {
     }
 
     return { success: true, message: `Rutas guardadas: ${updatesCount}` };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+function getPhotoBase64(nro) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    let url = "";
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] == nro) {
+        url = (rows[i][4] || "").toString().trim();
+        break;
+      }
+    }
+    
+    if (!url) return { success: false, message: "No hay URL de foto para este pedido" };
+    
+    // Extraer ID de Drive
+    let id = "";
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch) {
+      id = idMatch[1];
+    } else if (url.length > 20 && !url.includes('/') && !url.includes('.')) {
+      id = url;
+    } else {
+      return { success: false, message: "No se pudo extraer el ID de Drive de la URL" };
+    }
+    
+    const file = DriveApp.getFileById(id);
+    const blob = file.getBlob();
+    const b64 = Utilities.base64Encode(blob.getBytes());
+    
+    return { success: true, base64: b64, mimeType: blob.getContentType() };
   } catch(e) {
     return { success: false, message: e.toString() };
   }

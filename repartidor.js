@@ -1,10 +1,11 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwAAJpk4URBPU8z3XnHx6ut1VD6RISD_nq7wIBFXShQfapFbXFwL8wYOR9mDXwMAGxv/exec';
 
 // State
 let currentUser = null;
 let currentOrders = [];
 let activeTimers = {};
 let selectedOrderForCapture = null;
+let selectedCaptureMode = 'pos'; // 'pos', 'efectivo', 'online'
 
 // DOM Elements
 const pantallaLogin = document.getElementById('pantalla-login');
@@ -42,6 +43,28 @@ const previewEvidencia = document.getElementById('preview-evidencia');
 // Data
 let photoPosFile = null;
 let photoEvidenciaFile = null;
+
+// Cancel Modal Elements
+const modalCancelacion = document.getElementById('modal-cancelacion');
+const btnCerrarCancel = document.getElementById('btn-cerrar-cancel');
+const lblCancelLlave = document.getElementById('lbl-cancel-llave');
+const btnEnviarCancel = document.getElementById('btn-enviar-cancel');
+
+// Cancel Photo Inputs
+const inputCancelEvidencia = document.getElementById('input-cancel-evidencia');
+const btnUiCancelEvidencia = document.getElementById('btn-ui-cancel-evidencia');
+const iconCancelEvidencia = document.getElementById('icon-cancel-evidencia');
+const previewCancelEvidencia = document.getElementById('preview-cancel-evidencia');
+
+const inputCancelFachada = document.getElementById('input-cancel-fachada');
+const btnUiCancelFachada = document.getElementById('btn-ui-cancel-fachada');
+const iconCancelFachada = document.getElementById('icon-cancel-fachada');
+const previewCancelFachada = document.getElementById('preview-cancel-fachada');
+
+// Cancel Data
+let photoCancelEvidenciaFile = null;
+let photoCancelFachadaFile = null;
+let selectedOrderForCancel = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -163,6 +186,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Share to WhatsApp
     btnEnviarWsp.addEventListener('click', handleSendToWhatsApp);
+
+    // --- Cancel Modal Listeners ---
+    btnCerrarCancel.addEventListener('click', () => {
+        modalCancelacion.classList.add('hidden');
+        modalCancelacion.classList.remove('flex');
+        resetCancelModalState();
+    });
+
+    inputCancelEvidencia.addEventListener('change', (e) => handleCancelPhotoCapture(e, 'evidencia'));
+    inputCancelFachada.addEventListener('change', (e) => handleCancelPhotoCapture(e, 'fachada'));
+    btnUiCancelEvidencia.addEventListener('click', () => inputCancelEvidencia.click());
+    btnUiCancelFachada.addEventListener('click', () => inputCancelFachada.click());
+    btnEnviarCancel.addEventListener('click', handleSendCancelToWhatsApp);
 });
 
 function autoLoginData(name) {
@@ -230,6 +266,11 @@ async function fetchDriverOrders() {
         if (data && data.success) {
             const rawOrders = Array.isArray(data.data) ? data.data : [];
             window.orders = rawOrders; // Global for mapa.js
+
+            // DEBUG: Ver qué llega del servidor
+            console.log('📦 Total pedidos recibidos:', rawOrders.length);
+            console.log('👤 currentUser:', currentUser);
+            rawOrders.forEach(o => console.log(`  → Nro:${o.nro} | Llave:${o.llave} | Envio:"${o.envio}" | Estado:"${o.estado}"`));
 
             if (currentUser && currentUser.toLowerCase() === 'admin') {
                 if (typeof renderMapaMotorizados === 'function') {
@@ -328,7 +369,11 @@ function renderOrders() {
 
         const card = document.createElement('div');
         card.className = 'bg-cardDark rounded-2xl p-4 shadow-lg border border-slate-700/50 active:scale-[0.98] transition-all cursor-pointer';
-        card.onclick = () => openCaptureModal(order);
+        card.onclick = (e) => {
+            // Si se hizo clic en el botón cancelar, no abrir el modal de entrega
+            if (e.target.closest('.btn-cancelar-pedido')) return;
+            openActionSelector(order);
+        };
 
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
@@ -353,9 +398,14 @@ function renderOrders() {
                     ${tipoPagoDisplay}
                 </span>
                 
-                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
-                    <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
-                    <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
+                        <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
+                        <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
+                    </div>
+                    <button class="btn-cancelar-pedido w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 text-red-400/60 hover:text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all text-sm" onclick="event.stopPropagation(); openCancelModal(currentOrders[${index}])" title="Cancelar Pedido">
+                        <i class="fa-solid fa-ban"></i>
+                    </button>
                 </div>
             </div>
         `;
@@ -363,7 +413,7 @@ function renderOrders() {
         containerPedidos.appendChild(card);
 
         if (registerDate && !isNaN(registerDate)) {
-            startTimer(order.nro, registerDate);
+            startTimer(order.nro, registerDate, order.llave || `PED-${order.nro}`);
         }
     });
     // --- Drag and Drop Sorting Logic ---
@@ -422,7 +472,12 @@ function playBeepUrgent() {
     } catch (e) { console.log("Audio not supported"); }
 }
 
-function startTimer(orderId, startTime) {
+// Track which orders already showed the 30-min alert popup
+const alertedOrders30 = new Set();
+
+function startTimer(orderId, startTime, llave) {
+    let lastVibratedMinute = -1; // Track to vibrate once per minute, not every 10s
+
     const updateTime = () => {
         const now = new Date();
         const diffMs = now - startTime;
@@ -441,8 +496,26 @@ function startTimer(orderId, startTime) {
             box.className = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/50 animate-pulse';
             text.className = 'font-mono font-bold text-red-500';
             icon.className = 'fa-solid fa-clock text-red-500';
-            // Pitido fuerte cada minuto para llamar atención
-            if (now.getSeconds() >= 0 && now.getSeconds() < 10) {
+
+            // Alerta popup UNA SOLA VEZ cuando cruza los 30 min
+            if (!alertedOrders30.has(orderId)) {
+                alertedOrders30.add(orderId);
+                if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
+                playBeepUrgent();
+                Swal.fire({
+                    icon: 'warning',
+                    title: '🔥 ¡No quemes la Llave!',
+                    html: `<b>${llave}</b> lleva <b>${diffMins} minutos</b>.<br>¡Apúrate!`,
+                    confirmButtonColor: '#ef4444',
+                    confirmButtonText: 'Entendido',
+                    timer: 8000,
+                    timerProgressBar: true
+                });
+            }
+
+            // Vibración + pitido cada minuto (no cada 10s)
+            if (diffMins !== lastVibratedMinute) {
+                lastVibratedMinute = diffMins;
                 playBeepUrgent();
                 if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
             }
@@ -451,8 +524,9 @@ function startTimer(orderId, startTime) {
             box.className = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/20 border border-orange-500/50';
             text.className = 'font-mono font-bold text-orange-500';
             icon.className = 'fa-solid fa-clock text-orange-500';
-            // Sonido suave de advertencia cada minuto
-            if (now.getSeconds() >= 0 && now.getSeconds() < 10) {
+            // Vibración suave cada minuto
+            if (diffMins !== lastVibratedMinute) {
+                lastVibratedMinute = diffMins;
                 playBeepSoft();
                 if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             }
@@ -473,15 +547,58 @@ function stopAllTimers() {
     activeTimers = {};
 }
 
+// --- Action Selector Logic ---
+function openActionSelector(order) {
+    selectedOrderForCapture = order;
+
+    // Mapeo Automático Basado en "Pago Original"
+    const pStr = (order.pago || '').toString().trim().toUpperCase();
+    let autoMode = null;
+
+    if (pStr.includes('CONTADO')) {
+        autoMode = 'efectivo';
+    } else if (pStr.includes('LÍNEA') || pStr.includes('LINEA')) {
+        autoMode = 'online';
+    } else if (pStr.includes('YAPE') || pStr.includes('PLIN') || pStr.includes('QR') || pStr.includes('TARJETA') || pStr.includes('POS')) {
+        autoMode = 'pos';
+    }
+
+    if (autoMode) {
+        selectAction(autoMode);
+        return;
+    }
+
+    // Si no se reconoce (o por si acaso), mostrar el selector manual
+    document.getElementById('lbl-selector-llave').textContent = order.llave || `PED-${order.nro}`;
+    const modal = document.getElementById('modal-selector-accion');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeActionSelector() {
+    const modal = document.getElementById('modal-selector-accion');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function selectAction(mode) {
+    closeActionSelector();
+    if (mode === 'cancelar') {
+        openCancelModal(selectedOrderForCapture);
+    } else {
+        selectedCaptureMode = mode;
+        openCaptureModal(selectedOrderForCapture);
+    }
+}
+
 // --- Capture Modal Logic ---
 function openCaptureModal(order) {
     selectedOrderForCapture = order;
     lblModalLlave.textContent = order.llave || `PED-${order.nro}`;
 
-    const tipo = (order.pago || '').toUpperCase();
-    if (tipo.includes('ONLINE')) {
+    if (selectedCaptureMode === 'online') {
         lblTipoPagoModal.textContent = 'Evidencia Online';
-    } else if (tipo.includes('EFECTIVO')) {
+    } else if (selectedCaptureMode === 'efectivo') {
         lblTipoPagoModal.textContent = 'Pago en Efectivo';
     } else {
         lblTipoPagoModal.textContent = 'Voucher POS';
@@ -641,10 +758,20 @@ async function handleSendToWhatsApp() {
         // ----------------------------------------------------------------------
         // Novedad: Marcar silenciosamente el pedido como "Por Validar" en office
         // ----------------------------------------------------------------------
+        const payloadValidar = { action: 'marcarPorValidar', nro: selectedOrderForCapture.nro };
+
+        // Si es EFECTIVO u ONLINE, aplicamos lógica de hora automática (como en Cancelar)
+        if (selectedCaptureMode === 'efectivo' || selectedCaptureMode === 'online') {
+            const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+            const limaDate = new Date(nowLima);
+            payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+
         try {
             await fetch(API_URL, {
                 method: 'POST',
-                body: JSON.stringify({ action: 'marcarPorValidar', nro: selectedOrderForCapture.nro })
+                body: JSON.stringify(payloadValidar)
             });
         } catch (e) { console.warn('Error marcando Por Validar', e); }
 
@@ -665,7 +792,7 @@ async function handleSendToWhatsApp() {
         modalCaptura.classList.remove('flex');
 
         Swal.fire({
-            title: '¡Foto Subida a la Oficina!',
+            title: `¡Foto de ${llave} subida!`,
             text: 'Haz clic en el botón verde para compartirla por WhatsApp',
             icon: 'success',
             confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
@@ -737,5 +864,212 @@ async function handleSendToWhatsApp() {
             btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar a WhatsApp</span>';
             btnEnviarWsp.removeAttribute('disabled');
         }
+    }
+}
+
+// =========================================================================
+// --- CANCEL MODAL LOGIC ---
+// =========================================================================
+
+function openCancelModal(order) {
+    selectedOrderForCancel = order;
+    lblCancelLlave.textContent = order.llave || `PED-${order.nro}`;
+    resetCancelModalState();
+    modalCancelacion.classList.remove('hidden');
+    modalCancelacion.classList.add('flex');
+}
+
+function resetCancelModalState() {
+    photoCancelEvidenciaFile = null;
+    photoCancelFachadaFile = null;
+
+    // Reset UI Evidencia Cancelación
+    btnUiCancelEvidencia.className = 'bg-slate-800 border-2 border-dashed border-red-500/40 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors';
+    iconCancelEvidencia.className = 'w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-2xl';
+    iconCancelEvidencia.innerHTML = '<i class="fa-solid fa-phone-slash"></i>';
+    previewCancelEvidencia.classList.add('hidden');
+    previewCancelEvidencia.src = '';
+
+    // Reset UI Fachada
+    btnUiCancelFachada.className = 'bg-slate-800 border-2 border-dashed border-red-500/40 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors';
+    iconCancelFachada.className = 'w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-2xl';
+    iconCancelFachada.innerHTML = '<i class="fa-solid fa-building"></i>';
+    previewCancelFachada.classList.add('hidden');
+    previewCancelFachada.src = '';
+
+    checkReadyToCancel();
+}
+
+function handleCancelPhotoCapture(e, type) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1200;
+            const scaleSize = MAX_WIDTH / img.width;
+            canvas.width = MAX_WIDTH;
+            canvas.height = img.height * scaleSize;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob((blob) => {
+                const compressedFile = new File([blob], `cancel_${type}.jpg`, { type: 'image/jpeg' });
+                const blobUrl = URL.createObjectURL(compressedFile);
+
+                if (type === 'fachada') {
+                    photoCancelFachadaFile = compressedFile;
+                    previewCancelFachada.src = blobUrl;
+                    previewCancelFachada.classList.remove('hidden');
+                    btnUiCancelFachada.classList.replace('border-dashed', 'border-solid');
+                    btnUiCancelFachada.classList.replace('border-red-500/40', 'border-red-500');
+                    iconCancelFachada.classList.replace('bg-red-500/10', 'bg-red-500');
+                    iconCancelFachada.classList.replace('text-red-400', 'text-white');
+                    iconCancelFachada.innerHTML = '<i class="fa-solid fa-check"></i>';
+                } else {
+                    photoCancelEvidenciaFile = compressedFile;
+                    previewCancelEvidencia.src = blobUrl;
+                    previewCancelEvidencia.classList.remove('hidden');
+                    btnUiCancelEvidencia.classList.replace('border-dashed', 'border-solid');
+                    btnUiCancelEvidencia.classList.replace('border-red-500/40', 'border-red-500');
+                    iconCancelEvidencia.classList.replace('bg-red-500/10', 'bg-red-500');
+                    iconCancelEvidencia.classList.replace('text-red-400', 'text-white');
+                    iconCancelEvidencia.innerHTML = '<i class="fa-solid fa-check"></i>';
+                }
+
+                checkReadyToCancel();
+            }, 'image/jpeg', 0.8);
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function checkReadyToCancel() {
+    if (photoCancelEvidenciaFile && photoCancelFachadaFile) {
+        btnEnviarCancel.removeAttribute('disabled');
+        btnEnviarCancel.classList.add('animate-pulse');
+    } else {
+        btnEnviarCancel.setAttribute('disabled', 'true');
+        btnEnviarCancel.classList.remove('animate-pulse');
+    }
+}
+
+async function handleSendCancelToWhatsApp() {
+    btnEnviarCancel.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-xl"></i> Procesando...';
+    btnEnviarCancel.setAttribute('disabled', 'true');
+    btnEnviarCancel.classList.remove('animate-pulse');
+
+    try {
+        // Orden original solicitado: Evidencia primero, luego Fachada
+        const filesToSend = [photoCancelEvidenciaFile, photoCancelFachadaFile];
+        const llave = selectedOrderForCancel.llave || `PED-${selectedOrderForCancel.nro}`;
+        const msgText = `❌ PEDIDO CANCELADO\n📦 Llave: ${llave}\n🏍️ Repartidor: ${currentUser}\n📋 Evidencias adjuntas\n`;
+
+        // 1. Subir la foto de evidencia a Google Drive (columna Foto del admin)
+        const subidaExitosa = await uploadPosSilently(photoCancelEvidenciaFile, llave);
+        if (!subidaExitosa) {
+            btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
+            btnEnviarCancel.removeAttribute('disabled');
+            return;
+        }
+
+        // 2. Marcar el pedido como "Por Validar" para que el admin lo vea
+        // Capturar fecha/hora actual en zona Lima para guardar en columnas P y Q
+        const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+        const limaDate = new Date(nowLima);
+        const fechaCancel = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const horaCancel = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        try {
+            await fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'marcarPorValidar',
+                    nro: selectedOrderForCancel.nro,
+                    fechaEntrega: fechaCancel,
+                    horaEntrega: horaCancel
+                })
+            });
+        } catch (e) { console.warn('Error marcando Por Validar', e); }
+
+        // Cerrar el modal de cancelación
+        modalCancelacion.classList.add('hidden');
+        modalCancelacion.classList.remove('flex');
+
+        Swal.fire({
+            title: `¿Confirmar: ${llave}?`,
+            text: 'Se enviará el reporte de cancelación por WhatsApp',
+            icon: 'warning',
+            iconColor: '#ef4444',
+            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Enviar Cancelación',
+            confirmButtonColor: '#dc2626',
+            showCancelButton: true,
+            cancelButtonText: 'Volver',
+            cancelButtonColor: '#64748b',
+            allowOutsideClick: false
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
+                        await navigator.share({
+                            title: 'Cancelación de Pedido',
+                            text: msgText,
+                            files: filesToSend
+                        });
+                    } else {
+                        Swal.fire({
+                            icon: 'info',
+                            title: 'Descarga tus fotos',
+                            text: 'Tu dispositivo no permite enviar directo. Las fotos se descargarán.',
+                        });
+                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
+
+                        const a1 = document.createElement('a');
+                        a1.href = URL.createObjectURL(photoCancelEvidenciaFile);
+                        a1.download = `cancel_evidencia_${llave}.jpg`;
+                        document.body.appendChild(a1);
+                        a1.click();
+                        document.body.removeChild(a1);
+
+                        const a2 = document.createElement('a');
+                        a2.href = URL.createObjectURL(photoCancelFachadaFile);
+                        a2.download = `cancel_fachada_${llave}.jpg`;
+                        document.body.appendChild(a2);
+                        a2.click();
+                        document.body.removeChild(a2);
+
+                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    }
+
+                    // Eliminar el pedido de la lista visual
+                    currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCancel.nro);
+                    renderOrders();
+
+                } catch (shareError) {
+                    if (shareError.name !== 'AbortError') {
+                        Swal.fire('Error Compartiendo', shareError.message || shareError.toString(), 'error');
+                    }
+                }
+            } else {
+                // El usuario presionó 'Volver' → reabrir el modal de cancelación con las fotos
+                modalCancelacion.classList.remove('hidden');
+                modalCancelacion.classList.add('flex');
+            }
+
+            // Restaurar botón
+            btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar Cancelación a WhatsApp</span>';
+            btnEnviarCancel.removeAttribute('disabled');
+        });
+
+    } catch (e) {
+        console.error(e);
+        Swal.fire('Error de Sistema', e.message || e.toString(), 'error');
+        btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar Cancelación a WhatsApp</span>';
+        btnEnviarCancel.removeAttribute('disabled');
     }
 }
