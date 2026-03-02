@@ -483,11 +483,41 @@ function renderOrders() {
             ghostClass: 'opacity-40',
             onEnd: function (evt) {
                 if (evt.oldIndex === evt.newIndex) return;
-                // Sync underlying array conceptually if needed, avoiding full re-render
+
+                // 1. Sincronizar el array local inmediatamente
                 const movedItem = currentOrders.splice(evt.oldIndex, 1)[0];
                 currentOrders.splice(evt.newIndex, 0, movedItem);
+
+                // 2. Guardar el nuevo orden en el servidor (Columna S)
+                saveOrderRouteToServer();
             }
         });
+    }
+}
+
+async function saveOrderRouteToServer() {
+    if (!currentUser) return;
+
+    // Extraer solo los IDs (Nro) en el orden actual de la pantalla
+    const orderedIds = currentOrders.map(o => String(o.nro));
+
+    console.log("💾 Guardando nuevo orden de ruta para:", currentUser);
+
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'guardarOrdenRutaMotorizado',
+                responsable: currentUser,
+                orderedIds: orderedIds
+            })
+        });
+        const res = await response.json();
+        if (res.success) {
+            console.log("✅ Orden de ruta guardado en el servidor");
+        }
+    } catch (err) {
+        console.error("❌ Error guardando orden de ruta:", err);
     }
 }
 
