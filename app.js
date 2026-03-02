@@ -15,6 +15,7 @@ const uploadPlaceholder = document.getElementById('upload-placeholder');
 const ocrOverlay = document.getElementById('ocr-overlay');
 const validationStatusBox = document.getElementById('validation-status-box');
 const valPhotoAmountInput = document.getElementById('val-photo-amount');
+const driverFilterSelect = document.getElementById('driver-filter'); // v18
 
 // State
 let currentUser = null;
@@ -279,6 +280,7 @@ async function loadOrders() {
         const response = await fetchAPI('listarPedidos');
         if (response.success) {
             orders = response.data.sort((a, b) => b.nro - a.nro);
+            updateDriverFilterOptions(); // v18: Actualizar opciones del filtro
             applyFilters();
             if (typeof window.refreshDashboardIfVisible === 'function') {
                 window.refreshDashboardIfVisible();
@@ -324,6 +326,7 @@ async function loadOrdersSilent() {
         const response = await fetchAPI('listarPedidos');
         if (response.success) {
             orders = response.data.sort((a, b) => b.nro - a.nro);
+            updateDriverFilterOptions(); // v18: Actualizar opciones silenciosamente
 
             // Re-aplicar el filtro de la tabla de forma silenciosa si estamos en la vista
             const isOrdersView = window.getComputedStyle(document.getElementById('app-content')).display !== 'none';
@@ -988,6 +991,19 @@ function getUniqueDrivers() {
         }
     });
     return Array.from(drivers).sort();
+}
+
+function updateDriverFilterOptions() {
+    if (!driverFilterSelect) return;
+    const currentSelection = driverFilterSelect.value;
+    const drivers = getUniqueDrivers();
+
+    let options = '<option value="all">Todos los Repartidores</option>';
+    drivers.forEach(driver => {
+        options += `<option value="${driver}" ${driver === currentSelection ? 'selected' : ''}>${driver}</option>`;
+    });
+
+    driverFilterSelect.innerHTML = options;
 }
 
 function updateDriversDatalist() {
@@ -2667,6 +2683,7 @@ function updateStats(data = orders) {
 function applyFilters() {
     const term = searchInput.value.toLowerCase();
     const filterDate = document.getElementById('date-filter').value;
+    const selectedDriver = driverFilterSelect ? driverFilterSelect.value : 'all'; // v18
 
     const hasRange = dateRange.start && dateRange.end;
 
@@ -2679,6 +2696,9 @@ function applyFilters() {
         const searchMatch = o.llave.toLowerCase().includes(term) ||
             o.nro.toString().includes(term) ||
             o.estado.toLowerCase().includes(term);
+
+        // Nuevo Match de Repartidor (v18)
+        const driverMatch = (selectedDriver === 'all' || (o.envio && o.envio.trim() === selectedDriver));
 
         let dateMatch = true;
 
@@ -2699,7 +2719,7 @@ function applyFilters() {
             }
         }
 
-        return statusMatch && searchMatch && dateMatch;
+        return statusMatch && searchMatch && dateMatch && driverMatch;
     });
     currentFilteredOrders = filtered;
     renderOrders(filtered);
@@ -2712,6 +2732,11 @@ document.getElementById('date-filter').addEventListener('change', () => {
     document.getElementById('range-display-text').textContent = '';
     applyFilters();
 });
+
+// Listener para filtro de repartidor (v18)
+if (driverFilterSelect) {
+    driverFilterSelect.addEventListener('change', applyFilters);
+}
 
 const modalRange = document.getElementById('modal-date-range');
 const btnDateRange = document.getElementById('btn-date-range');
