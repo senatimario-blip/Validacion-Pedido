@@ -1195,7 +1195,9 @@ async function processQuickShare(e) {
                     const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
                     const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
 
+                    // Cerramos el "Procesando..." inmediatamente para liberar el navegador
                     Swal.close();
+
                     if (navigator.canShare && navigator.canShare({ files: [compressedFile] })) {
                         await navigator.share({
                             title: label,
