@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repartidor-app-v7';
+const CACHE_NAME = 'repartidor-app-v8';
 
 // Recursos mínimos a cachear para que la PWA sea instalable
 const urlsToCache = [
@@ -38,8 +38,9 @@ self.addEventListener('activate', event => {
 // ESTRATEGIA: Network First (Red primero, Caché como respaldo)
 // Solo cachear GET de recursos estáticos. POST y APIs externas pasan directo.
 self.addEventListener('fetch', event => {
-    // NO interceptar POST ni llamadas a APIs externas
-    if (event.request.method !== 'GET' || event.request.url.includes('script.google.com')) {
+    // LIMITACIÓN: Solo interceptar peticiones HTTP/HTTPS (ignorar extensiones, etc)
+    const isHttp = event.request.url.startsWith('http');
+    if (event.request.method !== 'GET' || !isHttp || event.request.url.includes('script.google.com')) {
         return; // Dejar que el navegador maneje normalmente
     }
 
