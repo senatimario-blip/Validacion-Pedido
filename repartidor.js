@@ -1180,26 +1180,42 @@ async function processQuickShare(e) {
         const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
         const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
 
-        // Compartir directo (Cámara -> WhatsApp)
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-                title: label,
-                text: msgText,
-                files: [file]
-            });
-        } else {
-            // Fallback para PC o navegadores sin share nativo
-            try { await navigator.clipboard.writeText(msgText); } catch (e1) { }
-            window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-        }
+        // Para asegurar compatibilidad en Android/iOS, usamos un modal intermedio con un botón.
+        // Los navegadores bloquean el 'share' si no viene de una acción DIRECTA del usuario (un clic).
+        Swal.fire({
+            title: label,
+            text: 'Haz clic para compartir el reporte a WhatsApp',
+            icon: 'info',
+            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Enviar a WhatsApp',
+            confirmButtonColor: '#25D366',
+            allowOutsideClick: false
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            title: label,
+                            text: msgText,
+                            files: [file]
+                        });
+                    } catch (eShare) { console.log("Share cancelado o error", eShare); }
+                } else {
+                    // Fallback para PC
+                    try { await navigator.clipboard.writeText(msgText); } catch (e1) { }
+                    window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                }
 
-        if (quickShareMode === 'devolucion') {
-            currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
-            renderOrders();
-        }
+                // Si es devolución, cerramos tras compartir
+                if (quickShareMode === 'devolucion') {
+                    currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
+                    renderOrders();
+                }
+            }
+        });
     } catch (err) {
-        console.log("Error en compartir:", err);
+        console.log("Error en quickShare:", err);
     } finally {
         inputQuickShare.value = '';
     }
 }
+async function processQuickShare_OLD_REMOVED(e) {
