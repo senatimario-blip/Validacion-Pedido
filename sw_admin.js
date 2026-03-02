@@ -1,4 +1,4 @@
-const CACHE_NAME = 'admin-app-v19.5';
+const CACHE_NAME = 'admin-app-v20';
 
 // Recursos mínimos a cachear para que la PWA sea instalable
 const urlsToCache = [

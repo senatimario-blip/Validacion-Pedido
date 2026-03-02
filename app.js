@@ -551,15 +551,6 @@ function renderOrders(data) {
             <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
             <td>${tiempoHtml}</td>
             <td>
-                ${order.foto === 'PAGO-EFECTIVO' ?
-                '<span class="badge" style="background:rgba(16, 185, 129, 0.2); color:#4ade80; border:1px solid rgba(74, 222, 128, 0.3); cursor:default"><i class="fa-solid fa-money-bill-wave"></i> Efectivo</span>' :
-                (order.foto === 'PAGO-ONLINE' ? '<span class="badge" style="background:rgba(59, 130, 246, 0.2); color:#60a5fa; border:1px solid rgba(96, 165, 250, 0.3); cursor:default"><i class="fa-solid fa-globe"></i> Online</span>' :
-                    (order.foto ? `<a href="${extractPhotoUrl(order.foto)}" target="_blank" class="btn-icon-small"><i class="fa-solid fa-image"></i></a>` : '<span class="text-muted">-</span>'))}
-            </td>
-            <td style="font-size: 0.85em; color: rgba(255,255,255,0.8);">
-                ${order.validado_por || '<span class="text-muted">-</span>'}
-            </td>
-            <td>
                 ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
                 <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
                     ${currentUser.rol === 'Admin' ?
