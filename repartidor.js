@@ -215,6 +215,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnSwitchView) {
         btnSwitchView.addEventListener('click', toggleAdminView);
     }
+
+    // v19.2: Auto-refresco automático de pedidos cada 5 minutos
+    setInterval(() => {
+        if (currentUser) {
+            console.log('🔄 Auto-refrescando pedidos asignados...');
+            fetchDriverOrders();
+        }
+    }, 300000);
 });
 
 function autoLoginData(name) {

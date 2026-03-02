@@ -2746,6 +2746,12 @@ if (driverFilterSelect) {
     driverFilterSelect.addEventListener('change', applyFilters);
 }
 
+// v19.2: Auto-refresco automático cada 5 minutos (300,000ms)
+setInterval(() => {
+    console.log('🔄 Actualización automática de datos (v19.2)...');
+    loadOrdersSilent(); // Usar la carga silenciosa para no interrumpir al usuario
+}, 300000);
+
 const modalRange = document.getElementById('modal-date-range');
 const btnDateRange = document.getElementById('btn-date-range');
 
