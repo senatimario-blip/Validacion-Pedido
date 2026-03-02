@@ -430,19 +430,35 @@ function renderOrders() {
             openActionSelector(order);
         };
 
+        const isFirst = index === 0;
+        const isLast = index === currentOrders.length - 1;
+
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
-                <div class="flex items-center gap-3">
-                    <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95" 
+                <div class="flex items-center gap-2">
+                    <!-- Controles de Orden (Flechas + Grip) -->
+                    <div class="flex flex-col items-center gap-1 pr-2 border-r border-slate-700/50">
+                        <button onclick="event.stopPropagation(); moveOrderManual(${index}, -1)" 
+                                class="w-8 h-7 flex items-center justify-center text-slate-500 hover:text-white transition-colors ${isFirst ? 'opacity-0 pointer-events-none' : ''}">
+                            <i class="fa-solid fa-chevron-up text-xs"></i>
+                        </button>
+                        <div class="handle w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
+                            <i class="fa-solid fa-grip-lines text-lg text-slate-500"></i>
+                        </div>
+                        <button onclick="event.stopPropagation(); moveOrderManual(${index}, 1)" 
+                                class="w-8 h-7 flex items-center justify-center text-slate-500 hover:text-white transition-colors ${isLast ? 'opacity-0 pointer-events-none' : ''}">
+                            <i class="fa-solid fa-chevron-down text-xs"></i>
+                        </button>
+                    </div>
+
+                    <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/20" 
                             onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
                         <i class="fa-solid fa-upload text-xl"></i>
                     </button>
-                    <div class="handle w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
-                        <i class="fa-solid fa-grip-vertical text-lg"></i>
-                    </div>
-                    <div>
-                        <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">Llave / Ticket</span>
-                        <span class="text-xl font-bold tracking-tight">${order.llave || `PED-${order.nro}`}</span>
+                    
+                    <div class="ml-1">
+                        <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
+                        <span class="text-xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
                     </div>
                 </div>
                 <div class="text-right flex flex-col items-end">
@@ -521,9 +537,22 @@ async function saveOrderRouteToServer() {
         if (res.success) {
             console.log("✅ Orden de ruta guardado en el servidor");
         }
-    } catch (err) {
-        console.error("❌ Error guardando orden de ruta:", err);
     }
+}
+
+function moveOrderManual(index, direction) {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= currentOrders.length) return;
+
+    // Intercambiar elementos
+    const item = currentOrders.splice(index, 1)[0];
+    currentOrders.splice(newIndex, 0, item);
+
+    // Re-renderizar lista
+    renderOrders();
+
+    // Guardar en servidor
+    saveOrderRouteToServer();
 }
 
 // --- Timers Logic ---
