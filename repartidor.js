@@ -222,18 +222,19 @@ function autoLoginData(name) {
     pantallaLogin.classList.add('hidden');
     pantallaLogin.classList.remove('flex');
 
-    if (name.toLowerCase() === 'admin') {
-        pantallaMapa.classList.remove('hidden');
-        pantallaMapa.classList.add('flex');
-        if (btnSwitchView) btnSwitchView.classList.remove('hidden'); // Solo el admin ve el botón de swith
-        fetchDriverOrders();
-    } else {
-        lblDriverName.textContent = name;
-        pantallaRuta.classList.remove('hidden');
-        pantallaRuta.classList.add('flex');
-        if (btnSwitchView) btnSwitchView.classList.add('hidden');
-        fetchDriverOrders();
+    // UNIFICADO: Todos los usuarios van directo a la vista de LISTA (Ruta)
+    lblDriverName.textContent = name;
+    pantallaRuta.classList.remove('hidden');
+    pantallaRuta.classList.add('flex');
+
+    // Ocultar mapa por ahora para evitar conflictos
+    if (pantallaMapa) {
+        pantallaMapa.classList.add('hidden');
+        pantallaMapa.classList.remove('flex');
     }
+
+    if (btnSwitchView) btnSwitchView.classList.add('hidden'); // Ocultar switch de modo
+    fetchDriverOrders();
 }
 
 function toggleAdminView() {
@@ -306,17 +307,14 @@ async function fetchDriverOrders() {
             // DEBUG: Ver qué llega del servidor
             console.log('📦 Total pedidos recibidos:', rawOrders.length);
             console.log('👤 currentUser:', currentUser);
-            rawOrders.forEach(o => console.log(`  → Nro:${o.nro} | Llave:${o.llave} | Envio:"${o.envio}" | Estado:"${o.estado}"`));
 
-            if (currentUser && currentUser.toLowerCase() === 'admin' && !isAdminListView) {
-                if (typeof renderMapaMotorizados === 'function') {
-                    renderMapaMotorizados();
-                }
-            } else {
+            // UNIFICADO: Siempre renderizar modo LISTA para todos
+            if (true) {
                 currentOrders = rawOrders.filter(o => {
                     const statusOk = (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '');
-                    // Si es Admin en vista de lista, ve TODO lo activo. Si es repartidor, solo lo suyo.
-                    if (isAdminListView) return statusOk;
+                    // Si es Admin (o modo admin list), ve TODO lo activo. Si es repartidor, solo lo suyo.
+                    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+                    if (isAdminListView || isUserAdmin) return statusOk;
                     return statusOk && o.envio && String(o.envio).trim().toLowerCase() === String(currentUser).trim().toLowerCase();
                 }).sort((a, b) => {
                     // Try to extract strict numbers, fallback to large number if not set or invalid
@@ -748,6 +746,11 @@ function checkReadyToShare() {
     if (photoPosFile && photoEvidenciaFile) {
         btnEnviarWsp.removeAttribute('disabled');
         btnEnviarWsp.classList.add('animate-pulse');
+
+        // --- AUTOMATIZACIÓN PASO 2 ---
+        // Al capturar la segunda foto, disparamos el envío de inmediato (background)
+        console.log("⚡ Auto-disparando envío de WhatsApp...");
+        handleSendToWhatsApp();
     } else {
         btnEnviarWsp.setAttribute('disabled', 'true');
         btnEnviarWsp.classList.remove('animate-pulse');
@@ -801,153 +804,98 @@ async function uploadPosSilently(file, orderKey) {
     });
 }
 async function handleSendToWhatsApp() {
-    btnEnviarWsp.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-xl"></i> Procesando...';
-    btnEnviarWsp.setAttribute('disabled', 'true');
-    btnEnviarWsp.classList.remove('animate-pulse');
+    // Capturamos los datos actuales para que la tarea de fondo no se confunda si el usuario cambia de pedido
+    const orderRef = { ...selectedOrderForCapture };
+    const posFileRef = photoPosFile;
+    const eviFileRef = photoEvidenciaFile;
+    const modeRef = selectedCaptureMode;
+    const userRef = currentUser;
 
-    try {
-        // 1. Silent upload POS original para el Admin OCR
-        const subidaExitosa = await uploadPosSilently(photoPosFile, selectedOrderForCapture.llave);
+    // 1. INICIAR TAREAS DE FONDO (SIN AWAIT)
+    console.log("🚀 Iniciando tareas de servidor en segundo plano para:", orderRef.llave);
 
-        if (!subidaExitosa) {
-            // Restore button if the upload failed so they can try again or see the error
-            btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
-            btnEnviarWsp.removeAttribute('disabled');
-            return; // Stop here, don't fuse or send to whatsapp
-        }
+    // Tarea A: Subida silenciosa a Google Drive
+    uploadPosSilently(posFileRef, orderRef.llave).then(res => {
+        if (!res) console.error("❌ Falló la subida a Drive en segundo plano");
+        else console.log("✅ Foto guardada en Drive exitosamente (background)");
+    });
 
-        // ----------------------------------------------------------------------
-        // Novedad: Marcar silenciosamente el pedido como "Por Validar" en office
-        // ----------------------------------------------------------------------
-        const payloadValidar = { action: 'marcarPorValidar', nro: selectedOrderForCapture.nro };
+    // Tarea B: Marcar como "Por Validar" en el Excel
+    const payloadValidar = { action: 'marcarPorValidar', nro: orderRef.nro };
+    if (modeRef === 'efectivo' || modeRef === 'online') {
+        const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+        const limaDate = new Date(nowLima);
+        payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify(payloadValidar)
+    }).catch(e => console.warn('⚠️ Error background marcando Por Validar', e));
 
-        // Si es EFECTIVO u ONLINE, aplicamos lógica de hora automática (como en Cancelar)
-        if (selectedCaptureMode === 'efectivo' || selectedCaptureMode === 'online') {
-            const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
-            const limaDate = new Date(nowLima);
-            payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
-        }
+    // 2. FLUJO INMEDIATO DE WHATSAPP (SIN ESPERAR AL SERVIDOR)
+    const money = parseFloat(orderRef.monto).toFixed(2);
+    const llave = orderRef.llave || `PED-${orderRef.nro}`;
+    const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🏍️ Repartidor: ${userRef}`;
+    const filesToSend = [posFileRef, eviFileRef];
 
-        try {
-            await fetch(API_URL, {
-                method: 'POST',
-                body: JSON.stringify(payloadValidar)
-            });
-        } catch (e) { console.warn('Error marcando Por Validar', e); }
+    // Escondemos el modal de la cámara de inmediato
+    modalCaptura.classList.add('hidden');
+    modalCaptura.classList.remove('flex');
 
-        // 2. Preparar fotos a enviar a WS (Restaurado al orden original porque al invertirlo WhatsApp separaba el texto)
-        const filesToSend = [photoPosFile, photoEvidenciaFile];
-
-        // 3. Preparar mensaje con formato requerido
-        const money = parseFloat(selectedOrderForCapture.monto).toFixed(2);
-        const llave = selectedOrderForCapture.llave || `PED-${selectedOrderForCapture.nro}`;
-        const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🏍️ Repartidor: ${currentUser}`;
-
-        // Para que WhatsApp (Web Share API) funcione, necesita que el usuario acabe de hacer CLIC.
-        // Como la subida a Google Drive demora unos segundos, el navegador nos quitó ese "permiso de clic".
-        // La solución es pedirle al motorizado 1 clic final ("Continuar") para abrir WhatsApp exitosamente.
-
-        // Escondemos el modal negro de la cámara ya que la parte de Drive terminó
-        modalCaptura.classList.add('hidden');
-        modalCaptura.classList.remove('flex');
-
-        Swal.fire({
-            title: `¡Foto de ${llave} subida!`,
-            text: 'Haz clic en el botón verde para compartirla por WhatsApp',
-            icon: 'success',
-            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
-            confirmButtonColor: '#25D366',
-            allowOutsideClick: false
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                try {
-                    // 5. Intentar usar Web Share API nativo (Permite adjuntar foto local a WhatsApp directo)
-                    if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
-                        await navigator.share({
-                            title: 'Evidencia de Entrega',
-                            text: msgText,
-                            files: filesToSend
-                        });
-                    } else {
-                        // Fallback si el dispositivo no soporta pasar archivos binarios directo (iOS viejo/Desktops)
-                        Swal.fire({
-                            icon: 'info',
-                            title: 'Descarga tu foto',
-                            text: 'Tu dispositivo no permite enviar la foto directo a WhatsApp. Guarda las imágenes mostradas a continuación.',
-                        });
-                        // Copiar texto al portapapeles
-                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-
-                        // Forzar descarga de la primera foto
-                        const a1 = document.createElement('a');
-                        a1.href = URL.createObjectURL(photoPosFile);
-                        a1.download = `pos_${llave}.jpg`;
-                        document.body.appendChild(a1);
-                        a1.click();
-                        document.body.removeChild(a1);
-
-                        // Forzar descarga de la segunda foto
-                        const a2 = document.createElement('a');
-                        a2.href = URL.createObjectURL(photoEvidenciaFile);
-                        a2.download = `evidencia_${llave}.jpg`;
-                        document.body.appendChild(a2);
-                        a2.click();
-                        document.body.removeChild(a2);
-
-                        // Redirigir a whatsapp universal sin archivo
-                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-                    }
-
-                    // 6. Preguntar si hay devolución (Disponible para todos ahora)
-                    Swal.fire({
-                        title: '¿Tienes devolución?',
-                        text: '¿El cliente de ' + llave + ' entregó productos de vuelta?',
-                        icon: 'question',
-                        showCancelButton: true,
-                        confirmButtonText: 'Sí, hay devolución',
-                        cancelButtonText: 'No, todo conforme',
-                        confirmButtonColor: '#f59e0b',
-                        cancelButtonColor: '#10b981',
-                        allowOutsideClick: false
-                    }).then((qaResult) => {
-                        if (qaResult.isConfirmed) {
-                            // MODO DEVOLUCION: Transformar tarjeta
-                            const order = currentOrders.find(o => o.nro === selectedOrderForCapture.nro);
-                            if (order) {
-                                order.esperandoDevolucion = true;
-                                renderOrders();
-                            }
-                        } else {
-                            // MODO CIERRE: Eliminar el pedido
-                            currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
-                            renderOrders();
-                        }
+    Swal.fire({
+        title: `¡Listo para enviar!`,
+        text: `La evidencia de ${llave} se está guardando. Ya puedes enviarla por WhatsApp.`,
+        icon: 'success',
+        confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
+        confirmButtonColor: '#25D366',
+        allowOutsideClick: false
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
+                    await navigator.share({
+                        title: 'Evidencia de Entrega',
+                        text: msgText,
+                        files: filesToSend
                     });
-
-                } catch (shareError) {
-                    if (shareError.name !== 'AbortError') { // AbortError es cuando el usuario cancela el diálogo de compartir
-                        Swal.fire('Error Compartiendo', shareError.message || shareError.toString(), 'error');
-                    }
+                } else {
+                    // Fallback si no soporta compartir archivos
+                    try { await navigator.clipboard.writeText(msgText); } catch (e) { }
+                    window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
                 }
 
-                // Restauramos el botón enviar por si se usa en la siguiente orden
-                btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar a WhatsApp</span>';
-                btnEnviarWsp.removeAttribute('disabled');
-            }
-        });
+                // 3. Preguntar si hay devolución
+                Swal.fire({
+                    title: '¿Tienes devolución?',
+                    text: '¿El cliente de ' + llave + ' entregó productos de vuelta?',
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sí, hay devolución',
+                    cancelButtonText: 'No, todo conforme',
+                    confirmButtonColor: '#f59e0b',
+                    cancelButtonColor: '#10b981',
+                    allowOutsideClick: false
+                }).then((qaResult) => {
+                    if (qaResult.isConfirmed) {
+                        const order = currentOrders.find(o => o.nro === orderRef.nro);
+                        if (order) {
+                            order.esperandoDevolucion = true;
+                            renderOrders();
+                        }
+                    } else {
+                        currentOrders = currentOrders.filter(o => o.nro !== orderRef.nro);
+                        renderOrders();
+                    }
+                });
 
-    } catch (e) {
-        console.error(e);
-        if (e.name !== 'AbortError') {
-            Swal.fire('Error de Sistema', e.message || e.toString(), 'error');
-            btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
-            btnEnviarWsp.removeAttribute('disabled');
-        } else {
-            btnEnviarWsp.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar a WhatsApp</span>';
-            btnEnviarWsp.removeAttribute('disabled');
+            } catch (shareError) {
+                if (shareError.name !== 'AbortError') {
+                    console.error('Error Compartiendo:', shareError);
+                }
+            }
         }
-    }
+    });
 }
 
 // =========================================================================
