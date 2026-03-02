@@ -1169,79 +1169,30 @@ async function processQuickShare(e) {
     const file = e.target.files[0];
     if (!file || !quickShareOrder) return;
 
-    Swal.fire({
-        title: 'Procesando Envío...',
-        html: '<i class="fa-solid fa-circle-notch fa-spin text-3xl text-primary"></i>',
-        showConfirmButton: false,
-        allowOutsideClick: false
-    });
-
     try {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const img = new Image();
-            img.onload = async () => {
-                const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 1200;
-                const scaleSize = MAX_WIDTH / img.width;
-                canvas.width = MAX_WIDTH;
-                canvas.height = img.height * scaleSize;
+        const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
+        const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
 
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        // Compartir directo (Cámara -> WhatsApp)
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                title: label,
+                text: msgText,
+                files: [file]
+            });
+        } else {
+            // Fallback para PC o navegadores sin share nativo
+            try { await navigator.clipboard.writeText(msgText); } catch (e1) { }
+            window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+        }
 
-                canvas.toBlob(async (blob) => {
-                    const compressedFile = new File([blob], `quick_${quickShareMode}.jpg`, { type: 'image/jpeg' });
-                    const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
-                    const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
-
-                    // Cerramos el "Procesando..." inmediatamente para liberar el navegador
-                    Swal.close();
-
-                    if (navigator.canShare && navigator.canShare({ files: [compressedFile] })) {
-                        await navigator.share({
-                            title: label,
-                            text: msgText,
-                            files: [compressedFile]
-                        });
-                    } else {
-                        // Fallback mejorado para computadoras (PC/Chrome Desktop)
-                        Swal.fire({
-                            icon: 'info',
-                            title: 'Enviar a WhatsApp',
-                            text: '1. Pega el reporte (ya copiado)\n2. Adjunta la foto descargada',
-                            confirmButtonText: 'Abrir WhatsApp'
-                        }).then((result) => {
-                            if (result.isConfirmed) {
-                                window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-                            }
-                        });
-
-                        // Copiar texto al portapapeles
-                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-
-                        // Forzar descarga de la foto para adjuntar manualmente
-                        const a = document.createElement('a');
-                        a.href = URL.createObjectURL(compressedFile);
-                        a.download = `${quickShareMode}_${quickShareOrder.llave}.jpg`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    }
-
-                    // --- NUEVO: Cierre automático tras Devolución ---
-                    if (quickShareMode === 'devolucion') {
-                        currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
-                        renderOrders();
-                    }
-                }, 'image/jpeg', 0.8);
-            };
-            img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
+        if (quickShareMode === 'devolucion') {
+            currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
+            renderOrders();
+        }
     } catch (err) {
-        Swal.fire('Error', err.message, 'error');
+        console.log("Error en compartir:", err);
     } finally {
-        inputQuickShare.value = ''; // Reset for next use
+        inputQuickShare.value = '';
     }
 }
