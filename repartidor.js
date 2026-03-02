@@ -478,9 +478,14 @@ function renderOrders() {
     // --- Drag and Drop Sorting Logic ---
     if (window.Sortable) {
         Sortable.create(containerPedidos, {
-            animation: 150,
-            handle: '.handle',
-            ghostClass: 'opacity-40',
+            animation: 300,            // Animación suave de 300ms
+            handle: '.handle',         // Solo permite arrastrar desde el icono
+            ghostClass: 'bg-slate-700', // Sombra de donde viene
+            chosenClass: 'scale-[1.02]', // Efecto de selección
+            dragClass: 'opacity-100',   // Opacidad total al arrastrar
+            forceFallback: true,        // Mejora estabilidad en iOS/Android
+            fallbackOnBody: true,
+            swapThreshold: 0.65,        // Hace que el intercambio sea más intuitivo
             onEnd: function (evt) {
                 if (evt.oldIndex === evt.newIndex) return;
 
