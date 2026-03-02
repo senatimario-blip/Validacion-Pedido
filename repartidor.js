@@ -6,6 +6,9 @@ let currentOrders = [];
 let activeTimers = {};
 let selectedOrderForCapture = null;
 let selectedCaptureMode = 'pos'; // 'pos', 'efectivo', 'online'
+let isAdminListView = false; // Feature flag for testing
+let quickShareOrder = null;
+let quickShareMode = 'salida'; // 'salida' o 'devolucion'
 
 // DOM Elements
 const pantallaLogin = document.getElementById('pantalla-login');
@@ -21,6 +24,8 @@ const btnActualizar = document.getElementById('btn-actualizar');
 const btnCerrarRuta = document.getElementById('btn-cerrar-ruta');
 const containerPedidos = document.getElementById('lista-pedidos-container');
 const loadingPedidos = document.getElementById('loading-pedidos');
+const btnSwitchView = document.getElementById('btn-switch-to-list');
+const inputQuickShare = document.getElementById('input-quick-share');
 
 // Modal Elements
 const modalCaptura = document.getElementById('modal-captura');
@@ -199,6 +204,16 @@ document.addEventListener('DOMContentLoaded', () => {
     btnUiCancelEvidencia.addEventListener('click', () => inputCancelEvidencia.click());
     btnUiCancelFachada.addEventListener('click', () => inputCancelFachada.click());
     btnEnviarCancel.addEventListener('click', handleSendCancelToWhatsApp);
+
+    // Quick Share Listener
+    if (inputQuickShare) {
+        inputQuickShare.addEventListener('change', (e) => processQuickShare(e));
+    }
+
+    // Switch View Listener (Admin only)
+    if (btnSwitchView) {
+        btnSwitchView.addEventListener('click', toggleAdminView);
+    }
 });
 
 function autoLoginData(name) {
@@ -210,13 +225,34 @@ function autoLoginData(name) {
     if (name.toLowerCase() === 'admin') {
         pantallaMapa.classList.remove('hidden');
         pantallaMapa.classList.add('flex');
+        if (btnSwitchView) btnSwitchView.classList.remove('hidden'); // Solo el admin ve el botón de swith
         fetchDriverOrders();
     } else {
         lblDriverName.textContent = name;
         pantallaRuta.classList.remove('hidden');
         pantallaRuta.classList.add('flex');
+        if (btnSwitchView) btnSwitchView.classList.add('hidden');
         fetchDriverOrders();
     }
+}
+
+function toggleAdminView() {
+    isAdminListView = !isAdminListView;
+    if (isAdminListView) {
+        pantallaMapa.classList.add('hidden');
+        pantallaMapa.classList.remove('flex');
+        pantallaRuta.classList.remove('hidden');
+        pantallaRuta.classList.add('flex');
+        lblDriverName.textContent = "Admin Mode";
+        btnSwitchView.innerHTML = '<i class="fa-solid fa-map"></i>';
+    } else {
+        pantallaRuta.classList.add('hidden');
+        pantallaRuta.classList.remove('flex');
+        pantallaMapa.classList.remove('hidden');
+        pantallaMapa.classList.add('flex');
+        btnSwitchView.innerHTML = '<i class="fa-solid fa-list-check"></i>';
+    }
+    fetchDriverOrders();
 }
 
 async function loginDriver(name, pass) {
@@ -378,6 +414,10 @@ function renderOrders() {
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
                 <div class="flex items-center gap-3">
+                    <button class="w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center transition-all active:scale-95 ${isAdminListView ? '' : 'hidden'}" 
+                            onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
+                        <i class="fa-solid fa-upload"></i>
+                    </button>
                     <div class="handle w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
                         <i class="fa-solid fa-grip-vertical text-lg"></i>
                     </div>
@@ -386,7 +426,7 @@ function renderOrders() {
                         <span class="text-xl font-bold tracking-tight">${order.llave || `PED-${order.nro}`}</span>
                     </div>
                 </div>
-                <div class="text-right">
+                <div class="text-right flex flex-col items-end">
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
                     <span class="text-xl font-bold text-emerald-400">S/ ${monto.toFixed(2)}</span>
                 </div>
@@ -399,6 +439,10 @@ function renderOrders() {
                 </span>
                 
                 <div class="flex items-center gap-3">
+                    <button class="w-8 h-8 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 flex items-center justify-center transition-all active:scale-125 ${isAdminListView ? '' : 'hidden'}" 
+                            onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Devolución">
+                        <i class="fa-solid fa-rotate-left"></i>
+                    </button>
                     <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
                         <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
                         <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
@@ -1071,5 +1115,74 @@ async function handleSendCancelToWhatsApp() {
         Swal.fire('Error de Sistema', e.message || e.toString(), 'error');
         btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar Cancelación a WhatsApp</span>';
         btnEnviarCancel.removeAttribute('disabled');
+    }
+}
+// =========================================================================
+// --- QUICK SHARE LOGIC (STEP 1 & 3) ---
+// =========================================================================
+
+function startQuickShare(index, mode) {
+    quickShareOrder = currentOrders[index];
+    quickShareMode = mode;
+    inputQuickShare.click();
+}
+
+async function processQuickShare(e) {
+    const file = e.target.files[0];
+    if (!file || !quickShareOrder) return;
+
+    Swal.fire({
+        title: 'Procesando Envío...',
+        html: '<i class="fa-solid fa-circle-notch fa-spin text-3xl text-primary"></i>',
+        showConfirmButton: false,
+        allowOutsideClick: false
+    });
+
+    try {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = async () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1200;
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                canvas.toBlob(async (blob) => {
+                    const compressedFile = new File([blob], `quick_${quickShareMode}.jpg`, { type: 'image/jpeg' });
+                    const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
+                    const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
+
+                    Swal.close();
+
+                    if (navigator.canShare && navigator.canShare({ files: [compressedFile] })) {
+                        await navigator.share({
+                            title: label,
+                            text: msgText,
+                            files: [compressedFile]
+                        });
+                    } else {
+                        // Fallback
+                        Swal.fire({
+                            icon: 'info',
+                            title: 'Casi listo',
+                            text: 'Tu equipo no permite enviar fotos directo. Hemos copiado el texto, adjunta la foto manualmente en WhatsApp.',
+                        });
+                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
+                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    }
+                }, 'image/jpeg', 0.8);
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    } catch (err) {
+        Swal.fire('Error', err.message, 'error');
+    } finally {
+        inputQuickShare.value = ''; // Reset for next use
     }
 }
