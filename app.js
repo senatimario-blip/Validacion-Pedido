@@ -3622,3 +3622,60 @@ document.getElementById('card-validated')?.addEventListener('click', () => {
         }
     });
 });
+// --- Draggable Modals Utility ---
+function makeDraggable(modalId) {
+    const modalBackdrop = document.getElementById(modalId);
+    if (!modalBackdrop) return;
+
+    const modalCard = modalBackdrop.querySelector('.modal-card');
+    const handle = modalBackdrop.querySelector('.modal-header');
+
+    if (!modalCard || !handle) return;
+
+    let isDragging = false;
+    let startX, startY;
+    let initialTop, initialLeft;
+
+    handle.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        const style = window.getComputedStyle(modalCard);
+        initialTop = parseInt(style.top) || 0;
+        initialLeft = parseInt(style.left) || 0;
+        startX = e.clientX;
+        startY = e.clientY;
+        handle.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+
+    function onMouseMove(e) {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        modalCard.style.top = `${initialTop + dy}px`;
+        modalCard.style.left = `${initialLeft + dx}px`;
+    }
+
+    function onMouseUp() {
+        if (!isDragging) return;
+        isDragging = false;
+        handle.style.cursor = 'move';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    }
+
+    const closeBtns = modalBackdrop.querySelectorAll('.close-modal');
+    closeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            modalCard.style.top = '0px';
+            modalCard.style.left = '0px';
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    ['modal-validate', 'modal-new-order', 'modal-import', 'modal-import-text', 'modal-date-range'].forEach(makeDraggable);
+});

@@ -527,6 +527,12 @@ body {
     max-width: 500px;
     padding: 30px;
     animation: slideUp 0.3s ease;
+    position: relative;
+}
+
+.modal-header {
+    cursor: move;
+    user-select: none;
 }
 
 .modal-card.wide-modal {
