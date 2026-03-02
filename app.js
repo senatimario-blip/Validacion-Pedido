@@ -2887,9 +2887,33 @@ window.rejectOrder = async (nro) => {
     // ====== Para Consumidor y Punto de Venta: cancelar directo ======
     if (motivo !== 'Por Repartidor') {
         Swal.fire({ title: 'Cancelando...', didOpen: () => Swal.showLoading() });
+
+        // v18.3: Capturar fecha, hora y tiempo transcurrido del sistema
+        const now = new Date();
+        const sysDate = now.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const sysTime = now.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        let elapsed = "00:00:00";
+        if (order.fecha) {
+            const diffMs = now.getTime() - new Date(order.fecha).getTime();
+            if (diffMs > 0) {
+                const totalSecs = Math.floor(diffMs / 1000);
+                const hrs = Math.floor(totalSecs / 3600);
+                const mins = Math.floor((totalSecs % 3600) / 60);
+                const secs = totalSecs % 60;
+                elapsed = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+        }
+
         try {
             const res = await fetchAPI('rechazarPedido', {
-                nro, usuario: currentUser.usuario, motivo, envio: driver
+                nro,
+                usuario: currentUser.usuario,
+                motivo,
+                envio: driver,
+                fechaEntrega: sysDate,
+                horaEntrega: sysTime,
+                tiempoTranscurrido: elapsed
             });
             if (res.success) {
                 Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong>`, 'success');
