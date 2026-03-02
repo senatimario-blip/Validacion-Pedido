@@ -1,8 +1,9 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
 
 // State
-let currentUser = null;
+let currentUser = localStorage.getItem('repartidor_user') || null;
 let currentOrders = [];
+let sortableInstance = null; // Instancia global de SortableJS
 let activeTimers = {};
 let selectedOrderForCapture = null;
 let selectedCaptureMode = 'pos'; // 'pos', 'efectivo', 'online'
@@ -493,7 +494,12 @@ function renderOrders() {
     });
     // --- Drag and Drop Sorting Logic ---
     if (window.Sortable) {
-        Sortable.create(containerPedidos, {
+        // Limpiar instancia previa para evitar duplicados o pérdida de eventos táctiles
+        if (sortableInstance) {
+            sortableInstance.destroy();
+        }
+
+        sortableInstance = Sortable.create(containerPedidos, {
             animation: 300,            // Animación suave de 300ms
             handle: '.handle',         // Solo permite arrastrar desde el icono
             ghostClass: 'bg-slate-700', // Sombra de donde viene
@@ -903,7 +909,15 @@ async function handleSendToWhatsApp() {
     const money = parseFloat(orderRef.monto).toFixed(2);
     const llave = orderRef.llave || `PED-${orderRef.nro}`;
     const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🏍️ Repartidor: ${userRef}`;
-    const filesToSend = [posFileRef, eviFileRef];
+
+    // Fusionar imágenes
+    let finalFile = null;
+    try {
+        finalFile = await combineTwoPhotos(posFileRef, eviFileRef, `entrega_${llave}.jpg`);
+    } catch (eCombine) {
+        console.error("Error fusionando fotos, enviando por separado:", eCombine);
+    }
+    const filesToSend = finalFile ? [finalFile] : [posFileRef, eviFileRef];
 
     // Escondemos el modal de la cámara de inmediato
     modalCaptura.classList.add('hidden');
@@ -1254,4 +1268,52 @@ async function marcarSalidaEnServidor(nro) {
     } catch (e) {
         console.error("Error marcando salida:", e);
     }
+}
+
+async function combineTwoPhotos(file1, file2, fileName) {
+    return new Promise((resolve, reject) => {
+        const img1 = new Image();
+        const img2 = new Image();
+        let loaded = 0;
+
+        const onImgLoad = () => {
+            loaded++;
+            if (loaded === 2) {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // Ajustar al ancho máximo de la imagen más ancha
+                const maxWidth = Math.max(img1.width, img2.width);
+                const scale1 = maxWidth / img1.width;
+                const scale2 = maxWidth / img2.width;
+
+                const h1 = img1.height * scale1;
+                const h2 = img2.height * scale2;
+
+                canvas.width = maxWidth;
+                canvas.height = h1 + h2;
+
+                ctx.drawImage(img1, 0, 0, maxWidth, h1);
+                ctx.drawImage(img2, 0, h1, maxWidth, h2);
+
+                canvas.toBlob((blob) => {
+                    resolve(new File([blob], fileName, { type: 'image/jpeg' }));
+                }, 'image/jpeg', 0.85);
+            }
+        };
+
+        img1.onload = onImgLoad;
+        img2.onload = onImgLoad;
+        img1.onerror = reject;
+        img2.onerror = reject;
+
+        const reader1 = new FileReader();
+        const reader2 = new FileReader();
+
+        reader1.onload = (e) => img1.src = e.target.result;
+        reader2.onload = (e) => img2.src = e.target.result;
+
+        reader1.readAsDataURL(file1);
+        reader2.readAsDataURL(file2);
+    });
 }
