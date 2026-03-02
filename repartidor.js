@@ -406,6 +406,25 @@ function renderOrders() {
 
         const card = document.createElement('div');
         card.className = 'bg-cardDark rounded-2xl p-4 shadow-lg border border-slate-700/50 active:scale-[0.98] transition-all cursor-pointer';
+
+        // --- LOGICA VISTA MINIMAL (DEVOLUCION) ---
+        if (order.esperandoDevolucion) {
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-xs text-orange-400 font-medium uppercase tracking-wider block mb-1">Pendiente Devolución</span>
+                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
+                    </div>
+                    <button class="w-16 h-16 rounded-2xl bg-orange-500 border-2 border-orange-400 text-white flex items-center justify-center text-3xl shadow-lg active:scale-90 transition-all" 
+                            onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Foto Devolución">
+                        <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                </div>
+            `;
+            containerPedidos.appendChild(card);
+            return;
+        }
+
         card.onclick = (e) => {
             // Si se hizo clic en el botón cancelar, no abrir el modal de entrega
             if (e.target.closest('.btn-cancelar-pedido')) return;
@@ -883,9 +902,31 @@ async function handleSendToWhatsApp() {
                         window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
                     }
 
-                    // 6. Eliminar el pedido de la lista visual porque ya fue entregado exitosamente
-                    currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
-                    renderOrders();
+                    // 6. Preguntar si hay devolución antes de cerrar o transformar
+                    Swal.fire({
+                        title: '¿Tienes devolución?',
+                        text: '¿El cliente de' + llave + ' entregó productos de vuelta?',
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: 'Sí, hay devolución',
+                        cancelButtonText: 'No, todo conforme',
+                        confirmButtonColor: '#f59e0b',
+                        cancelButtonColor: '#10b981',
+                        allowOutsideClick: false
+                    }).then((qaResult) => {
+                        if (qaResult.isConfirmed) {
+                            // MODO DEVOLUCION: Transformar tarjeta
+                            const order = currentOrders.find(o => o.nro === selectedOrderForCapture.nro);
+                            if (order) {
+                                order.esperandoDevolucion = true;
+                                renderOrders();
+                            }
+                        } else {
+                            // MODO CIERRE: Eliminar el pedido de la lista visual
+                            currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
+                            renderOrders();
+                        }
+                    });
 
                 } catch (shareError) {
                     if (shareError.name !== 'AbortError') { // AbortError es cuando el usuario cancela el diálogo de compartir
@@ -1175,6 +1216,12 @@ async function processQuickShare(e) {
                         });
                         try { await navigator.clipboard.writeText(msgText); } catch (e) { }
                         window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    }
+
+                    // --- NUEVO: Cierre automático tras Devolución ---
+                    if (quickShareMode === 'devolucion') {
+                        currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
+                        renderOrders();
                     }
                 }, 'image/jpeg', 0.8);
             };
