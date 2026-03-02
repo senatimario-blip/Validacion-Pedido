@@ -459,12 +459,12 @@ function renderOrders() {
                     
                     <div class="ml-1">
                         <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
-                        <span class="text-xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
+                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
                     </div>
                 </div>
                 <div class="text-right flex flex-col items-end">
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
-                    <span class="text-xl font-bold text-emerald-400">S/ ${monto.toFixed(2)}</span>
+                    <span class="text-2xl font-bold text-emerald-400">S/ ${monto.toFixed(2)}</span>
                 </div>
             </div>
             
