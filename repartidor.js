@@ -1195,7 +1195,7 @@ async function processQuickShare(e) {
                     const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
                     const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
 
-                    // El Paso 1 y 3 son solo para comunicación (WhatsApp), no se guardan en BD por diseño.
+                    Swal.close();
                     if (navigator.canShare && navigator.canShare({ files: [compressedFile] })) {
                         await navigator.share({
                             title: label,
