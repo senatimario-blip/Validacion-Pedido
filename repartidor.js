@@ -910,14 +910,8 @@ async function handleSendToWhatsApp() {
     const llave = orderRef.llave || `PED-${orderRef.nro}`;
     const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🏍️ Repartidor: ${userRef}`;
 
-    // Fusionar imágenes
-    let finalFile = null;
-    try {
-        finalFile = await combineTwoPhotos(posFileRef, eviFileRef, `entrega_${llave}.jpg`);
-    } catch (eCombine) {
-        console.error("Error fusionando fotos, enviando por separado:", eCombine);
-    }
-    const filesToSend = finalFile ? [finalFile] : [posFileRef, eviFileRef];
+    // Enviamos las fotos por separado (juntas en la acción de compartir) pero manteniendo el texto único
+    const filesToSend = [posFileRef, eviFileRef];
 
     // Escondemos el modal de la cámara de inmediato
     modalCaptura.classList.add('hidden');
