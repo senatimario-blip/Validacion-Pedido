@@ -528,9 +528,7 @@ body {
     padding: 30px;
     animation: slideUp 0.3s ease;
     position: relative;
-}
-
-.modal-header {
+    /* Allow moving with top/left while centered in flex */
     cursor: move;
     user-select: none;
 }

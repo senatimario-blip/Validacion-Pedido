@@ -3628,16 +3628,27 @@ function makeDraggable(modalId) {
     if (!modalBackdrop) return;
 
     const modalCard = modalBackdrop.querySelector('.modal-card');
-    const handle = modalBackdrop.querySelector('.modal-header');
+    // Ahora el "handle" es toda la tarjeta
+    const handle = modalCard;
 
-    if (!modalCard || !handle) return;
+    if (!modalCard) return;
 
     let isDragging = false;
     let startX, startY;
     let initialTop, initialLeft;
 
     handle.addEventListener('mousedown', (e) => {
+        // Solo arrastrar con botón primario
         if (e.button !== 0) return;
+
+        // IMPORTANTE: No arrastrar si el clic fue en un input, botón, select o textarea
+        const tag = e.target.tagName.toLowerCase();
+        const isInteractive = ['input', 'button', 'select', 'textarea', 'a', 'i', 'label'].includes(tag) ||
+            e.target.closest('button') ||
+            e.target.closest('a');
+
+        if (isInteractive) return;
+
         isDragging = true;
         const style = window.getComputedStyle(modalCard);
         initialTop = parseInt(style.top) || 0;
