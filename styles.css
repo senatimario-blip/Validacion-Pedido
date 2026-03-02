@@ -335,6 +335,27 @@ body {
     gap: 20px;
 }
 
+.stat-card.total {
+    border-left: 4px solid var(--primary);
+}
+
+.stat-card.pending {
+    border-left: 4px solid var(--warning);
+}
+
+.stat-card.por-validar {
+    border-left: 4px solid #3b82f6;
+}
+
+/* Color específico para Por Validar */
+.stat-card.validated {
+    border-left: 4px solid var(--success);
+}
+
+.stat-card.rejected {
+    border-left: 4px solid var(--danger);
+}
+
 .stat-icon {
     width: 50px;
     height: 50px;
