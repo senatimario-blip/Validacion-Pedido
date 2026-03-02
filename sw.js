@@ -1,4 +1,4 @@
-const CACHE_NAME = 'repartidor-app-v11';
+const CACHE_NAME = 'repartidor-app-v12';
 
 // Recursos mínimos a cachear para que la PWA sea instalable
 const urlsToCache = [

@@ -415,7 +415,8 @@ function renderOrders() {
                         <span class="text-xs text-orange-400 font-medium uppercase tracking-wider block mb-1">Pendiente Devolución</span>
                         <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
                     </div>
-                    <button class="w-16 h-16 rounded-2xl bg-orange-500 border-2 border-orange-400 text-white flex items-center justify-center text-3xl shadow-lg active:scale-90 transition-all" 
+                    </div>
+                    <button class="w-12 h-12 rounded-full bg-orange-500 border-2 border-orange-400 text-white flex items-center justify-center text-xl shadow-lg active:scale-90 transition-all ${isAdminListView ? '' : 'hidden'}" 
                             onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Foto Devolución">
                         <i class="fa-solid fa-rotate-left"></i>
                     </button>
@@ -434,7 +435,7 @@ function renderOrders() {
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
                 <div class="flex items-center gap-3">
-                    <button class="w-12 h-12 rounded-full bg-blue-500/10 border-2 border-blue-500/40 text-blue-400 flex items-center justify-center transition-all active:scale-95 ${isAdminListView ? '' : 'hidden'}" 
+                    <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 ${isAdminListView ? '' : 'hidden'}" 
                             onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
                         <i class="fa-solid fa-upload text-xl"></i>
                     </button>
@@ -898,31 +899,37 @@ async function handleSendToWhatsApp() {
                         window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
                     }
 
-                    // 6. Preguntar si hay devolución antes de cerrar o transformar
-                    Swal.fire({
-                        title: '¿Tienes devolución?',
-                        text: '¿El cliente de' + llave + ' entregó productos de vuelta?',
-                        icon: 'question',
-                        showCancelButton: true,
-                        confirmButtonText: 'Sí, hay devolución',
-                        cancelButtonText: 'No, todo conforme',
-                        confirmButtonColor: '#f59e0b',
-                        cancelButtonColor: '#10b981',
-                        allowOutsideClick: false
-                    }).then((qaResult) => {
-                        if (qaResult.isConfirmed) {
-                            // MODO DEVOLUCION: Transformar tarjeta
-                            const order = currentOrders.find(o => o.nro === selectedOrderForCapture.nro);
-                            if (order) {
-                                order.esperandoDevolucion = true;
+                    // 6. Preguntar si hay devolución SOLO SI ES ADMIN (Protección de choferes)
+                    if (isAdminListView) {
+                        Swal.fire({
+                            title: '¿Tienes devolución?',
+                            text: '¿El cliente de ' + llave + ' entregó productos de vuelta?',
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: 'Sí, hay devolución',
+                            cancelButtonText: 'No, todo conforme',
+                            confirmButtonColor: '#f59e0b',
+                            cancelButtonColor: '#10b981',
+                            allowOutsideClick: false
+                        }).then((qaResult) => {
+                            if (qaResult.isConfirmed) {
+                                // MODO DEVOLUCION: Transformar tarjeta
+                                const order = currentOrders.find(o => o.nro === selectedOrderForCapture.nro);
+                                if (order) {
+                                    order.esperandoDevolucion = true;
+                                    renderOrders();
+                                }
+                            } else {
+                                // MODO CIERRE: Eliminar el pedido
+                                currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
                                 renderOrders();
                             }
-                        } else {
-                            // MODO CIERRE: Eliminar el pedido de la lista visual
-                            currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
-                            renderOrders();
-                        }
-                    });
+                        });
+                    } else {
+                        // REPARTIDOR NORMAL: Cierre directo
+                        currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCapture.nro);
+                        renderOrders();
+                    }
 
                 } catch (shareError) {
                     if (shareError.name !== 'AbortError') { // AbortError es cuando el usuario cancela el diálogo de compartir
