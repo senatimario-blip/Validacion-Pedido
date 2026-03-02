@@ -950,10 +950,10 @@ async function handleSendToWhatsApp() {
                 // 3. Preguntar si hay devolución
                 Swal.fire({
                     title: '¿Tienes devolución?',
-                    text: '¿El cliente de ' + llave + ' entregó productos de vuelta?',
+                    text: `¿El cliente de "${llave}" entregó envases vacíos?`,
                     icon: 'question',
                     showCancelButton: true,
-                    confirmButtonText: 'Sí, hay devolución',
+                    confirmButtonText: 'Si, hay envases',
                     cancelButtonText: 'No, todo conforme',
                     confirmButtonColor: '#f59e0b',
                     cancelButtonColor: '#10b981',
