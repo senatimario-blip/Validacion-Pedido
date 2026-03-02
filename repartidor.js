@@ -1073,118 +1073,102 @@ function checkReadyToCancel() {
 }
 
 async function handleSendCancelToWhatsApp() {
-    btnEnviarCancel.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-xl"></i> Procesando...';
-    btnEnviarCancel.setAttribute('disabled', 'true');
-    btnEnviarCancel.classList.remove('animate-pulse');
+    // 1. Capturar referencias para evitar pérdida de datos si el modal se cierra
+    const orderRef = { ...selectedOrderForCancel };
+    const filesToSend = [photoCancelEvidenciaFile, photoCancelFachadaFile];
+    const evidenceFileRef = photoCancelEvidenciaFile;
+    const userRef = currentUser;
+    const llave = orderRef.llave || `PED-${orderRef.nro}`;
+    const msgText = `❌ PEDIDO CANCELADO\n📦 Llave: ${llave}\n🏍️ Repartidor: ${userRef}\n📋 Evidencias adjuntas\n`;
 
-    try {
-        // Orden original solicitado: Evidencia primero, luego Fachada
-        const filesToSend = [photoCancelEvidenciaFile, photoCancelFachadaFile];
-        const llave = selectedOrderForCancel.llave || `PED-${selectedOrderForCancel.nro}`;
-        const msgText = `❌ PEDIDO CANCELADO\n📦 Llave: ${llave}\n🏍️ Repartidor: ${currentUser}\n📋 Evidencias adjuntas\n`;
+    console.log("🚀 Iniciando cancelación en segundo plano para:", llave);
 
-        // 1. Subir la foto de evidencia a Google Drive (columna Foto del admin)
-        const subidaExitosa = await uploadPosSilently(photoCancelEvidenciaFile, llave);
-        if (!subidaExitosa) {
-            btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Intentar de nuevo</span>';
-            btnEnviarCancel.removeAttribute('disabled');
-            return;
+    // 2. TAREAS DE FONDO (SIN AWAIT)
+    // Tarea A: Subir la foto de evidencia a Google Drive
+    uploadPosSilently(evidenceFileRef, llave).then(res => {
+        if (!res) console.error("❌ Falló subida de cancelación a Drive");
+        else console.log("✅ Evidencia de cancelación guardada en Drive");
+    });
+
+    // Tarea B: Marcar el pedido como "Por Validar" con fecha/hora Lima
+    const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+    const limaDate = new Date(nowLima);
+    const fechaCancel = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const horaCancel = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+            action: 'marcarPorValidar',
+            nro: orderRef.nro,
+            fechaEntrega: fechaCancel,
+            horaEntrega: horaCancel
+        })
+    }).catch(e => console.warn('⚠️ Error background marcando Cancelación', e));
+
+    // 3. FLUJO INMEDIATO DE WHATSAPP
+    // Cerrar el modal de cancelación de inmediato
+    modalCancelacion.classList.add('hidden');
+    modalCancelacion.classList.remove('flex');
+
+    Swal.fire({
+        title: `¿Confirmar: ${llave}?`,
+        text: 'Se enviará el reporte de cancelación por WhatsApp mientras guardamos la evidencia.',
+        icon: 'warning',
+        iconColor: '#ef4444',
+        confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Enviar Cancelación',
+        confirmButtonColor: '#dc2626',
+        showCancelButton: true,
+        cancelButtonText: 'Volver',
+        cancelButtonColor: '#64748b',
+        allowOutsideClick: false
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
+                    await navigator.share({
+                        title: 'Cancelación de Pedido',
+                        text: msgText,
+                        files: filesToSend
+                    });
+                } else {
+                    // Fallback
+                    try { await navigator.clipboard.writeText(msgText); } catch (e) { }
+
+                    // Descargas manuales si no soporta share múltiple
+                    const a1 = document.createElement('a');
+                    a1.href = URL.createObjectURL(filesToSend[0]);
+                    a1.download = `cancel_evidencia_${llave}.jpg`;
+                    document.body.appendChild(a1); a1.click(); document.body.removeChild(a1);
+
+                    const a2 = document.createElement('a');
+                    a2.href = URL.createObjectURL(filesToSend[1]);
+                    a2.download = `cancel_fachada_${llave}.jpg`;
+                    document.body.appendChild(a2); a2.click(); document.body.removeChild(a2);
+
+                    window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                }
+
+                // Eliminar el pedido de la lista visual tras compartir
+                currentOrders = currentOrders.filter(o => o.nro !== orderRef.nro);
+                renderOrders();
+
+            } catch (shareError) {
+                if (shareError.name !== 'AbortError') {
+                    console.error('Error Compartiendo Cancelación:', shareError);
+                }
+            }
+        } else {
+            // Si cancela el Swal, reabrir modal con fotos (las referencias siguen vivas en el scope de la función anterior pero aquí las perdemos si no las guardamos)
+            // Re-abrimos para que el usuario no pierda lo capturado
+            modalCancelacion.classList.remove('hidden');
+            modalCancelacion.classList.add('flex');
         }
 
-        // 2. Marcar el pedido como "Por Validar" para que el admin lo vea
-        // Capturar fecha/hora actual en zona Lima para guardar en columnas P y Q
-        const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
-        const limaDate = new Date(nowLima);
-        const fechaCancel = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const horaCancel = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-        try {
-            await fetch(API_URL, {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'marcarPorValidar',
-                    nro: selectedOrderForCancel.nro,
-                    fechaEntrega: fechaCancel,
-                    horaEntrega: horaCancel
-                })
-            });
-        } catch (e) { console.warn('Error marcando Por Validar', e); }
-
-        // Cerrar el modal de cancelación
-        modalCancelacion.classList.add('hidden');
-        modalCancelacion.classList.remove('flex');
-
-        Swal.fire({
-            title: `¿Confirmar: ${llave}?`,
-            text: 'Se enviará el reporte de cancelación por WhatsApp',
-            icon: 'warning',
-            iconColor: '#ef4444',
-            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Enviar Cancelación',
-            confirmButtonColor: '#dc2626',
-            showCancelButton: true,
-            cancelButtonText: 'Volver',
-            cancelButtonColor: '#64748b',
-            allowOutsideClick: false
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                try {
-                    if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
-                        await navigator.share({
-                            title: 'Cancelación de Pedido',
-                            text: msgText,
-                            files: filesToSend
-                        });
-                    } else {
-                        Swal.fire({
-                            icon: 'info',
-                            title: 'Descarga tus fotos',
-                            text: 'Tu dispositivo no permite enviar directo. Las fotos se descargarán.',
-                        });
-                        try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-
-                        const a1 = document.createElement('a');
-                        a1.href = URL.createObjectURL(photoCancelEvidenciaFile);
-                        a1.download = `cancel_evidencia_${llave}.jpg`;
-                        document.body.appendChild(a1);
-                        a1.click();
-                        document.body.removeChild(a1);
-
-                        const a2 = document.createElement('a');
-                        a2.href = URL.createObjectURL(photoCancelFachadaFile);
-                        a2.download = `cancel_fachada_${llave}.jpg`;
-                        document.body.appendChild(a2);
-                        a2.click();
-                        document.body.removeChild(a2);
-
-                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-                    }
-
-                    // Eliminar el pedido de la lista visual
-                    currentOrders = currentOrders.filter(o => o.nro !== selectedOrderForCancel.nro);
-                    renderOrders();
-
-                } catch (shareError) {
-                    if (shareError.name !== 'AbortError') {
-                        Swal.fire('Error Compartiendo', shareError.message || shareError.toString(), 'error');
-                    }
-                }
-            } else {
-                // El usuario presionó 'Volver' → reabrir el modal de cancelación con las fotos
-                modalCancelacion.classList.remove('hidden');
-                modalCancelacion.classList.add('flex');
-            }
-
-            // Restaurar botón
-            btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar Cancelación a WhatsApp</span>';
-            btnEnviarCancel.removeAttribute('disabled');
-        });
-
-    } catch (e) {
-        console.error(e);
-        Swal.fire('Error de Sistema', e.message || e.toString(), 'error');
+        // Restaurar estado del botón por si acaso
         btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar Cancelación a WhatsApp</span>';
         btnEnviarCancel.removeAttribute('disabled');
-    }
+    });
 }
 // =========================================================================
 // --- QUICK SHARE LOGIC (STEP 1 & 3) ---
