@@ -534,10 +534,12 @@ async function saveOrderRouteToServer() {
             })
         });
         const res = await response.json();
-    }
+        if (res.success) {
+            console.log("✅ Orden de ruta guardado en el servidor");
+        }
     } catch (err) {
-    console.error("❌ Error guardando orden de ruta:", err);
-}
+        console.error("❌ Error guardando orden de ruta:", err);
+    }
 }
 
 function moveOrderManual(index, direction) {
