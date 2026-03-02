@@ -464,7 +464,7 @@ function renderOrders() {
                 </div>
                 <div class="text-right flex flex-col items-end">
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
-                    <span class="text-2xl font-bold text-emerald-400">S/ ${monto.toFixed(2)}</span>
+                    <span class="text-2xl font-bold text-amber-400">S/ ${monto.toFixed(2)}</span>
                 </div>
             </div>
             
