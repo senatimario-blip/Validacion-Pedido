@@ -28,6 +28,7 @@ function doPost(e) {
       case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
       case 'marcarPorValidar':    result = marcarPorValidar(payload.nro, payload.fechaEntrega, payload.horaEntrega); break;
       case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
+      case 'marcarEnCamino':      result = marcarEnCamino(payload.nro); break;
       case 'guardarOrdenRutaMotorizado': result = guardarOrdenRutaMotorizado(payload); break;
       case 'getPhotoBase64':      result = getPhotoBase64(payload.nro); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
@@ -142,6 +143,22 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega) {
          // Si por alguna razón la oficina ya lo validó mientras el patita manejaba
          return { success: true, msg: 'El pedido ya había cambiado de estado' };
       }
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
+}
+
+function marcarEnCamino(nro) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == nro) {
+      // Solo cambiar si está en Pendiente para no sobreescribir otros estados
+      if (rows[i][6] === 'Pendiente') {
+        sheet.getRange(i + 1, 7).setValue('En Camino');
+        return { success: true };
+      }
+      return { success: true, message: 'Estado actual no es Pendiente' };
     }
   }
   return { success: false, message: "Pedido no encontrado" };

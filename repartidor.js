@@ -451,7 +451,7 @@ function renderOrders() {
                         </button>
                     </div>
 
-                    <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/20" 
+                    <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/20 ${order.estado !== 'Pendiente' ? 'hidden' : ''}" 
                             onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
                         <i class="fa-solid fa-upload text-xl"></i>
                     </button>
@@ -1213,6 +1213,11 @@ async function processQuickShare(e) {
                     window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
                 }
 
+                // Si es salida, marcamos como "En Camino" en el servidor para ocultar el botón
+                if (quickShareMode === 'salida') {
+                    marcarSalidaEnServidor(quickShareOrder.nro);
+                }
+
                 // Si es devolución, cerramos tras compartir
                 if (quickShareMode === 'devolucion') {
                     currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
@@ -1224,5 +1229,29 @@ async function processQuickShare(e) {
         console.log("Error en quickShare:", err);
     } finally {
         inputQuickShare.value = '';
+    }
+}
+
+async function marcarSalidaEnServidor(nro) {
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'marcarEnCamino',
+                nro: nro
+            })
+        });
+        const res = await response.json();
+        if (res.success) {
+            console.log("🚀 Pedido marcado En Camino");
+            // Actualizar localmente el estado para que desaparezca el botón
+            const orderIndex = currentOrders.findIndex(o => o.nro === nro);
+            if (orderIndex !== -1) {
+                currentOrders[orderIndex].estado = 'En Camino';
+                renderOrders();
+            }
+        }
+    } catch (e) {
+        console.error("Error marcando salida:", e);
     }
 }
