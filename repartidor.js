@@ -1195,8 +1195,7 @@ async function processQuickShare(e) {
                     const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
                     const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
 
-                    Swal.close();
-
+                    // El Paso 1 y 3 son solo para comunicación (WhatsApp), no se guardan en BD por diseño.
                     if (navigator.canShare && navigator.canShare({ files: [compressedFile] })) {
                         await navigator.share({
                             title: label,
@@ -1208,25 +1207,24 @@ async function processQuickShare(e) {
                         Swal.fire({
                             icon: 'info',
                             title: 'Enviar a WhatsApp',
-                            text: 'Pega el texto del reporte y adjunta la foto manualmente. La imagen se descargará automáticamente.',
-                            confirmButtonText: 'Entendido, abrir WhatsApp'
+                            text: '1. Pega el reporte (ya copiado)\n2. Adjunta la foto descargada',
+                            confirmButtonText: 'Abrir WhatsApp'
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                            }
                         });
 
-                        // Copiar texto
+                        // Copiar texto al portapapeles
                         try { await navigator.clipboard.writeText(msgText); } catch (e) { }
 
-                        // Forzar descarga de la foto para que el usuario la tenga a mano para adjuntar
+                        // Forzar descarga de la foto para adjuntar manualmente
                         const a = document.createElement('a');
                         a.href = URL.createObjectURL(compressedFile);
                         a.download = `${quickShareMode}_${quickShareOrder.llave}.jpg`;
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-
-                        // Redirigir
-                        setTimeout(() => {
-                            window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
-                        }, 1500);
                     }
 
                     // --- NUEVO: Cierre automático tras Devolución ---
