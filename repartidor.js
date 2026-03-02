@@ -434,9 +434,9 @@ function renderOrders() {
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3">
                 <div class="flex items-center gap-3">
-                    <button class="w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center transition-all active:scale-95 ${isAdminListView ? '' : 'hidden'}" 
+                    <button class="w-12 h-12 rounded-full bg-blue-500/10 border-2 border-blue-500/40 text-blue-400 flex items-center justify-center transition-all active:scale-95 ${isAdminListView ? '' : 'hidden'}" 
                             onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
-                        <i class="fa-solid fa-upload"></i>
+                        <i class="fa-solid fa-upload text-xl"></i>
                     </button>
                     <div class="handle w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
                         <i class="fa-solid fa-grip-vertical text-lg"></i>
@@ -459,10 +459,6 @@ function renderOrders() {
                 </span>
                 
                 <div class="flex items-center gap-3">
-                    <button class="w-8 h-8 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 flex items-center justify-center transition-all active:scale-125 ${isAdminListView ? '' : 'hidden'}" 
-                            onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Devolución">
-                        <i class="fa-solid fa-rotate-left"></i>
-                    </button>
                     <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
                         <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
                         <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
@@ -1208,14 +1204,29 @@ async function processQuickShare(e) {
                             files: [compressedFile]
                         });
                     } else {
-                        // Fallback
+                        // Fallback mejorado para computadoras (PC/Chrome Desktop)
                         Swal.fire({
                             icon: 'info',
-                            title: 'Casi listo',
-                            text: 'Tu equipo no permite enviar fotos directo. Hemos copiado el texto, adjunta la foto manualmente en WhatsApp.',
+                            title: 'Enviar a WhatsApp',
+                            text: 'Pega el texto del reporte y adjunta la foto manualmente. La imagen se descargará automáticamente.',
+                            confirmButtonText: 'Entendido, abrir WhatsApp'
                         });
+
+                        // Copiar texto
                         try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+
+                        // Forzar descarga de la foto para que el usuario la tenga a mano para adjuntar
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(compressedFile);
+                        a.download = `${quickShareMode}_${quickShareOrder.llave}.jpg`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+
+                        // Redirigir
+                        setTimeout(() => {
+                            window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                        }, 1500);
                     }
 
                     // --- NUEVO: Cierre automático tras Devolución ---
