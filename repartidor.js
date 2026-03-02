@@ -1218,4 +1218,3 @@ async function processQuickShare(e) {
         inputQuickShare.value = '';
     }
 }
-async function processQuickShare_OLD_REMOVED(e) {
