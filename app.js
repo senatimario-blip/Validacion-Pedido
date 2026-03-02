@@ -983,9 +983,9 @@ newOrderForm.addEventListener('submit', async (e) => {
 
 let currentOrderForValidation = null;
 
-function getUniqueDrivers() {
+function getUniqueDrivers(ordersArray = orders) {
     const drivers = new Set();
-    orders.forEach(order => {
+    ordersArray.forEach(order => {
         if (order.envio && order.envio.trim() !== '') {
             drivers.add(order.envio.trim());
         }
@@ -993,10 +993,10 @@ function getUniqueDrivers() {
     return Array.from(drivers).sort();
 }
 
-function updateDriverFilterOptions() {
+function updateDriverFilterOptions(ordersArray = orders) {
     if (!driverFilterSelect) return;
     const currentSelection = driverFilterSelect.value;
-    const drivers = getUniqueDrivers();
+    const drivers = getUniqueDrivers(ordersArray);
 
     let options = '<option value="all">Todos los Repartidores</option>';
     drivers.forEach(driver => {
@@ -2683,25 +2683,16 @@ function updateStats(data = orders) {
 function applyFilters() {
     const term = searchInput.value.toLowerCase();
     const filterDate = document.getElementById('date-filter').value;
-    const selectedDriver = driverFilterSelect ? driverFilterSelect.value : 'all'; // v18
-
     const hasRange = dateRange.start && dateRange.end;
 
-    const filtered = orders.filter(o => {
+    // 1. Primer paso: Filtrar solo por Estado y Fecha para determinar los repartidores disponibles (v18.1)
+    const contextOrders = orders.filter(o => {
         let statusMatch = currentFilter === 'all' || o.estado === currentFilter;
         if (currentFilter === 'Cancelado') {
             statusMatch = o.estado === 'Cancelado' || o.estado === 'Rechazado';
         }
 
-        const searchMatch = o.llave.toLowerCase().includes(term) ||
-            o.nro.toString().includes(term) ||
-            o.estado.toLowerCase().includes(term);
-
-        // Nuevo Match de Repartidor (v18)
-        const driverMatch = (selectedDriver === 'all' || (o.envio && o.envio.trim() === selectedDriver));
-
         let dateMatch = true;
-
         if (o.fecha) {
             const d = new Date(o.fecha);
             d.setHours(0, 0, 0, 0);
@@ -2718,9 +2709,26 @@ function applyFilters() {
                 dateMatch = oDateStr === filterDate;
             }
         }
-
-        return statusMatch && searchMatch && dateMatch && driverMatch;
+        return statusMatch && dateMatch;
     });
+
+    // 2. Actualizar el selector de repartidores con los nombres relevantes del contexto (v18.1)
+    updateDriverFilterOptions(contextOrders);
+
+    // 3. Obtener el repartidor seleccionado del selector recién actualizado
+    const selectedDriver = driverFilterSelect ? driverFilterSelect.value : 'all';
+
+    // 4. Filtrar la lista final aplicando Buscador y Seleccion de Repartidor
+    const filtered = contextOrders.filter(o => {
+        const searchMatch = o.llave.toLowerCase().includes(term) ||
+            o.nro.toString().includes(term) ||
+            o.estado.toLowerCase().includes(term);
+
+        const driverMatch = (selectedDriver === 'all' || (o.envio && o.envio.trim() === selectedDriver));
+
+        return searchMatch && driverMatch;
+    });
+
     currentFilteredOrders = filtered;
     renderOrders(filtered);
     updateStats(filtered);
