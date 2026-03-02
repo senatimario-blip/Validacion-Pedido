@@ -308,16 +308,17 @@ async function fetchDriverOrders() {
             console.log('👤 currentUser:', currentUser);
             rawOrders.forEach(o => console.log(`  → Nro:${o.nro} | Llave:${o.llave} | Envio:"${o.envio}" | Estado:"${o.estado}"`));
 
-            if (currentUser && currentUser.toLowerCase() === 'admin') {
+            if (currentUser && currentUser.toLowerCase() === 'admin' && !isAdminListView) {
                 if (typeof renderMapaMotorizados === 'function') {
                     renderMapaMotorizados();
                 }
             } else {
-                currentOrders = rawOrders.filter(o =>
-                    (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '') &&
-                    o.envio &&
-                    String(o.envio).trim().toLowerCase() === String(currentUser).trim().toLowerCase()
-                ).sort((a, b) => {
+                currentOrders = rawOrders.filter(o => {
+                    const statusOk = (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '');
+                    // Si es Admin en vista de lista, ve TODO lo activo. Si es repartidor, solo lo suyo.
+                    if (isAdminListView) return statusOk;
+                    return statusOk && o.envio && String(o.envio).trim().toLowerCase() === String(currentUser).trim().toLowerCase();
+                }).sort((a, b) => {
                     // Try to extract strict numbers, fallback to large number if not set or invalid
                     const orderA = a.orden_ruta !== undefined && a.orden_ruta !== '' && !isNaN(a.orden_ruta) ? parseInt(a.orden_ruta, 10) : Number.MAX_SAFE_INTEGER;
                     const orderB = b.orden_ruta !== undefined && b.orden_ruta !== '' && !isNaN(b.orden_ruta) ? parseInt(b.orden_ruta, 10) : Number.MAX_SAFE_INTEGER;
