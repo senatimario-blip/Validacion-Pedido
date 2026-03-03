@@ -245,6 +245,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- New Features Initialization ---
     initConnectivityMonitoring();
     initPullToRefresh();
+
+    // Inicializar filtro de fecha de historial a hoy
+    const historyDateFilter = document.getElementById('history-date-filter');
+    if (historyDateFilter) {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        historyDateFilter.value = `${yyyy}-${mm}-${dd}`;
+
+        historyDateFilter.addEventListener('change', () => {
+            renderHistory();
+        });
+    }
 });
 
 // --- Tab Switching ---
@@ -1493,16 +1507,39 @@ function renderHistory() {
     if (!container || !lblSummary) return;
     container.innerHTML = '';
 
+    // 1. Obtener fecha objetivo del filtro UI
+    const filterEl = document.getElementById('history-date-filter');
+    let targetDateStr = filterEl ? filterEl.value : "";
+
+    if (!targetDateStr) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        targetDateStr = `${y}-${m}-${d}`;
+    }
+
+
+
+    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+
+    // 2. Filtrar pedidos por estado, fecha y repartidor
     const historyOrders = window.orders ? window.orders.filter(o => {
-        const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
         const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
 
-        // Solo hoy
-        const orderDate = new Date(o.fecha).toLocaleDateString('es-PE');
-        const todayDate = new Date().toLocaleDateString('es-PE');
-        const dateMatch = orderDate === todayDate;
+        // Comparación robusta YYYY-MM-DD
+        let dateMatch = false;
+        if (o.fecha) {
+            const dObj = new Date(o.fecha);
+            if (!isNaN(dObj)) {
+                const y = dObj.getFullYear();
+                const m = String(dObj.getMonth() + 1).padStart(2, '0');
+                const d = String(dObj.getDate()).padStart(2, '0');
+                const orderYMD = `${y}-${m}-${d}`;
+                dateMatch = (orderYMD === targetDateStr);
+            }
+        }
 
-        // Comparación de nombre más flexible
         const sheetName = String(o.envio || '').trim().toLowerCase();
         const loginName = String(currentUser || '').trim().toLowerCase();
         const nameMatch = sheetName === loginName || (sheetName.startsWith(loginName) && loginName.length > 2);
@@ -1511,11 +1548,9 @@ function renderHistory() {
         return stateMatch && nameMatch && dateMatch;
     }) : [];
 
-    console.log(`📜 Historial filtrado para ${currentUser}: ${historyOrders.length} pedidos encontrados`);
+    console.log(`📜 Historial filtrado para ${currentUser} en fecha ${targetDatePE}: ${historyOrders.length} pedidos found`);
 
     lblSummary.textContent = `${historyOrders.length} entregas procesadas`;
-
-    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
 
     if (isUserAdmin) {
         if (!selectedDriverForHistoryAdmin) {
