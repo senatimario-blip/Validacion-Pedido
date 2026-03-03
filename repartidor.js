@@ -1,5 +1,41 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
 
+// Helper para obtener YYYY-MM-DD en Zona Horaria Lima (Consistente con Admin/Monitor)
+function getYMDLima(rawDate) {
+    if (!rawDate) return "";
+    let d;
+    if (rawDate instanceof Date) {
+        d = rawDate;
+    } else {
+        const s = String(rawDate).trim();
+        if (s.includes('/')) {
+            const parts = s.split(' ')[0].split('/');
+            if (parts.length === 3) {
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                let year = parseInt(parts[2], 10);
+                if (year < 100) year += 2000;
+                const mStr = String(month + 1).padStart(2, '0');
+                const dStr = String(day).padStart(2, '0');
+                return `${year}-${mStr}-${dStr}`;
+            }
+        }
+        d = new Date(s);
+    }
+    if (!d || isNaN(d.getTime())) return "";
+    try {
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Lima',
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(d);
+    } catch (e) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+}
+
 // State
 let currentUser = localStorage.getItem('repartidor_user') || null;
 let currentOrders = [];
@@ -1526,41 +1562,13 @@ function renderHistory() {
     const historyOrders = window.orders ? window.orders.filter(o => {
         const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
 
-        // Comparación robusta Multi-Formato (DD/MM/YYYY, ISO, Date object)
-        let dateMatch = false;
-        const rawDate = o.fecha; // Usar solo Fecha de Registro (Columna B) por petición del usuario
+        // Comparación robusta Multi-Formato unificada con Admin (Lima Time)
+        const orderYMD = getYMDLima(o.fecha);
+        const dateMatch = (orderYMD === targetDateStr);
 
-        if (rawDate) {
-            let orderYMD = "";
-
-            if (typeof rawDate === 'string') {
-                const clean = rawDate.trim();
-                if (clean.includes('/')) {
-                    const parts = clean.split(' ')[0].split('/');
-                    if (parts.length === 3) {
-                        const d = parts[0].padStart(2, '0');
-                        const m = parts[1].padStart(2, '0');
-                        let y = parts[2];
-                        if (y.length === 2) y = '20' + y;
-                        orderYMD = `${y}-${m}-${d}`;
-                    }
-                } else if (clean.includes('-')) {
-                    orderYMD = clean.split('T')[0];
-                }
-            } else if (rawDate instanceof Date || (typeof rawDate === 'object' && rawDate.getFullYear)) {
-                const y = rawDate.getFullYear();
-                const m = String(rawDate.getMonth() + 1).padStart(2, '0');
-                const d = String(rawDate.getDate()).padStart(2, '0');
-                orderYMD = `${y}-${m}-${d}`;
-            }
-
-            if (orderYMD === targetDateStr) {
-                dateMatch = true;
-                if (window.debugCount < 10) {
-                    console.log(`PWA_MATCH: [${o.llave}] match con "${rawDate}" -> YMD="${orderYMD}"`);
-                    window.debugCount++;
-                }
-            }
+        if (window.debugCount < 10 && dateMatch) {
+            console.log(`PWA_MATCH: [${o.llave}] match con "${o.fecha}" -> YMD="${orderYMD}"`);
+            window.debugCount++;
         }
 
         const sheetName = String(o.envio || '').trim().toLowerCase();
