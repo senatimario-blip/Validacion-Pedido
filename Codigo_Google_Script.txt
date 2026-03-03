@@ -31,6 +31,7 @@ function doPost(e) {
       case 'marcarEnCamino':      result = marcarEnCamino(payload.nro); break;
       case 'guardarOrdenRutaMotorizado': result = guardarOrdenRutaMotorizado(payload); break;
       case 'asignarViajePedido':  result = asignarViajePedido(payload); break;
+      case 'corregirEntrega':     result = corregirEntrega(payload); break;
       case 'getPhotoBase64':      result = getPhotoBase64(payload.nro); break;
       case 'crearMotorizado':     result = crearMotorizado(payload); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
@@ -568,6 +569,58 @@ function crearMotorizado(payload) {
     sheet.appendRow([user, pass]);
     return { success: true, message: 'Repartidor '+user+' creado con éxito' };
   } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function corregirEntrega(data) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    console.log("CorregirEntrega Recibido para Nro:", data.nro);
+    
+    for (let i = 1; i < rows.length; i++) {
+      // Comparación robusta de número de pedido
+      if (String(rows[i][0]).trim() == String(data.nro).trim()) {
+        const rowIndex = i + 1;
+        console.log("Pedido encontrado en fila:", rowIndex);
+        
+        // Actualizar Fecha y Hora
+        if (data.fechaEntrega) sheet.getRange(rowIndex, 16).setValue(data.fechaEntrega); // P
+        if (data.horaEntrega) sheet.getRange(rowIndex, 17).setValue(data.horaEntrega);   // Q
+        
+        // Recalcular Tiempo Transcurrido (Columna R)
+        const fechaRegistro = rows[i][1];
+        if (fechaRegistro && data.fechaEntrega && data.horaEntrega) {
+          try {
+            const [day, month, year] = data.fechaEntrega.split('/').map(Number);
+            const [h, m] = data.horaEntrega.split(':').map(Number);
+            const entregaDate = new Date(year, month - 1, day, h, m, 0);
+            const regDate = new Date(fechaRegistro);
+            
+            const diffMs = entregaDate - regDate;
+            const diffSecs = Math.floor(diffMs / 1000);
+            
+            if (diffSecs >= 0) {
+              const hours = Math.floor(diffSecs / 3600);
+              const minutes = Math.floor((diffSecs % 3600) / 60);
+              const seconds = diffSecs % 60;
+              const durationStr = [hours, minutes, seconds].map(v => String(v).padStart(2, '0')).join(':');
+              sheet.getRange(rowIndex, 18).setValue(durationStr);
+              console.log("SLA Recalculado:", durationStr);
+            }
+          } catch (errRecalc) {
+            console.error("Error recalcuando SLA:", errRecalc);
+          }
+        }
+        
+        SpreadsheetApp.flush(); // Asegurar escritura inmediata
+        return { success: true };
+      }
+    }
+    return { success: false, message: "Pedido #" + data.nro + " no encontrado en la hoja" };
+  } catch (e) {
+    console.error("Error en corregirEntrega:", e);
     return { success: false, message: e.toString() };
   }
 }

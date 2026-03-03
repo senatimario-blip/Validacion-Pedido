@@ -191,42 +191,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 
+    btnActualizar.addEventListener('click', () => {
+        if (currentUser) {
+            const icon = btnActualizar.querySelector('i');
+            if (icon) icon.classList.add('fa-spin-fast');
+            fetchDriverOrders().finally(() => {
+                if (icon) icon.classList.remove('fa-spin-fast');
+            });
+        }
+    });
+
     const btnRefreshHistory = document.getElementById('btn-refresh-history');
     if (btnRefreshHistory) {
         btnRefreshHistory.addEventListener('click', () => {
-            if (currentUser) fetchDriverOrders();
+            if (currentUser) {
+                const icon = btnRefreshHistory.querySelector('i');
+                if (icon) icon.classList.add('fa-spin-fast');
+                fetchDriverOrders().finally(() => {
+                    if (icon) icon.classList.remove('fa-spin-fast');
+                });
+            }
         });
     }
 
-    const btnCerrarMapa = document.getElementById('btn-cerrar-mapa');
-    if (btnCerrarMapa) {
-        btnCerrarMapa.addEventListener('click', () => {
-            Swal.fire({
-                title: '¿Cerrar sesión?',
-                text: "Saldrás de la vista de administrador.",
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#3085d6',
-                cancelButtonColor: '#d33',
-                confirmButtonText: 'Sí, salir'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    localStorage.removeItem('activeDriver');
-                    currentUser = null;
-                    pantallaMapa.classList.add('hidden');
-                    pantallaMapa.classList.remove('flex');
-                    pantallaLogin.classList.remove('hidden');
-                    pantallaLogin.classList.add('flex');
-                    inputDriver.value = '';
-                    inputDriverPass.value = '';
-                }
-            });
-        });
+    const btnSaveEditDelivery = document.getElementById('btn-save-edit-delivery');
+    if (btnSaveEditDelivery) {
+        btnSaveEditDelivery.addEventListener('click', saveManualDelivery);
     }
-
-    btnActualizar.addEventListener('click', () => {
-        if (currentUser) fetchDriverOrders();
-    });
 
     // Modal Close
     btnCerrarModal.addEventListener('click', () => {
@@ -285,15 +276,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Inicializar filtro de fecha de historial a hoy
     const historyDateFilter = document.getElementById('history-date-filter');
     if (historyDateFilter) {
+        console.log("📅 Inicializando filtro de fecha de historial...");
         const today = new Date();
         const yyyy = today.getFullYear();
         const mm = String(today.getMonth() + 1).padStart(2, '0');
         const dd = String(today.getDate()).padStart(2, '0');
         historyDateFilter.value = `${yyyy}-${mm}-${dd}`;
+        console.log("📅 Valor inicial del filtro:", historyDateFilter.value);
 
         historyDateFilter.addEventListener('change', () => {
+            console.log("📅 Cambio de fecha detectado:", historyDateFilter.value);
             renderHistory();
         });
+    } else {
+        console.warn("⚠️ No se encontró el elemento 'history-date-filter' en el DOM.");
     }
 });
 
@@ -495,7 +491,9 @@ async function loginDriver(name, pass) {
 }
 
 async function fetchDriverOrders() {
-    if (currentUser && currentUser.toLowerCase() === 'admin') {
+    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+
+    if (isUserAdmin && !isAdminListView) {
         const loadingMapa = document.getElementById('loading-mapa');
         if (loadingMapa) loadingMapa.classList.remove('hidden');
     } else {
@@ -1870,7 +1868,9 @@ function renderAdminHistoryDriverDetail(orders, driverName) {
             } catch (e) { }
         }
 
-        div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-sm mb-3';
+        div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-sm mb-3 active:scale-[0.98] transition-all cursor-pointer hover:border-emerald-500/30';
+        div.onclick = () => openModalEditDelivery(order);
+
         div.innerHTML = `
             <div class="flex justify-between items-start mb-2">
                 <div>
@@ -1882,13 +1882,112 @@ function renderAdminHistoryDriverDetail(orders, driverName) {
                     <span class="text-lg font-bold text-amber-400">${horaPedido}</span>
                 </div>
             </div>
-            <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
-                <span class="px-2 py-0.5 rounded text-[10px] font-black tracking-tighter ${statusColor}">${statusLabel}</span>
-                <div class="text-[10px]">
-                    ${slaHTML}
-                </div>
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
+            <span class="px-2 py-0.5 rounded text-[10px] font-black tracking-tighter ${statusColor}">${statusLabel}</span>
+            <div class="text-[10px]">
+                ${slaHTML}
             </div>
-        `;
+        </div>
+    `;
         container.appendChild(div);
     });
+}
+
+// --- Manual Delivery Correction (Admin) ---
+
+function openModalEditDelivery(order) {
+    // Solo permitir editar si es Admin
+    if (!currentUser || currentUser.toLowerCase() !== 'admin') return;
+
+    document.getElementById('edit-delivery-nro').value = order.nro;
+
+    // Preparar valores actuales de fecha y hora
+    let currentDate = "";
+    let currentTime = "";
+
+    if (order.fecha_entrega) {
+        // Formato esperado DD/MM/YYYY -> YYYY-MM-DD
+        const parts = order.fecha_entrega.split('/');
+        if (parts.length === 3) currentDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+
+    if (order.hora_entrega) {
+        currentTime = order.hora_entrega;
+    }
+
+    // Si no hay datos, usar hoy y ahora como sugerencia
+    if (!currentDate) currentDate = new Date().toISOString().split('T')[0];
+    if (!currentTime) {
+        const now = new Date();
+        currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+
+    document.getElementById('edit-delivery-date').value = currentDate;
+    document.getElementById('edit-delivery-time').value = currentTime;
+
+    const modal = document.getElementById('modal-edit-delivery');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+async function saveManualDelivery() {
+    const nro = document.getElementById('edit-delivery-nro').value;
+    const rawDate = document.getElementById('edit-delivery-date').value; // YYYY-MM-DD
+    const rawTime = document.getElementById('edit-delivery-time').value; // HH:mm
+
+    console.log("💾 Intentando guardar corrección manual:", { nro, rawDate, rawTime });
+
+    if (!rawDate || !rawTime) {
+        Swal.fire({ icon: 'warning', title: 'Atención', text: 'Fecha y hora son obligatorias' });
+        return;
+    }
+
+    // Convertir YYYY-MM-DD a DD/MM/YYYY para Google Sheets
+    const [y, m, d] = rawDate.split('-');
+    const formattedDate = `${d}/${m}/${y}`;
+
+    const btn = document.getElementById('btn-save-edit-delivery');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Guardando...';
+
+    try {
+        const payload = {
+            action: 'corregirEntrega',
+            nro: nro,
+            fechaEntrega: formattedDate,
+            horaEntrega: rawTime
+        };
+        console.log("📡 Enviando payload a GAS:", payload);
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error("Error de red: " + response.status);
+
+        const res = await response.json();
+        console.log("✅ Respuesta del servidor:", res);
+
+        if (res.success) {
+            Swal.fire({
+                icon: 'success',
+                title: '¡Listo!',
+                text: 'Entrega corregida correctamente',
+                timer: 1500,
+                showConfirmButton: false
+            });
+            document.getElementById('modal-edit-delivery').classList.add('hidden');
+            fetchDriverOrders(); // Refrescar datos
+        } else {
+            throw new Error(res.message || "Error desconocido");
+        }
+    } catch (e) {
+        console.error("❌ Error en saveManualDelivery:", e);
+        Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo guardar: ' + e.message });
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
