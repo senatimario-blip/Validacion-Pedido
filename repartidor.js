@@ -1526,23 +1526,42 @@ function renderHistory() {
     const historyOrders = window.orders ? window.orders.filter(o => {
         const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
 
-        // Comparación robusta YYYY-MM-DD (Manual para DD/MM/YYYY o D/M/YYYY)
+        // Comparación robusta Multi-Formato (DD/MM/YYYY, ISO, Date object)
         let dateMatch = false;
-        if (o.fecha && typeof o.fecha === 'string') {
-            const cleanFecha = o.fecha.trim().split(' ')[0];
-            const parts = cleanFecha.split('/');
-            if (parts.length === 3) {
-                const day = parts[0].padStart(2, '0');
-                const month = parts[1].padStart(2, '0');
-                let year = parts[2];
-                if (year.length === 2) year = '20' + year;
-                const orderYMD = `${year}-${month}-${day}`;
-                dateMatch = (orderYMD === targetDateStr);
+        const checkDates = [o.fecha_entrega, o.fecha]; // Priorizar fecha_entrega (Columna P)
 
+        for (let rawDate of checkDates) {
+            if (!rawDate) continue;
+            let orderYMD = "";
+
+            if (typeof rawDate === 'string') {
+                const clean = rawDate.trim();
+                if (clean.includes('/')) {
+                    const parts = clean.split(' ')[0].split('/');
+                    if (parts.length === 3) {
+                        const d = parts[0].padStart(2, '0');
+                        const m = parts[1].padStart(2, '0');
+                        let y = parts[2];
+                        if (y.length === 2) y = '20' + y;
+                        orderYMD = `${y}-${m}-${d}`;
+                    }
+                } else if (clean.includes('-')) {
+                    orderYMD = clean.split('T')[0];
+                }
+            } else if (rawDate instanceof Date || (typeof rawDate === 'object' && rawDate.getFullYear)) {
+                const y = rawDate.getFullYear();
+                const m = String(rawDate.getMonth() + 1).padStart(2, '0');
+                const d = String(rawDate.getDate()).padStart(2, '0');
+                orderYMD = `${y}-${m}-${d}`;
+            }
+
+            if (orderYMD === targetDateStr) {
+                dateMatch = true;
                 if (window.debugCount < 10) {
-                    console.log(`PWA_DEBUG: [${o.llave}] o.fecha="${o.fecha}" -> YMD="${orderYMD}" vs Target="${targetDateStr}" -> Match=${dateMatch}`);
+                    console.log(`PWA_MATCH: [${o.llave}] match con "${rawDate}" -> YMD="${orderYMD}"`);
                     window.debugCount++;
                 }
+                break;
             }
         }
 
