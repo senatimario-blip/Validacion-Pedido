@@ -1528,10 +1528,9 @@ function renderHistory() {
 
         // Comparación robusta Multi-Formato (DD/MM/YYYY, ISO, Date object)
         let dateMatch = false;
-        const checkDates = [o.fecha_entrega, o.fecha]; // Priorizar fecha_entrega (Columna P)
+        const rawDate = o.fecha; // Usar solo Fecha de Registro (Columna B) por petición del usuario
 
-        for (let rawDate of checkDates) {
-            if (!rawDate) continue;
+        if (rawDate) {
             let orderYMD = "";
 
             if (typeof rawDate === 'string') {
@@ -1561,7 +1560,6 @@ function renderHistory() {
                     console.log(`PWA_MATCH: [${o.llave}] match con "${rawDate}" -> YMD="${orderYMD}"`);
                     window.debugCount++;
                 }
-                break;
             }
         }
 
