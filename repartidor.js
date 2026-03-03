@@ -1626,6 +1626,19 @@ function renderHistory() {
             }
         }
 
+        let horaPedido = '--:--';
+        if (order.fecha) {
+            try {
+                const dateObj = new Date(order.fecha);
+                horaPedido = new Intl.DateTimeFormat('es-PE', {
+                    timeZone: 'America/Lima',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                }).format(dateObj).toLowerCase().replace(' ', '');
+            } catch (e) { }
+        }
+
         div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-sm';
         div.innerHTML = `
         <div class="flex justify-between items-start mb-2">
@@ -1634,8 +1647,8 @@ function renderHistory() {
                 <span class="text-lg font-bold text-white">${order.llave || `PED-${order.nro}`}</span>
             </div>
             <div class="text-right">
-                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">MONTO</span>
-                <span class="text-lg font-bold text-amber-400">S/ ${parseFloat(order.monto || 0).toFixed(2)}</span>
+                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">HORA</span>
+                <span class="text-lg font-bold text-amber-400">${horaPedido}</span>
             </div>
         </div>
         
@@ -1844,6 +1857,19 @@ function renderAdminHistoryDriverDetail(orders, driverName) {
             }
         }
 
+        let horaPedido = '--:--';
+        if (order.fecha) {
+            try {
+                const dateObj = new Date(order.fecha);
+                horaPedido = new Intl.DateTimeFormat('es-PE', {
+                    timeZone: 'America/Lima',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                }).format(dateObj).toLowerCase().replace(' ', '');
+            } catch (e) { }
+        }
+
         div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-sm mb-3';
         div.innerHTML = `
             <div class="flex justify-between items-start mb-2">
@@ -1852,8 +1878,8 @@ function renderAdminHistoryDriverDetail(orders, driverName) {
                     <span class="text-lg font-bold text-white">${order.llave || `PED-${order.nro}`}</span>
                 </div>
                 <div class="text-right">
-                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">MONTO</span>
-                    <span class="text-lg font-bold text-amber-400">S/ ${parseFloat(order.monto || 0).toFixed(2)}</span>
+                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">HORA</span>
+                    <span class="text-lg font-bold text-amber-400">${horaPedido}</span>
                 </div>
             </div>
             <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
