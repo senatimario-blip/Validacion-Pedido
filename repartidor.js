@@ -1506,6 +1506,7 @@ function renderHistory() {
     const lblSummary = document.getElementById('lbl-history-summary');
     if (!container || !lblSummary) return;
     container.innerHTML = '';
+    window.debugCount = 0; // Reset counter for logs
 
     // 1. Obtener fecha objetivo del filtro UI
     const filterEl = document.getElementById('history-date-filter');
@@ -1519,24 +1520,29 @@ function renderHistory() {
         targetDateStr = `${y}-${m}-${d}`;
     }
 
-
-
     const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
 
     // 2. Filtrar pedidos por estado, fecha y repartidor
     const historyOrders = window.orders ? window.orders.filter(o => {
         const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
 
-        // Comparación robusta YYYY-MM-DD (Manual para DD/MM/YYYY)
+        // Comparación robusta YYYY-MM-DD (Manual para DD/MM/YYYY o D/M/YYYY)
         let dateMatch = false;
         if (o.fecha && typeof o.fecha === 'string') {
-            const parts = o.fecha.split(' ')[0].split('/'); // Pilla "02/03/2026" y separa
+            const cleanFecha = o.fecha.trim().split(' ')[0];
+            const parts = cleanFecha.split('/');
             if (parts.length === 3) {
                 const day = parts[0].padStart(2, '0');
                 const month = parts[1].padStart(2, '0');
-                const year = parts[2];
+                let year = parts[2];
+                if (year.length === 2) year = '20' + year;
                 const orderYMD = `${year}-${month}-${day}`;
                 dateMatch = (orderYMD === targetDateStr);
+
+                if (window.debugCount < 10) {
+                    console.log(`PWA_DEBUG: [${o.llave}] o.fecha="${o.fecha}" -> YMD="${orderYMD}" vs Target="${targetDateStr}" -> Match=${dateMatch}`);
+                    window.debugCount++;
+                }
             }
         }
 
@@ -1548,7 +1554,7 @@ function renderHistory() {
         return stateMatch && nameMatch && dateMatch;
     }) : [];
 
-    console.log(`📜 Historial filtrado para ${currentUser} en fecha ${targetDatePE}: ${historyOrders.length} pedidos found`);
+    console.log(`📜 Historial filtrado para ${currentUser} en ${targetDateStr}: ${historyOrders.length} pedidos found`);
 
     lblSummary.textContent = `${historyOrders.length} entregas procesadas`;
 
