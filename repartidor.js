@@ -671,7 +671,7 @@ function renderSingleOrderCard(order, index) {
                 <div class="ml-1">
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
                     <div class="flex items-center gap-2">
-                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
+                        <span class="text-2xl font-bold tracking-tight text-white"><span class="text-blue-400">[${index + 1}]</span> ${order.llave || `PED-${order.nro}`}</span>
                         <button onclick="event.stopPropagation(); copyToClipboard('${order.llave || `PED-${order.nro}`}', this)" class="btn-copy" title="Copiar Llave">
                             <i class="fa-solid fa-copy"></i>
                         </button>
