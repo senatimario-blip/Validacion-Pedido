@@ -1527,15 +1527,15 @@ function renderHistory() {
     const historyOrders = window.orders ? window.orders.filter(o => {
         const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
 
-        // Comparación robusta YYYY-MM-DD
+        // Comparación robusta YYYY-MM-DD (Manual para DD/MM/YYYY)
         let dateMatch = false;
-        if (o.fecha) {
-            const dObj = new Date(o.fecha);
-            if (!isNaN(dObj)) {
-                const y = dObj.getFullYear();
-                const m = String(dObj.getMonth() + 1).padStart(2, '0');
-                const d = String(dObj.getDate()).padStart(2, '0');
-                const orderYMD = `${y}-${m}-${d}`;
+        if (o.fecha && typeof o.fecha === 'string') {
+            const parts = o.fecha.split(' ')[0].split('/'); // Pilla "02/03/2026" y separa
+            if (parts.length === 3) {
+                const day = parts[0].padStart(2, '0');
+                const month = parts[1].padStart(2, '0');
+                const year = parts[2];
+                const orderYMD = `${year}-${month}-${day}`;
                 dateMatch = (orderYMD === targetDateStr);
             }
         }
