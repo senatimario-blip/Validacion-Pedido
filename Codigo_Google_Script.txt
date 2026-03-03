@@ -30,7 +30,9 @@ function doPost(e) {
       case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
       case 'marcarEnCamino':      result = marcarEnCamino(payload.nro); break;
       case 'guardarOrdenRutaMotorizado': result = guardarOrdenRutaMotorizado(payload); break;
+      case 'asignarViajePedido':  result = asignarViajePedido(payload); break;
       case 'getPhotoBase64':      result = getPhotoBase64(payload.nro); break;
+      case 'crearMotorizado':     result = crearMotorizado(payload); break;
       default:                    result = { success: false, message: 'Acción no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
@@ -78,10 +80,10 @@ function listarPedidos() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: true, data: [] };
 
-  // Leer 19 columnas (A..S)
-  const data = sheet.getRange(2, 1, lastRow - 1, 19).getValues();
+  // Leer 20 columnas (A..T)
+  const data = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
   // Traemos también los Textos (Display Values) para ignorar el formato histórico de Time/Dates en Sheets
-  const displayData = sheet.getRange(2, 1, lastRow - 1, 19).getDisplayValues();
+  const displayData = sheet.getRange(2, 1, lastRow - 1, 20).getDisplayValues();
 
   const pedidos = data.map((row, index) => ({
     nro:               row[0],
@@ -102,7 +104,8 @@ function listarPedidos() {
     fecha_entrega:     displayData[index][15],  // P: Fecha Entrega como texto en hoja
     hora_entrega:      displayData[index][16],  // Q: Hora Entrega como texto en hoja
     tiempo_transcurrido: displayData[index][17], // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
-    orden_ruta:        row[18]   // S: Ordenamiento explícito para la ruta del motorizado
+    orden_ruta:        row[18],  // S: Ordenamiento explícito para la ruta del motorizado
+    viaje_id:          row[19]   // T: ID de Viaje para agrupación y pagos
   })).filter(p => p.nro);
 
   return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
@@ -301,6 +304,22 @@ function crearPedidosMasivos(payload) {
   return { success: true };
 }
 
+function asignarViajePedido(data) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  const nros = Array.isArray(data.nros) ? data.nros : [data.nro];
+  const viajeId = data.viajeId || "";
+
+  let count = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (nros.includes(Number(rows[i][0]))) {
+      sheet.getRange(i + 1, 20).setValue(viajeId); // Columna T
+      count++;
+    }
+  }
+  return { success: true, updated: count };
+}
+
 function crearPedido(data) {
   const sheet = getSheet();
   const rows = sheet.getDataRange().getValues();
@@ -495,6 +514,59 @@ function getPhotoBase64(nro) {
     const b64 = Utilities.base64Encode(blob.getBytes());
     
     return { success: true, base64: b64, mimeType: blob.getContentType() };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function asignarViajePedido(payload) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    const nros = payload.nros || [];
+    const viajeId = payload.viajeId;
+    
+    if (!viajeId) return { success: false, message: 'Falta ID de Viaje' };
+    
+    let updates = 0;
+    for (let i = 1; i < rows.length; i++) {
+      // Verificamos si el NRO del pedido está en la lista recibida
+      if (nros.indexOf(rows[i][0]) !== -1) {
+        // Columna T es la 20 (Index 19)
+        sheet.getRange(i + 1, 20).setValue(viajeId);
+        updates++;
+      }
+    }
+    return { success: true, updates: updates };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function crearMotorizado(payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName('Motorizados');
+    if (!sheet) {
+      sheet = ss.insertSheet('Motorizados');
+      sheet.appendRow(['Nombre', 'Password']);
+    }
+    
+    const user = String(payload.user).trim();
+    const pass = String(payload.pass).trim();
+    
+    if (!user || !pass) return { success: false, message: 'Nombre y Password obligatorios' };
+    
+    // Verificar duplicado
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === user.toLowerCase()) {
+        return { success: false, message: 'Este repartidor ya existe' };
+      }
+    }
+    
+    sheet.appendRow([user, pass]);
+    return { success: true, message: 'Repartidor '+user+' creado con éxito' };
   } catch(e) {
     return { success: false, message: e.toString() };
   }

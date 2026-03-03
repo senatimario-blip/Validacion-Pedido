@@ -72,10 +72,64 @@
             scrollbar-width: none;
             /* Firefox */
         }
+
+        /* --- New UI Improvements --- */
+        #offline-banner {
+            background-color: #ef4444;
+            color: white;
+            padding: 8px;
+            text-align: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: none;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        #ptr-indicator {
+            height: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #1e293b;
+            color: #3b82f6;
+            transition: height 0.2s ease;
+        }
+
+        .ptr-active #ptr-indicator {
+            height: 60px;
+        }
+
+        .btn-copy {
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-copy:active {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: #3b82f6;
+            color: #3b82f6;
+            transform: scale(0.95);
+        }
     </style>
 </head>
 
 <body class="min-h-screen bg-bgDark flex flex-col font-sans">
+
+    <!-- Banner Offline -->
+    <div id="offline-banner">
+        <i class="fa-solid fa-plane-slash mr-2"></i> Sin conexión a Internet
+    </div>
 
     <!-- PANTALLA 1: LOGIN / SELECCIÓN DE REPARTIDOR -->
     <div id="pantalla-login"
@@ -142,6 +196,12 @@
 
         <!-- Lista scrolleable de Tarjetas -->
         <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-24" id="lista-pedidos-container">
+            <!-- Pull to Refresh Indicator -->
+            <div id="ptr-indicator" class="rounded-xl mb-2">
+                <i class="fa-solid fa-arrow-down-long mr-2" id="ptr-icon"></i>
+                <span id="ptr-text">Desliza para actualizar</span>
+            </div>
+
             <!-- Loading State -->
             <div class="text-center py-10" id="loading-pedidos">
                 <i class="fa-solid fa-spinner fa-spin text-3xl text-primary mb-3"></i>
@@ -150,13 +210,55 @@
             <!-- Aquí se inyectarán los pedidos dinámicamente -->
         </main>
 
-        <!-- FAB (Boton Flotante) para ayuda o cerrar sesión -->
-        <button id="btn-cerrar-ruta"
-            class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-300 px-6 py-2 rounded-full text-sm font-medium border border-slate-700 shadow-lg active:bg-slate-700 flex items-center gap-2">
-            <i class="fa-solid fa-person-walking-arrow-right"></i>
-            Terminar Ruta
-        </button>
     </div>
+
+    <!-- PANTALLA 4: HISTORIAL DE ENTREGAS -->
+    <div id="pantalla-historial" class="hidden flex-col h-screen slide-up relative">
+        <!-- Header Fijo -->
+        <header
+            class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Mi Historial</h2>
+                    <p class="text-xs text-slate-400" id="lbl-history-summary">0 entregas completadas</p>
+                </div>
+            </div>
+            <button id="btn-refresh-history"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <!-- Lista scrolleable de Historial -->
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-3 pb-24" id="lista-historial-container">
+            <!-- Aquí se inyectará el historial -->
+        </main>
+    </div>
+
+    <!-- NAVEGACIÓN INFERIOR (Solo visible cuando se inicia sesión) -->
+    <nav id="nav-footer"
+        class="hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 z-40 pb-safe">
+        <div class="flex items-center justify-around h-20">
+            <button onclick="switchTab('ruta')" id="nav-btn-ruta"
+                class="flex flex-col items-center justify-center gap-1 text-primary">
+                <i class="fa-solid fa-motorcycle text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Mi Ruta</span>
+            </button>
+            <button onclick="switchTab('historial')" id="nav-btn-historial"
+                class="flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Historial</span>
+            </button>
+            <!-- Botón Logout integrado -->
+            <button id="btn-cerrar-ruta" class="flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-right-from-bracket text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Cerrar</span>
+            </button>
+        </div>
+    </nav>
 
     <!-- MENU DE ACCION (SELECTOR) -->
     <div id="modal-selector-accion"

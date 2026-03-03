@@ -40,7 +40,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
-    document.getElementById('date-filter').value = `${yyyy}-${mm}-${dd}`;
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+
+    document.getElementById('date-filter').value = todayStr;
+    const mapaDateFilter = document.getElementById('mapa-date-filter');
+    if (mapaDateFilter) mapaDateFilter.value = todayStr;
 
     checkSession();
 
@@ -242,11 +246,16 @@ navReportes.addEventListener('click', (e) => {
     const dv = document.getElementById('dashboard-view');
     if (dv) dv.style.display = 'none';
 
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    document.getElementById('report-date-filter').value = `${yyyy}-${mm}-${dd}`;
+    const mainDate = document.getElementById('date-filter').value;
+    if (mainDate) {
+        document.getElementById('report-date-filter').value = mainDate;
+    } else {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        document.getElementById('report-date-filter').value = `${yyyy}-${mm}-${dd}`;
+    }
 
     renderReportsTable();
 });
@@ -266,6 +275,12 @@ navMapa.addEventListener('click', (e) => {
     if (dv) dv.style.display = 'none';
 
     contentMapa.classList.remove('hidden');
+
+    const mainDate = document.getElementById('date-filter').value;
+    const mapaDateFilter = document.getElementById('mapa-date-filter');
+    if (mainDate && mapaDateFilter) {
+        mapaDateFilter.value = mainDate;
+    }
 
     if (typeof renderMapaMotorizados === 'function') {
         renderMapaMotorizados();
@@ -787,7 +802,7 @@ function renderPodioMotorizados(data) {
                     }
                 } catch (e) { }
             }
-            if (mins >= 35) delayed = true;
+            if (mins > 35) delayed = true;
         }
 
         if (delayed) {
@@ -2726,9 +2741,30 @@ function applyFilters() {
 }
 
 searchInput.addEventListener('input', applyFilters);
-document.getElementById('date-filter').addEventListener('change', () => {
+document.getElementById('date-filter').addEventListener('change', (e) => {
+    const newDate = e.target.value;
     dateRange = { start: null, end: null };
     document.getElementById('range-display-text').textContent = '';
+
+    // Sincronizar con Reportes
+    const reportDateInput = document.getElementById('report-date-filter');
+    if (reportDateInput) {
+        reportDateInput.value = newDate;
+        renderReportsTable();
+    }
+
+    // Sincronizar con Dashboard
+    if (typeof window.syncDashboardDate === 'function') {
+        window.syncDashboardDate(newDate);
+    }
+
+    // Sincronizar con Motorizados
+    const mapaDateFilter = document.getElementById('mapa-date-filter');
+    if (mapaDateFilter) {
+        mapaDateFilter.value = newDate;
+        if (typeof renderMapaMotorizados === 'function') renderMapaMotorizados();
+    }
+
     applyFilters();
 });
 
@@ -3650,21 +3686,28 @@ function makeDraggable(modalId) {
         if (isInteractive) return;
 
         isDragging = true;
+
+        // Obtener posición inicial (considerando que puede haber sido movido antes)
         const style = window.getComputedStyle(modalCard);
         initialTop = parseInt(style.top) || 0;
         initialLeft = parseInt(style.left) || 0;
+
         startX = e.clientX;
         startY = e.clientY;
+
         handle.style.cursor = 'grabbing';
-        document.body.style.userSelect = 'none';
+        document.body.style.userSelect = 'none'; // Evitar selección de texto global
+
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
     });
 
     function onMouseMove(e) {
         if (!isDragging) return;
+
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
+
         modalCard.style.top = `${initialTop + dy}px`;
         modalCard.style.left = `${initialLeft + dx}px`;
     }
@@ -3674,10 +3717,12 @@ function makeDraggable(modalId) {
         isDragging = false;
         handle.style.cursor = 'move';
         document.body.style.userSelect = '';
+
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
     }
 
+    // Reset position when modal is closed (optional but recommended)
     const closeBtns = modalBackdrop.querySelectorAll('.close-modal');
     closeBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -3687,6 +3732,7 @@ function makeDraggable(modalId) {
     });
 }
 
+// Initialize draggability for all modals
 document.addEventListener('DOMContentLoaded', () => {
-    ['modal-validate', 'modal-new-order', 'modal-import', 'modal-import-text', 'modal-date-range'].forEach(makeDraggable);
+    ['modal-validate', 'modal-new-order', 'modal-import', 'modal-import-text', 'modal-date-range', 'modal-manage-drivers'].forEach(makeDraggable);
 });

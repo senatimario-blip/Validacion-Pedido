@@ -308,6 +308,12 @@
                             style="font-size: 0.9em; color: rgba(255,255,255,0.7); font-weight: bold; background: rgba(59, 130, 246, 0.2); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.4);">
                             <i class="fa-solid fa-motorcycle"></i> 0 Activos
                         </span>
+                        <button id="btn-manage-drivers" class="btn-icon" title="Gestión de Repartidores"
+                            style="background: rgba(139, 92, 246, 0.1); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3);">
+                            <i class="fa-solid fa-user-plus"></i>
+                        </button>
+                        <input type="date" id="mapa-date-filter" class="form-control"
+                            style="width: 140px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); height: 32px; font-size: 0.85em;">
                         <button id="btn-refresh-mapa" class="btn-icon" title="Actualizar Datos">
                             <i class="fa-solid fa-rotate-right"></i>
                         </button>
@@ -318,6 +324,27 @@
                     <div id="mapa-grid"
                         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
                         <!-- Tarjetas de motorizados inyectadas por JS -->
+                    </div>
+
+                    <!-- NUEVA SECCION DE VIAJES -->
+                    <div id="seccion-viajes"
+                        style="margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h2
+                                style="font-size: 1.4em; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px;">
+                                <i class="fa-solid fa-route" style="color: var(--primary);"></i> Viajes del Día y
+                                Liquidación
+                            </h2>
+                            <div id="trip-drop-zone" class="trip-drop-zone">
+                                <i class="fa-solid fa-plus-circle"></i> Arrastra aquí para NUEVO VIAJE
+                            </div>
+                        </div>
+
+                        <div id="viajes-grid"
+                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
+                            <!-- Viajes inyectados por JS -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -680,6 +707,30 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Driver Management Modal -->
+    <div id="modal-manage-drivers" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-gear"></i> Registrar Repartidor</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="new-driver-form">
+                <div class="form-group">
+                    <label>Nombre del Repartidor</label>
+                    <input type="text" id="new-driver-name" required placeholder="Ej: Raul, Ybor, etc.">
+                </div>
+                <div class="form-group">
+                    <label>Contraseña (PWA)</label>
+                    <input type="password" id="new-driver-pass" required placeholder="Contraseña para el celular">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar Repartidor</button>
+                </div>
+            </form>
         </div>
     </div>
 

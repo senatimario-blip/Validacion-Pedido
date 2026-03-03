@@ -157,7 +157,18 @@ function initDashboard() {
         document.getElementById('dashboard-view').style.display = 'block';
         const fromEl = document.getElementById('dash-from');
         const toEl = document.getElementById('dash-to');
-        if (!fromEl.value && !toEl.value) {
+        const mainDate = document.getElementById('date-filter')?.value;
+        const hSel = document.getElementById('dash-corte-hora-sel');
+        if (mainDate) {
+            fromEl.value = toEl.value = mainDate;
+
+            // Si es un día anterior, poner corte a las 23:59
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            if (mainDate !== todayStr && hSel) {
+                hSel.value = "23";
+            }
+        } else if (!fromEl.value && !toEl.value) {
             const t = new Date();
             const ymd = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
             fromEl.value = toEl.value = ymd;
@@ -750,4 +761,28 @@ document.addEventListener('DOMContentLoaded', () => { setTimeout(initDashboard, 
 window.refreshDashboardIfVisible = function () {
     const v = document.getElementById('dashboard-view');
     if (v && v.style.display !== 'none') renderDashboard();
+};
+
+window.syncDashboardDate = function (newDate) {
+    const fromEl = document.getElementById('dash-from');
+    const toEl = document.getElementById('dash-to');
+    const hSel = document.getElementById('dash-corte-hora-sel');
+
+    if (fromEl && toEl) {
+        fromEl.value = newDate;
+        toEl.value = newDate;
+
+        // Si es un día anterior, poner corte a las 23:59 automáticamente
+        if (newDate) {
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+            if (newDate !== todayStr && hSel) {
+                hSel.value = "23";
+            }
+        }
+
+        // Si el dashboard es visible, refrescarlo inmediatamente
+        window.refreshDashboardIfVisible();
+    }
 };

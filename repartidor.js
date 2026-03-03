@@ -10,6 +10,8 @@ let selectedCaptureMode = 'pos'; // 'pos', 'efectivo', 'online'
 let isAdminListView = false; // Feature flag for testing
 let quickShareOrder = null;
 let quickShareMode = 'salida'; // 'salida' o 'devolucion'
+let selectedDriverForAdmin = null; // null = ver todos los repartidores (resumen), "Nombre" = ver solo ese
+let selectedDriverForHistoryAdmin = null; // null = resumen historial, "Nombre" = detalle historial
 
 // DOM Elements
 const pantallaLogin = document.getElementById('pantalla-login');
@@ -136,6 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 stopAllTimers();
                 pantallaRuta.classList.add('hidden');
                 pantallaRuta.classList.remove('flex');
+                document.getElementById('pantalla-historial').classList.add('hidden');
+                document.getElementById('pantalla-historial').classList.remove('flex');
+                document.getElementById('nav-footer').classList.add('hidden');
                 pantallaLogin.classList.remove('hidden');
                 pantallaLogin.classList.add('flex');
                 inputDriver.value = '';
@@ -143,6 +148,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    const btnCerrarRutaActive = document.getElementById('btn-cerrar-ruta-active');
+    if (btnCerrarRutaActive) {
+        btnCerrarRutaActive.addEventListener('click', () => btnCerrarRuta.click());
+    }
+
+
+    const btnRefreshHistory = document.getElementById('btn-refresh-history');
+    if (btnRefreshHistory) {
+        btnRefreshHistory.addEventListener('click', () => {
+            if (currentUser) fetchDriverOrders();
+        });
+    }
 
     const btnCerrarMapa = document.getElementById('btn-cerrar-mapa');
     if (btnCerrarMapa) {
@@ -223,7 +241,141 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchDriverOrders();
         }
     }, 300000);
+
+    // --- New Features Initialization ---
+    initConnectivityMonitoring();
+    initPullToRefresh();
 });
+
+// --- Tab Switching ---
+function switchTab(tab) {
+    const pantallaRuta = document.getElementById('pantalla-ruta');
+    const pantallaHistorial = document.getElementById('pantalla-historial');
+    const btnRuta = document.getElementById('nav-btn-ruta');
+    const btnHistorial = document.getElementById('nav-btn-historial');
+
+    if (tab === 'ruta') {
+        pantallaRuta.classList.remove('hidden');
+        pantallaRuta.classList.add('flex');
+        pantallaHistorial.classList.add('hidden');
+        pantallaHistorial.classList.remove('flex');
+        btnRuta.classList.add('text-primary');
+        btnRuta.classList.remove('text-slate-500');
+        btnHistorial.classList.add('text-slate-500');
+        btnHistorial.classList.remove('text-primary');
+        renderOrders();
+        renderHistory(); // Also update history for admin if needed
+    } else {
+        pantallaRuta.classList.add('hidden');
+        pantallaRuta.classList.remove('flex');
+        pantallaHistorial.classList.remove('hidden');
+        pantallaHistorial.classList.add('flex');
+        btnRuta.classList.add('text-slate-500');
+        btnRuta.classList.remove('text-primary');
+        btnHistorial.classList.add('text-primary');
+        btnHistorial.classList.remove('text-slate-500');
+        renderHistory();
+    }
+}
+
+// --- Connectivity Monitoring ---
+function initConnectivityMonitoring() {
+    const banner = document.getElementById('offline-banner');
+
+    function updateStatus() {
+        if (navigator.onLine) {
+            banner.style.display = 'none';
+        } else {
+            banner.style.display = 'block';
+        }
+    }
+
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    updateStatus(); // Initial check
+}
+
+// --- Pull to Refresh Logic (Touch Events) ---
+function initPullToRefresh() {
+    const container = document.getElementById('lista-pedidos-container');
+    const ptrIndicator = document.getElementById('ptr-indicator');
+    const ptrIcon = document.getElementById('ptr-icon');
+    const ptrText = document.getElementById('ptr-text');
+
+    let startY = 0;
+    let pulling = false;
+
+    container.addEventListener('touchstart', (e) => {
+        // Only allow pull if at the top of the container
+        if (container.scrollTop === 0) {
+            startY = e.touches[0].pageY;
+            pulling = true;
+        }
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+        if (!pulling) return;
+
+        const currentY = e.touches[0].pageY;
+        const diff = currentY - startY;
+
+        if (diff > 0) {
+            // Prevent default scrolling when pulling down
+            if (diff > 10) {
+                container.classList.add('ptr-active');
+            }
+
+            if (diff > 80) {
+                ptrIcon.className = 'fa-solid fa-rotate fa-spin mr-2';
+                ptrText.textContent = 'Suelta para actualizar';
+            } else {
+                ptrIcon.className = 'fa-solid fa-arrow-down-long mr-2';
+                ptrText.textContent = 'Desliza para actualizar';
+            }
+        }
+    }, { passive: true });
+
+    container.addEventListener('touchend', () => {
+        if (!pulling) return;
+
+        const diff = container.classList.contains('ptr-active');
+        if (diff) {
+            const ptrHeight = ptrIndicator.offsetHeight;
+            if (ptrHeight >= 50) {
+                ptrText.textContent = 'Actualizando...';
+                fetchDriverOrders().finally(() => {
+                    setTimeout(() => {
+                        container.classList.remove('ptr-active');
+                        ptrText.textContent = 'Desliza para actualizar';
+                        ptrIcon.className = 'fa-solid fa-arrow-down-long mr-2';
+                    }, 500);
+                });
+            } else {
+                container.classList.remove('ptr-active');
+            }
+        }
+        pulling = false;
+    });
+}
+
+// --- Copy to Clipboard Utility ---
+async function copyToClipboard(text, btn) {
+    try {
+        await navigator.clipboard.writeText(text);
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-check text-emerald-500"></i> Copiado';
+        btn.classList.add('bg-emerald-500/10', 'border-emerald-500/20');
+
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+            btn.classList.remove('bg-emerald-500/10', 'border-emerald-500/20');
+        }, 2000);
+
+        if (navigator.vibrate) navigator.vibrate(50);
+    } catch (err) {
+        console.error('Failed to copy: ', err);
+    }
+}
 
 function autoLoginData(name) {
     currentUser = name;
@@ -243,6 +395,7 @@ function autoLoginData(name) {
     }
 
     if (btnSwitchView) btnSwitchView.classList.add('hidden'); // Ocultar switch de modo
+    document.getElementById('nav-footer').classList.remove('hidden');
     fetchDriverOrders();
 }
 
@@ -324,7 +477,12 @@ async function fetchDriverOrders() {
                     // Si es Admin (o modo admin list), ve TODO lo activo. Si es repartidor, solo lo suyo.
                     const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
                     if (isAdminListView || isUserAdmin) return statusOk;
-                    return statusOk && o.envio && String(o.envio).trim().toLowerCase() === String(currentUser).trim().toLowerCase();
+
+                    const sheetName = String(o.envio || '').trim().toLowerCase();
+                    const loginName = String(currentUser || '').trim().toLowerCase();
+                    const nameMatch = sheetName === loginName || (sheetName.startsWith(loginName) && loginName.length > 2);
+
+                    return statusOk && nameMatch;
                 }).sort((a, b) => {
                     // Try to extract strict numbers, fallback to large number if not set or invalid
                     const orderA = a.orden_ruta !== undefined && a.orden_ruta !== '' && !isNaN(a.orden_ruta) ? parseInt(a.orden_ruta, 10) : Number.MAX_SAFE_INTEGER;
@@ -344,6 +502,7 @@ async function fetchDriverOrders() {
                 });
 
                 renderOrders();
+                renderHistory(); // Asegurar que el historial también se refresque
             }
         } else {
             console.warn('Servidor respondió sin éxito o data es null', data);
@@ -383,150 +542,174 @@ function renderOrders() {
         return;
     }
 
-    currentOrders.forEach((order, index) => {
-        // Parse time for the clock
-        let registerDate = null;
-        if (order.fecha) {
-            // Try to parse the ISO string or similar format from the Google server
-            registerDate = new Date(order.fecha);
+    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+
+    if (isUserAdmin || isAdminListView) {
+        if (!selectedDriverForAdmin) {
+            // VISTA 1: RESUMEN DE REPARTIDORES (Lista de nombres con contadores)
+            renderAdminSummary(currentOrders);
+        } else {
+            // VISTA 2: DETALLE DE UN REPARTIDOR ESPECÍFICO
+            renderAdminDriverDetail(currentOrders, selectedDriverForAdmin);
         }
+    } else {
+        // VISTA NORMAL REPARTIDOR (Lista plana)
+        currentOrders.forEach((order, index) => {
+            renderSingleOrderCard(order, index);
+        });
+    }
 
-        const tipoPagoDisplay = (order.pago || 'Desconocido').toUpperCase();
-        let tipoIcon = 'wallet';
-        let tipoColor = 'text-slate-400 bg-slate-800';
-
-        if (tipoPagoDisplay.includes('EFECTIVO')) {
-            tipoIcon = 'money-bill';
-            tipoColor = 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
-        } else if (tipoPagoDisplay.includes('TARJETA') || tipoPagoDisplay.includes('POS')) {
-            tipoIcon = 'credit-card';
-            tipoColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
-        } else if (tipoPagoDisplay.includes('QR') || tipoPagoDisplay.includes('YAPE') || tipoPagoDisplay.includes('PLIN')) {
-            tipoIcon = 'qrcode';
-            tipoColor = 'text-teal-400 bg-teal-400/10 border-teal-400/20';
-        } else if (tipoPagoDisplay.includes('ONLINE')) {
-            tipoIcon = 'globe';
-            tipoColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
-        }
-
-        const monto = parseFloat(order.monto) || 0;
-
-        const card = document.createElement('div');
-        card.className = 'bg-cardDark rounded-2xl p-4 shadow-lg border border-slate-700/50 active:scale-[0.98] transition-all cursor-pointer';
-
-        // --- LOGICA VISTA MINIMAL (DEVOLUCION) ---
-        if (order.esperandoDevolucion) {
-            card.innerHTML = `
-                <div class="flex items-center justify-between">
-                    <div>
-                        <span class="text-xs text-orange-400 font-medium uppercase tracking-wider block mb-1">Pendiente Devolución</span>
-                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
-                    </div>
-                    </div>
-                    <button class="w-12 h-12 rounded-full bg-orange-500 border-2 border-orange-400 text-white flex items-center justify-center text-xl shadow-lg active:scale-90 transition-all" 
-                            onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Foto Devolución">
-                        <i class="fa-solid fa-rotate-left"></i>
-                    </button>
-                </div>
-            `;
-            containerPedidos.appendChild(card);
-            return;
-        }
-
-        card.onclick = (e) => {
-            // Si se hizo clic en el botón cancelar, no abrir el modal de entrega
-            if (e.target.closest('.btn-cancelar-pedido')) return;
-            openActionSelector(order);
-        };
-
-        const isFirst = index === 0;
-        const isLast = index === currentOrders.length - 1;
-
-        card.innerHTML = `
-            <div class="flex justify-between items-start mb-3">
-                <div class="flex items-center gap-2">
-                    <!-- Controles de Orden (Flechas + Grip) -->
-                    <div class="flex flex-col items-center gap-1 pr-2 border-r border-slate-700/50">
-                        <button onclick="event.stopPropagation(); moveOrderManual(${index}, -1)" 
-                                class="w-8 h-7 flex items-center justify-center text-slate-500 hover:text-white transition-colors ${isFirst ? 'opacity-0 pointer-events-none' : ''}">
-                            <i class="fa-solid fa-chevron-up text-xs"></i>
-                        </button>
-                        <div class="handle w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
-                            <i class="fa-solid fa-grip-lines text-lg text-slate-500"></i>
-                        </div>
-                        <button onclick="event.stopPropagation(); moveOrderManual(${index}, 1)" 
-                                class="w-8 h-7 flex items-center justify-center text-slate-500 hover:text-white transition-colors ${isLast ? 'opacity-0 pointer-events-none' : ''}">
-                            <i class="fa-solid fa-chevron-down text-xs"></i>
-                        </button>
-                    </div>
-
-                    <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/20 ${order.estado !== 'Pendiente' ? 'hidden' : ''}" 
-                            onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
-                        <i class="fa-solid fa-upload text-xl"></i>
-                    </button>
-                    
-                    <div class="ml-1">
-                        <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
-                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
-                    </div>
-                </div>
-                <div class="text-right flex flex-col items-end">
-                    <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
-                    <span class="text-2xl font-bold text-amber-400">S/ ${monto.toFixed(2)}</span>
-                </div>
-            </div>
-            
-            <div class="flex items-center justify-between mt-4">
-                <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold ${tipoColor}">
-                    <i class="fa-solid fa-${tipoIcon}"></i>
-                    ${tipoPagoDisplay}
-                </span>
-                
-                <div class="flex items-center gap-3">
-                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
-                        <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
-                        <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
-                    </div>
-                    <button class="btn-cancelar-pedido w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 text-red-400/60 hover:text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all text-sm" onclick="event.stopPropagation(); openCancelModal(currentOrders[${index}])" title="Cancelar Pedido">
-                        <i class="fa-solid fa-ban"></i>
-                    </button>
-                </div>
-            </div>
-        `;
-
-        containerPedidos.appendChild(card);
-
-        if (registerDate && !isNaN(registerDate)) {
-            startTimer(order.nro, registerDate, order.llave || `PED-${order.nro}`);
-        }
-    });
     // --- Drag and Drop Sorting Logic ---
-    if (window.Sortable) {
+    // Deshabilitar Drag & Drop si es Admin para evitar conflictos con la agrupación visual
+    if (window.Sortable && !isUserAdmin && !isAdminListView) {
         // Limpiar instancia previa para evitar duplicados o pérdida de eventos táctiles
         if (sortableInstance) {
             sortableInstance.destroy();
         }
 
         sortableInstance = Sortable.create(containerPedidos, {
-            animation: 300,            // Animación suave de 300ms
-            handle: '.handle',         // Solo permite arrastrar desde el icono
-            ghostClass: 'bg-slate-700', // Sombra de donde viene
-            chosenClass: 'scale-[1.02]', // Efecto de selección
-            dragClass: 'opacity-100',   // Opacidad total al arrastrar
-            forceFallback: true,        // Mejora estabilidad en iOS/Android
+            animation: 300,
+            handle: '.handle',
+            ghostClass: 'bg-slate-700',
+            chosenClass: 'scale-[1.02]',
+            dragClass: 'opacity-100',
+            forceFallback: true,
             fallbackOnBody: true,
-            swapThreshold: 0.65,        // Hace que el intercambio sea más intuitivo
+            swapThreshold: 0.65,
             onEnd: function (evt) {
                 if (evt.oldIndex === evt.newIndex) return;
 
-                // 1. Sincronizar el array local inmediatamente
                 const movedItem = currentOrders.splice(evt.oldIndex, 1)[0];
                 currentOrders.splice(evt.newIndex, 0, movedItem);
 
-                // 2. Guardar el nuevo orden en el servidor (Columna S)
                 saveOrderRouteToServer();
             }
         });
+    }
+}
+
+function renderSingleOrderCard(order, index) {
+    // Parse time for the clock
+    let registerDate = null;
+    if (order.fecha) {
+        registerDate = new Date(order.fecha);
+    }
+
+    const tipoPagoDisplay = (order.pago || 'Desconocido').toUpperCase();
+    let tipoIcon = 'wallet';
+    let tipoColor = 'text-slate-400 bg-slate-800';
+
+    if (tipoPagoDisplay.includes('EFECTIVO')) {
+        tipoIcon = 'money-bill';
+        tipoColor = 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
+    } else if (tipoPagoDisplay.includes('TARJETA') || tipoPagoDisplay.includes('POS')) {
+        tipoIcon = 'credit-card';
+        tipoColor = 'text-purple-400 bg-purple-400/10 border-purple-400/20';
+    } else if (tipoPagoDisplay.includes('QR') || tipoPagoDisplay.includes('YAPE') || tipoPagoDisplay.includes('PLIN')) {
+        tipoIcon = 'qrcode';
+        tipoColor = 'text-teal-400 bg-teal-400/10 border-teal-400/20';
+    } else if (tipoPagoDisplay.includes('ONLINE')) {
+        tipoIcon = 'globe';
+        tipoColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
+    }
+
+    const monto = parseFloat(order.monto) || 0;
+    const card = document.createElement('div');
+    const cardClass = order.estado === 'En Camino' ? 'bg-slate-900 border-blue-500/30' : 'bg-cardDark border-slate-700/50';
+    card.className = `${cardClass} rounded-2xl p-4 shadow-lg border active:scale-[0.98] transition-all cursor-pointer mb-4`;
+
+    // --- LOGICA VISTA MINIMAL (DEVOLUCION) ---
+    if (order.esperandoDevolucion) {
+        card.innerHTML = `
+            <div class="flex items-center justify-between">
+                <div>
+                    <span class="text-xs text-orange-400 font-medium uppercase tracking-wider block mb-1">Pendiente Devolución</span>
+                    <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
+                </div>
+                <button class="w-12 h-12 rounded-full bg-orange-500 border-2 border-orange-400 text-white flex items-center justify-center text-xl shadow-lg active:scale-90 transition-all" 
+                        onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Foto Devolución">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+            </div>
+        `;
+        containerPedidos.appendChild(card);
+        return;
+    }
+
+    card.onclick = (e) => {
+        if (e.target.closest('.btn-cancelar-pedido')) return;
+        openActionSelector(order);
+    };
+
+    const isFirst = index === 0;
+    const isLast = index === currentOrders.length - 1;
+
+    card.innerHTML = `
+        <div class="flex justify-between items-start mb-3">
+            <div class="flex items-center gap-2">
+                <!-- Controles de Orden (Flechas + Grip) -->
+                ${!(currentUser && currentUser.toLowerCase() === 'admin') ? `
+                <div class="flex flex-col items-center gap-1 pr-2 border-r border-slate-700/50">
+                    <button onclick="event.stopPropagation(); moveOrderManual(${index}, -1)" 
+                            class="w-8 h-7 flex items-center justify-center text-slate-500 hover:text-white transition-colors ${isFirst ? 'opacity-0 pointer-events-none' : ''}">
+                        <i class="fa-solid fa-chevron-up text-xs"></i>
+                    </button>
+                    <div class="handle w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-colors border border-slate-700 shadow-sm" style="touch-action: none;">
+                        <i class="fa-solid fa-grip-lines text-lg text-slate-500"></i>
+                    </div>
+                    <button onclick="event.stopPropagation(); moveOrderManual(${index}, 1)" 
+                            class="w-8 h-7 flex items-center justify-center text-slate-500 hover:text-white transition-colors ${isLast ? 'opacity-0 pointer-events-none' : ''}">
+                        <i class="fa-solid fa-chevron-down text-xs"></i>
+                    </button>
+                </div>` : ''}
+
+                <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/20 ${order.estado !== 'Pendiente' ? 'hidden' : ''}" 
+                        onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
+                    <i class="fa-solid fa-upload text-xl"></i>
+                </button>
+                
+                <div class="ml-1">
+                    <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
+                        <button onclick="event.stopPropagation(); copyToClipboard('${order.llave || `PED-${order.nro}`}', this)" class="btn-copy" title="Copiar Llave">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                        ${order.direccion ? `
+                        <button onclick="event.stopPropagation(); window.open('https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.direccion)}', '_blank')" class="btn-copy text-primary" title="Ver en Mapa">
+                            <i class="fa-solid fa-location-dot"></i>
+                        </button>` : ''}
+                    </div>
+                </div>
+            </div>
+            <div class="text-right flex flex-col items-end">
+                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
+                <span class="text-2xl font-bold text-amber-400">S/ ${monto.toFixed(2)}</span>
+            </div>
+        </div>
+        
+        <div class="flex items-center justify-between mt-4">
+            <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold ${tipoColor}">
+                <i class="fa-solid fa-${tipoIcon}"></i>
+                ${tipoPagoDisplay}
+            </span>
+            
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
+                    <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
+                    <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
+                </div>
+                <button class="btn-cancelar-pedido w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 text-red-400/60 hover:text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all text-sm" onclick="event.stopPropagation(); openCancelModal(currentOrders[index])" title="Cancelar Pedido">
+                    <i class="fa-solid fa-ban"></i>
+                </button>
+            </div>
+        </div>
+    `;
+
+    containerPedidos.appendChild(card);
+
+    if (registerDate && !isNaN(registerDate)) {
+        startTimer(order.nro, registerDate, order.llave || `PED-${order.nro}`);
     }
 }
 
@@ -1301,5 +1484,319 @@ async function combineTwoPhotos(file1, file2, fileName) {
 
         reader1.readAsDataURL(file1);
         reader2.readAsDataURL(file2);
+    });
+}
+
+function renderHistory() {
+    const container = document.getElementById('lista-historial-container');
+    const lblSummary = document.getElementById('lbl-history-summary');
+    if (!container || !lblSummary) return;
+    container.innerHTML = '';
+
+    const historyOrders = window.orders ? window.orders.filter(o => {
+        const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+        const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
+
+        // Solo hoy
+        const orderDate = new Date(o.fecha).toLocaleDateString('es-PE');
+        const todayDate = new Date().toLocaleDateString('es-PE');
+        const dateMatch = orderDate === todayDate;
+
+        // Comparación de nombre más flexible
+        const sheetName = String(o.envio || '').trim().toLowerCase();
+        const loginName = String(currentUser || '').trim().toLowerCase();
+        const nameMatch = sheetName === loginName || (sheetName.startsWith(loginName) && loginName.length > 2);
+
+        if (isUserAdmin) return stateMatch && dateMatch;
+        return stateMatch && nameMatch && dateMatch;
+    }) : [];
+
+    console.log(`📜 Historial filtrado para ${currentUser}: ${historyOrders.length} pedidos encontrados`);
+
+    lblSummary.textContent = `${historyOrders.length} entregas procesadas`;
+
+    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+
+    if (isUserAdmin) {
+        if (!selectedDriverForHistoryAdmin) {
+            // VISTA 1: RESUMEN HISTORIAL ADMIN
+            renderAdminHistorySummary(historyOrders);
+            return;
+        } else {
+            // VISTA 2: DETALLE HISTORIAL UN REPARTIDOR
+            renderAdminHistoryDriverDetail(historyOrders, selectedDriverForHistoryAdmin);
+            return;
+        }
+    }
+
+    if (historyOrders.length === 0) {
+        container.innerHTML = `
+        <div class="text-center py-12 px-4 border border-dashed border-slate-700 rounded-2xl">
+            <i class="fa-solid fa-clock-rotate-left text-4xl text-slate-600 mb-4"></i>
+            <h3 class="text-xl font-bold text-slate-500">Historial Vacío</h3>
+            <p class="text-slate-600 mt-2">No tienes pedidos finalizados o por validar aún.</p>
+        </div>
+    `;
+        return;
+    }
+
+    historyOrders.sort((a, b) => b.nro - a.nro).forEach(order => {
+        const div = document.createElement('div');
+        const isDelivered = order.estado === 'Validado' || order.estado === 'Por Validar';
+        const statusColor = order.estado === 'Validado' ? 'text-emerald-400 bg-emerald-500/10' :
+            (order.estado === 'Cancelado' ? 'text-red-400 bg-red-500/10' : 'text-orange-400 bg-orange-500/10');
+        const statusLabel = order.estado === 'Validado' ? 'VALIDADO' : (order.estado === 'Cancelado' ? 'CANCELADO' : 'POR VALIDAR');
+
+        const withinSLA = isWithinSLA(order);
+        const isCancelled = order.estado === 'Cancelado';
+
+        // Determinar texto de SLA
+        let slaHTML = '';
+        if (!isCancelled) {
+            if (withinSLA) {
+                slaHTML = `<span class="text-emerald-500 font-bold uppercase tracking-tight"><i class="fa-solid fa-circle-check mr-1"></i> Entrega Exitosa</span>`;
+            } else {
+                slaHTML = `<span class="text-red-500 font-bold uppercase tracking-tight"><i class="fa-solid fa-circle-exclamation mr-1"></i> Entrega Fuera de Tiempo</span>`;
+            }
+        }
+
+        div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-sm';
+        div.innerHTML = `
+        <div class="flex justify-between items-start mb-2">
+            <div>
+                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">LLAVE</span>
+                <span class="text-lg font-bold text-white">${order.llave || `PED-${order.nro}`}</span>
+            </div>
+            <div class="text-right">
+                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">MONTO</span>
+                <span class="text-lg font-bold text-amber-400">S/ ${parseFloat(order.monto || 0).toFixed(2)}</span>
+            </div>
+        </div>
+        
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
+            <span class="px-2 py-0.5 rounded text-[10px] font-black tracking-tighter ${statusColor}">${statusLabel}</span>
+            <div class="text-[10px]">
+                ${slaHTML}
+            </div>
+        </div>
+    `;
+        container.appendChild(div);
+    });
+}
+
+function isWithinSLA(order) {
+    if (!order.fecha || !order.hora_entrega) return false;
+    try {
+        const start = new Date(order.fecha);
+        // La hora_entrega viene como HH:mm. La combinamos con la fecha del pedido.
+        const [h, m] = order.hora_entrega.split(':');
+        const end = new Date(order.fecha);
+        end.setHours(parseInt(h), parseInt(m), 0);
+
+        const diffMs = end - start;
+        const diffMins = diffMs / 60000;
+        return diffMins <= 35 && diffMins >= 0;
+    } catch (e) {
+        return false;
+    }
+}
+
+// --- Admin Profile Summary Functions ---
+
+function renderAdminSummary(orders) {
+    const container = document.getElementById('lista-pedidos-container');
+    container.innerHTML = '';
+
+    // Agrupar pedidos por repartidor
+    const grouped = {};
+    orders.forEach(order => {
+        const driver = (order.envio || 'Sin Asignar').trim();
+        if (!grouped[driver]) grouped[driver] = [];
+        grouped[driver].push(order);
+    });
+
+    const drivers = Object.keys(grouped).sort((a, b) => {
+        if (a === 'Sin Asignar') return 1;
+        if (b === 'Sin Asignar') return -1;
+        return a.localeCompare(b);
+    });
+
+    drivers.forEach(driverName => {
+        const count = grouped[driverName].length;
+        const div = document.createElement('div');
+        div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-5 mb-3 flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer hover:border-primary/50';
+
+        div.innerHTML = `
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary text-xl">
+                    <i class="fa-solid fa-user-tie"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-200 text-lg">${driverName}</h3>
+                    <p class="text-sm text-slate-400">${count} pedido${count !== 1 ? 's' : ''} asignado${count !== 1 ? 's' : ''}</p>
+                </div>
+            </div>
+            <div class="text-primary">
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+        `;
+
+        div.onclick = () => {
+            selectedDriverForAdmin = driverName;
+            renderOrders();
+        };
+
+        container.appendChild(div);
+    });
+}
+
+function renderAdminDriverDetail(orders, driverName) {
+    const container = document.getElementById('lista-pedidos-container');
+    container.innerHTML = '';
+
+    // Header de navegación interna para Admin
+    const backBtn = document.createElement('div');
+    backBtn.className = 'flex items-center gap-2 mb-6 p-4 bg-primary/10 border border-primary/20 rounded-xl cursor-pointer text-primary hover:bg-primary/20 transition-all';
+    backBtn.innerHTML = `
+        <i class="fa-solid fa-arrow-left"></i>
+        <span class="font-bold uppercase tracking-wider text-xs">Volver a lista de repartidores</span>
+    `;
+    backBtn.onclick = () => {
+        selectedDriverForAdmin = null;
+        renderOrders();
+    };
+    container.appendChild(backBtn);
+
+    const driverOrders = orders.filter(o => (o.envio || 'Sin Asignar').trim() === driverName);
+
+    // Título del repartidor seleccionado
+    const title = document.createElement('div');
+    title.className = 'px-2 mb-4 text-slate-400 font-medium flex items-center gap-2';
+    title.innerHTML = `
+        <i class="fa-solid fa-motorcycle text-primary"></i>
+        Pedidos de <span class="text-white font-bold">${driverName}</span>
+    `;
+    container.appendChild(title);
+
+    driverOrders.forEach(order => {
+        const idxInAll = orders.indexOf(order);
+        renderSingleOrderCard(order, idxInAll);
+    });
+}
+
+// --- Admin History Summary Functions ---
+
+function renderAdminHistorySummary(orders) {
+    const container = document.getElementById('lista-historial-container');
+    container.innerHTML = '';
+
+    // Agrupar historial por repartidor
+    const grouped = {};
+    orders.forEach(order => {
+        const driver = (order.envio || 'Sin Asignar').trim();
+        if (!grouped[driver]) grouped[driver] = [];
+        grouped[driver].push(order);
+    });
+
+    const drivers = Object.keys(grouped).sort((a, b) => {
+        if (a === 'Sin Asignar') return 1;
+        if (b === 'Sin Asignar') return -1;
+        return a.localeCompare(b);
+    });
+
+    drivers.forEach(driverName => {
+        const count = grouped[driverName].length;
+        const div = document.createElement('div');
+        div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-5 mb-3 flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer hover:border-emerald-500/50';
+
+        div.innerHTML = `
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 text-xl">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-200 text-lg">${driverName}</h3>
+                    <p class="text-sm text-slate-400">${count} entrega${count !== 1 ? 's' : ''} hoy</p>
+                </div>
+            </div>
+            <div class="text-emerald-500">
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+        `;
+
+        div.onclick = () => {
+            selectedDriverForHistoryAdmin = driverName;
+            renderHistory();
+        };
+
+        container.appendChild(div);
+    });
+}
+
+function renderAdminHistoryDriverDetail(orders, driverName) {
+    const container = document.getElementById('lista-historial-container');
+    container.innerHTML = '';
+
+    // Header de navegación interna para Historial Admin
+    const backBtn = document.createElement('div');
+    backBtn.className = 'flex items-center gap-2 mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl cursor-pointer text-emerald-500 hover:bg-emerald-500/20 transition-all';
+    backBtn.innerHTML = `
+        <i class="fa-solid fa-arrow-left"></i>
+        <span class="font-bold uppercase tracking-wider text-xs">Volver a resumen de historial</span>
+    `;
+    backBtn.onclick = () => {
+        selectedDriverForHistoryAdmin = null;
+        renderHistory();
+    };
+    container.appendChild(backBtn);
+
+    const driverOrders = orders.filter(o => (o.envio || 'Sin Asignar').trim() === driverName);
+
+    // Título del repartidor seleccionado en Historial
+    const title = document.createElement('div');
+    title.className = 'px-2 mb-4 text-slate-400 font-medium flex items-center gap-2';
+    title.innerHTML = `
+        <i class="fa-solid fa-clock-rotate-left text-emerald-500"></i>
+        Historial de <span class="text-white font-bold">${driverName}</span>
+    `;
+    container.appendChild(title);
+
+    driverOrders.sort((a, b) => b.nro - a.nro).forEach(order => {
+        const div = document.createElement('div');
+        const statusColor = order.estado === 'Validado' ? 'text-emerald-400 bg-emerald-500/10' :
+            (order.estado === 'Cancelado' ? 'text-red-400 bg-red-500/10' : 'text-orange-400 bg-orange-500/10');
+        const statusLabel = order.estado === 'Validado' ? 'VALIDADO' : (order.estado === 'Cancelado' ? 'CANCELADO' : 'POR VALIDAR');
+        const withinSLA = isWithinSLA(order);
+        const isCancelled = order.estado === 'Cancelado';
+
+        let slaHTML = '';
+        if (!isCancelled) {
+            if (withinSLA) {
+                slaHTML = `<span class="text-emerald-500 font-bold uppercase tracking-tight"><i class="fa-solid fa-circle-check mr-1"></i> Entrega Exitosa</span>`;
+            } else {
+                slaHTML = `<span class="text-red-500 font-bold uppercase tracking-tight"><i class="fa-solid fa-circle-exclamation mr-1"></i> Entrega Fuera de Tiempo</span>`;
+            }
+        }
+
+        div.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-sm mb-3';
+        div.innerHTML = `
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">LLAVE</span>
+                    <span class="text-lg font-bold text-white">${order.llave || `PED-${order.nro}`}</span>
+                </div>
+                <div class="text-right">
+                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">MONTO</span>
+                    <span class="text-lg font-bold text-amber-400">S/ ${parseFloat(order.monto || 0).toFixed(2)}</span>
+                </div>
+            </div>
+            <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
+                <span class="px-2 py-0.5 rounded text-[10px] font-black tracking-tighter ${statusColor}">${statusLabel}</span>
+                <div class="text-[10px]">
+                    ${slaHTML}
+                </div>
+            </div>
+        `;
+        container.appendChild(div);
     });
 }
