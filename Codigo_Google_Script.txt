@@ -138,9 +138,31 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega) {
       if (rows[i][6] === 'Pendiente' || rows[i][6] === 'En Camino' || rows[i][6] === 'Reservado') {
         sheet.getRange(i + 1, 7).setValue('Por Validar'); // G: Estado = Por Validar
         
-        // Si vienen datos de fecha/hora (desde la App del Repartidor al cancelar)
+        // Si vienen datos de fecha/hora
         if (fechaEntrega) sheet.getRange(i + 1, 16).setValue(fechaEntrega); // P
         if (horaEntrega) sheet.getRange(i + 1, 17).setValue(horaEntrega); // Q
+        
+        // Calcular tiempo transcurrido y ponerlo en la columna 18 (R)
+        const fechaRegistro = rows[i][1];
+        if (fechaRegistro && fechaEntrega && horaEntrega) {
+          try {
+            const [day, month, year] = fechaEntrega.split('/').map(Number);
+            const [h, m] = horaEntrega.split(':').map(Number);
+            const entregaDate = new Date(year, month - 1, day, h, m, 0);
+            const regDate = new Date(fechaRegistro);
+            
+            const diffMs = entregaDate - regDate;
+            const diffSecs = Math.floor(diffMs / 1000);
+            
+            if (diffSecs >= 0) {
+              const hours = Math.floor(diffSecs / 3600);
+              const minutes = Math.floor((diffSecs % 3600) / 60);
+              const seconds = diffSecs % 60;
+              const durationStr = [hours, minutes, seconds].map(v => String(v).padStart(2, '0')).join(':');
+              sheet.getRange(i + 1, 18).setValue(durationStr);
+            }
+          } catch(e) {}
+        }
         
         return { success: true };
       } else {

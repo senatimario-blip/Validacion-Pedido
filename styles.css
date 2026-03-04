@@ -497,6 +497,12 @@ body {
     border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+.badge.En-Camino {
+    background: rgba(255, 255, 255, 0.15);
+    color: #f0f0f0;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
 .badge.Reservado {
     background: rgba(148, 163, 184, 0.2);
     color: var(--text-muted);

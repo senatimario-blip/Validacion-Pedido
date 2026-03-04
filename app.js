@@ -415,7 +415,7 @@ function renderOrders(data) {
                 let staticMins = null; // Para cuando viene de HH:MM:SS de Google Sheets
 
                 // Usamos el tiempo guardado si ya está procesado (Validado/Cancelado) and existe la columna
-                if ((order.estado === 'Validado' || order.estado === 'Cancelado' || order.estado === 'Rechazado') && order.tiempo_transcurrido) {
+                if ((order.estado === 'Validado' || order.estado === 'Por Validar' || order.estado === 'Cancelado' || order.estado === 'Rechazado') && order.tiempo_transcurrido) {
                     let valTiempo = order.tiempo_transcurrido;
 
                     // Si viene como string HH:MM:SS
@@ -440,7 +440,7 @@ function renderOrders(data) {
                     }
                 }
                 // Si no hay tiempo estático, calculamos dinámicamente o por fecha entrega (legacy/fallbacks)
-                else if (order.estado === 'Validado' && order.hora_entrega) {
+                else if ((order.estado === 'Validado' || order.estado === 'Por Validar') && order.hora_entrega) {
                     let hStr = String(order.hora_entrega).trim();
                     let hh = 0, mm = 0, ok = false;
 
@@ -481,7 +481,7 @@ function renderOrders(data) {
                             diffMs = delDate.getTime() - orderDate.getTime();
                         }
                     }
-                } else if (order.estado === 'Pendiente' || order.estado === 'Por Validar') {
+                } else if (order.estado === 'Pendiente' || order.estado === 'En Camino') {
                     // Calcular against now(Lima) para Pendientes y Por Validar
                     const now = new Date();
                     const formatterNow = new Intl.DateTimeFormat('en-US', {
@@ -506,7 +506,7 @@ function renderOrders(data) {
                     // --- NUEVA LÓGICA DE COLORES ---
                     let color, bg;
 
-                    if (order.estado === 'Pendiente' || order.estado === 'Por Validar') {
+                    if (order.estado === 'Pendiente' || order.estado === 'En Camino') {
                         // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
                         color = mins <= 35 ? '#4ade80' : '#f87171';
                         bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
@@ -614,7 +614,7 @@ function startGlobalTimers() {
             const estado = tr.getAttribute('data-estado');
             const startTime = parseInt(tr.getAttribute('data-time'), 10);
 
-            if ((estado === 'Pendiente' || estado === 'Por Validar') && !isNaN(startTime)) {
+            if ((estado === 'Pendiente' || estado === 'En Camino') && !isNaN(startTime)) {
                 let diffMs = limaNowUtc - startTime;
                 if (diffMs < 0) diffMs = 0;
 

@@ -136,13 +136,9 @@ function renderMapaMotorizados() {
         return getOrderDateLima(o.fecha) === targetDate;
     });
 
-    // Solo mostramos pedidos que no estén validados/cancelados/procesados SI no tienen viaje
-    const activeOrders = allOrders.filter(o =>
-        !o.viaje_id &&
-        o.estado !== 'Validado' &&
-        o.estado !== 'Cancelado' &&
-        o.estado !== 'Rechazado'
-    );
+    // Solo mostramos pedidos SI no tienen viaje
+    // (Ahora SI mostramos los Validados y Cancelados para que puedan ser armados en Viajes)
+    const activeOrders = allOrders.filter(o => !o.viaje_id);
 
     // Pedidos que ya pertenecen a un viaje (de cualquier estado hoy)
     const tripOrders = allOrders.filter(o => o.viaje_id);
@@ -244,15 +240,28 @@ function renderActiveMonitor(motorizadosMap, container, countEl) {
                     </select>
                 </div>` : '';
 
+            let borderColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.4)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.4)' : 'rgba(255,255,255,0.1)');
+            let bgColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.1)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.1)' : 'rgba(0,0,0,0.4)');
+            let statusBadge = '';
+            if (o.estado === 'Validado') {
+                statusBadge = `<span style="font-size: 0.75em; background: rgba(74, 222, 128, 0.2); color: #4ADE80; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 8px;"><i class="fa-solid fa-check-circle"></i> V</span>`;
+            } else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
+                statusBadge = `<span style="font-size: 0.75em; background: rgba(248, 113, 113, 0.2); color: #F87171; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 8px;"><i class="fa-solid fa-ban"></i> C</span>`;
+            }
+            let boxShadow = o.estado === 'Validado' ? '0 0 8px rgba(74, 222, 128, 0.2)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? '0 0 8px rgba(248, 113, 113, 0.2)' : 'none');
+
             return `
-                <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" draggable="true" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 0.85em; display: flex; gap: 12px; align-items: center; cursor: grab; position: relative;">
+                <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" draggable="true" style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 0.85em; display: flex; gap: 12px; align-items: center; cursor: grab; position: relative; box-shadow: ${boxShadow};">
                     <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
                         <span style="font-weight: 800; color: ${isManualSort ? '#A78BFA' : 'rgba(255,255,255,0.2)'}; font-size: 0.9em;">[${seqNum}]</span>
                         <div style="color: rgba(255,255,255,0.3);"><i class="fa-solid fa-grip-vertical"></i></div>
                     </div>
                     <div style="flex: 1;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                            <strong style="color: #fff; font-size: 1.1em;">${o.llave || '#' + o.nro}</strong>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:center;">
+                            <strong style="color: #fff; font-size: 1.1em; display:flex; align-items:center;">
+                                ${o.llave || '#' + o.nro}
+                                ${statusBadge}
+                            </strong>
                             <strong style="color: #4ADE80; font-size: 1.1em;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -642,19 +651,58 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
         return;
     }
 
-    const nros = cards.map(c => c.getAttribute('data-nro'));
+    // Preparar el HTML para las casillas de verificación
+    let htmlContent = `<div style="text-align: left; max-height: 300px; overflow-y: auto; padding-right: 10px;">
+        <p style="margin-bottom: 15px; font-size: 0.9em; color: #aaa;">Selecciona los pedidos a incluir en el viaje. Desmarca los pedidos 'Pendientes' si deseas dejarlos para después.</p>`;
 
-    const { isConfirmed } = await Swal.fire({
-        title: '¿Crear viaje?',
-        text: `Se creará un solo viaje con los ${nros.length} pedidos en el orden actual.`,
-        icon: 'question',
+    cards.forEach(c => {
+        const nro = c.getAttribute('data-nro');
+        // Buscar info del pedido
+        const o = orders.find(x => x.nro == nro);
+        if (!o) return;
+
+        let labelColor = '#fff';
+        let badgeHtml = '';
+        if (o.estado === 'Pendiente') {
+            badgeHtml = `<span style="font-size:0.7em; background:rgba(234,179,8,0.2); color:#EAB308; padding:2px 4px; border-radius:4px; margin-left:6px;">Pendiente</span>`;
+        } else if (o.estado === 'Validado') {
+            badgeHtml = `<span style="font-size:0.7em; background:rgba(74,222,128,0.2); color:#4ADE80; padding:2px 4px; border-radius:4px; margin-left:6px;">Validado</span>`;
+        }
+
+        htmlContent += `
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; margin-bottom: 8px; cursor: pointer; background: rgba(0,0,0,0.2);">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" checked value="${nro}" class="trip-order-checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary);">
+                <span style="color: ${labelColor}; font-weight: bold;">${o.llave || '#' + o.nro}</span>
+            </div>
+            ${badgeHtml}
+        </label>`;
+    });
+    htmlContent += `</div>`;
+
+    const result = await Swal.fire({
+        title: `Armando Viaje: ${driverKey}`,
+        html: htmlContent,
+        width: '450px',
         showCancelButton: true,
-        confirmButtonText: 'Sí, crear',
-        cancelButtonText: 'Cancelar'
+        confirmButtonText: '<i class="fa-solid fa-route"></i> Crear Viaje Definitivo',
+        cancelButtonText: 'Cancelar',
+        preConfirm: () => {
+            // Recoger los checkbox marcados
+            const checkedBoxes = Array.from(Swal.getPopup().querySelectorAll('.trip-order-checkbox:checked'));
+            if (checkedBoxes.length === 0) {
+                Swal.showValidationMessage('Debes seleccionar al menos un pedido para el viaje');
+                return false;
+            }
+            // Retornar los nros seleccionados, PRESREVANDO el orden original en el que estaban en pantalla
+            const selectedSet = new Set(checkedBoxes.map(cb => cb.value));
+            const nrosEnOrdenOriginal = cards.map(c => c.getAttribute('data-nro')).filter(nro => selectedSet.has(nro));
+            return nrosEnOrdenOriginal;
+        }
     });
 
-    if (isConfirmed) {
-        await crearViajeConPedidos(nros);
+    if (result.isConfirmed && result.value && result.value.length > 0) {
+        await crearViajeConPedidos(result.value); // result.value es el array de nros seleccionados
         // Limpiar el estado de ordenamiento manual local para este driver ya que ahora son un viaje
         const mKey = driverKey.toUpperCase();
         if (driverSortState[mKey]) {

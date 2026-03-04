@@ -520,8 +520,12 @@ async function fetchDriverOrders() {
 
             // UNIFICADO: Siempre renderizar modo LISTA para todos
             if (true) {
+                // Leer devoluciones pendientes para incluir pedidos "Por Validar" que aún esperan foto devolución
+                let devPendientesFilter = [];
+                try { devPendientesFilter = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]'); } catch (e) { }
+
                 currentOrders = rawOrders.filter(o => {
-                    const statusOk = (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '');
+                    const statusOk = (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '' || (o.estado === 'Por Validar' && devPendientesFilter.includes(o.nro)));
                     // Si es Admin (o modo admin list), ve TODO lo activo. Si es repartidor, solo lo suyo.
                     const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
                     if (isAdminListView || isUserAdmin) return statusOk;
@@ -548,6 +552,16 @@ async function fetchDriverOrders() {
                     // If neither has an assigned route from the backend, sort by nro descending (newest first)
                     return b.nro - a.nro;
                 });
+
+                // Restaurar devoluciones pendientes desde localStorage
+                try {
+                    const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
+                    currentOrders.forEach(o => {
+                        if (devPendientes.includes(o.nro)) {
+                            o.esperandoDevolucion = true;
+                        }
+                    });
+                } catch (e) { }
 
                 renderOrders();
                 renderHistory(); // Asegurar que el historial también se refresque
@@ -663,27 +677,40 @@ function renderSingleOrderCard(order, index) {
 
     const monto = parseFloat(order.monto) || 0;
     const card = document.createElement('div');
-    const cardClass = order.estado === 'En Camino' ? 'bg-slate-900 border-blue-500/30' : 'bg-cardDark border-slate-700/50';
-    card.className = `${cardClass} rounded-2xl p-4 shadow-lg border active:scale-[0.98] transition-all cursor-pointer mb-4`;
 
-    // --- LOGICA VISTA MINIMAL (DEVOLUCION) ---
+    // --- CARD STYLE: muted/compact para devolución, normal para el resto ---
     if (order.esperandoDevolucion) {
+        card.className = 'bg-slate-900/60 rounded-xl p-3 shadow border border-orange-500/20 mb-3 transition-all';
+        card.style.opacity = '0.75';
+
         card.innerHTML = `
             <div class="flex items-center justify-between">
-                <div>
-                    <span class="text-xs text-orange-400 font-medium uppercase tracking-wider block mb-1">Pendiente Devolución</span>
-                    <span class="text-2xl font-bold tracking-tight text-white">${order.llave || `PED-${order.nro}`}</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-orange-400/70 font-medium uppercase tracking-wider">Entregado</span>
+                    <span class="text-lg font-bold text-slate-300">${order.llave || 'PED-' + order.nro}</span>
+                    <span class="text-sm text-slate-500 font-mono">S/ ${monto.toFixed(2)}</span>
                 </div>
-                <button class="w-12 h-12 rounded-full bg-orange-500 border-2 border-orange-400 text-white flex items-center justify-center text-xl shadow-lg active:scale-90 transition-all" 
-                        onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Paso 3: Foto Devolución">
-                    <i class="fa-solid fa-rotate-left"></i>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button class="btn-devolucion-pedido w-9 h-9 rounded-full bg-orange-500/80 border border-orange-400/60 text-white flex items-center justify-center text-sm active:scale-90 transition-all"
+                            onclick="event.stopPropagation(); startQuickShare(${index}, 'devolucion')" title="Foto Devolución">
+                        <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                    <button class="btn-finalizar-pedido w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400/80 flex items-center justify-center text-sm active:scale-90 transition-all"
+                            onclick="event.stopPropagation(); finalizarSinDevolucion(${index})" title="Sin devolución - Finalizar">
+                        <i class="fa-solid fa-check"></i>
+                    </button>
+                </div>
             </div>
         `;
         containerPedidos.appendChild(card);
         return;
     }
 
+    // --- CARD NORMAL (Pendiente / En Camino) ---
+    const cardClass = order.estado === 'En Camino' ? 'bg-slate-900 border-blue-500/30' : 'bg-cardDark border-slate-700/50';
+    card.className = `${cardClass} rounded-2xl p-4 shadow-lg border active:scale-[0.98] transition-all cursor-pointer mb-4`;
+
+    // Card click → abrir flujo de entrega
     card.onclick = (e) => {
         if (e.target.closest('.btn-cancelar-pedido')) return;
         openActionSelector(order);
@@ -711,7 +738,7 @@ function renderSingleOrderCard(order, index) {
                     </button>
                 </div>` : ''}
 
-                <button class="w-12 h-12 rounded-full bg-blue-500 border-2 border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/20 ${order.estado !== 'Pendiente' ? 'hidden' : ''}" 
+                <button class="w-10 h-10 rounded-full bg-blue-500 border border-blue-400 text-white flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-blue-500/30 ${order.estado !== 'Pendiente' ? 'hidden' : ''}" 
                         onclick="event.stopPropagation(); startQuickShare(${index}, 'salida')" title="Paso 1: Salida">
                     <i class="fa-solid fa-upload text-xl"></i>
                 </button>
@@ -719,8 +746,8 @@ function renderSingleOrderCard(order, index) {
                 <div class="ml-1">
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
                     <div class="flex items-center gap-2">
-                        <span class="text-2xl font-bold tracking-tight text-white"><span class="text-blue-400">[${index + 1}]</span> ${order.llave || `PED-${order.nro}`}</span>
-                        <button onclick="event.stopPropagation(); copyToClipboard('${order.llave || `PED-${order.nro}`}', this)" class="btn-copy" title="Copiar Llave">
+                        <span class="text-2xl font-bold tracking-tight text-white">${order.llave || 'PED-' + order.nro}</span>
+                        <button onclick="event.stopPropagation(); copyToClipboard('${order.llave || 'PED-' + order.nro}', this)" class="btn-copy" title="Copiar Llave">
                             <i class="fa-solid fa-copy"></i>
                         </button>
                         ${order.direccion ? `
@@ -730,9 +757,14 @@ function renderSingleOrderCard(order, index) {
                     </div>
                 </div>
             </div>
-            <div class="text-right flex flex-col items-end">
-                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
-                <span class="text-2xl font-bold text-amber-400">S/ ${monto.toFixed(2)}</span>
+            <div class="text-right flex items-center gap-3">
+                <div>
+                    <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
+                    <span class="text-2xl font-bold text-amber-400">S/ ${monto.toFixed(2)}</span>
+                </div>
+                <div class="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-600 text-lg" title="Devolución (después de entrega)">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </div>
             </div>
         </div>
         
@@ -743,13 +775,13 @@ function renderSingleOrderCard(order, index) {
             </span>
             
             <div class="flex items-center gap-3">
+                <button type="button" class="btn-cancelar-pedido w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 text-red-500 hover:text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all shadow-lg" onclick="event.stopPropagation(); openCancelModal(currentOrders[${index}])" title="Cancelar Pedido">
+                    <i class="fa-solid fa-ban text-lg"></i>
+                </button>
                 <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800" id="timer-box-${order.nro}">
                     <i class="fa-solid fa-clock text-slate-400" id="timer-icon-${order.nro}"></i>
                     <span class="font-mono font-bold text-slate-300" id="timer-text-${order.nro}">--:--</span>
                 </div>
-                <button class="btn-cancelar-pedido w-8 h-8 rounded-full bg-red-500/10 border border-red-500/20 text-red-400/60 hover:text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all text-sm" onclick="event.stopPropagation(); openCancelModal(currentOrders[index])" title="Cancelar Pedido">
-                    <i class="fa-solid fa-ban"></i>
-                </button>
             </div>
         </div>
     `;
@@ -1133,12 +1165,11 @@ async function handleSendToWhatsApp() {
 
     // Tarea B: Marcar como "Por Validar" en el Excel
     const payloadValidar = { action: 'marcarPorValidar', nro: orderRef.nro };
-    if (modeRef === 'efectivo' || modeRef === 'online') {
-        const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
-        const limaDate = new Date(nowLima);
-        payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
-    }
+    // Siempre enviar fecha y hora de entrega (hora Lima) para todos los modos
+    const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+    const limaDate = new Date(nowLima);
+    payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
     fetch(API_URL, {
         method: 'POST',
         body: JSON.stringify(payloadValidar)
@@ -1178,29 +1209,19 @@ async function handleSendToWhatsApp() {
                     window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
                 }
 
-                // 3. Preguntar si hay devolución
-                Swal.fire({
-                    title: '¿Tienes devolución?',
-                    text: `¿El cliente de "${llave}" entregó envases vacíos?`,
-                    icon: 'question',
-                    showCancelButton: true,
-                    confirmButtonText: 'Si, hay envases',
-                    cancelButtonText: 'No, todo conforme',
-                    confirmButtonColor: '#f59e0b',
-                    cancelButtonColor: '#10b981',
-                    allowOutsideClick: false
-                }).then((qaResult) => {
-                    if (qaResult.isConfirmed) {
-                        const order = currentOrders.find(o => o.nro === orderRef.nro);
-                        if (order) {
-                            order.esperandoDevolucion = true;
-                            renderOrders();
+                // 3. Auto-marcar como esperando devolución (sin popup)
+                const order = currentOrders.find(o => o.nro === orderRef.nro);
+                if (order) {
+                    order.esperandoDevolucion = true;
+                    try {
+                        const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
+                        if (!devPendientes.includes(orderRef.nro)) {
+                            devPendientes.push(orderRef.nro);
+                            localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes));
                         }
-                    } else {
-                        currentOrders = currentOrders.filter(o => o.nro !== orderRef.nro);
-                        renderOrders();
-                    }
-                });
+                    } catch (e) { }
+                    renderOrders();
+                }
 
             } catch (shareError) {
                 if (shareError.name !== 'AbortError') {
@@ -1402,6 +1423,46 @@ async function handleSendCancelToWhatsApp() {
     });
 }
 // =========================================================================
+// --- FINALIZAR SIN DEVOLUCIÓN ---
+// =========================================================================
+
+function finalizarSinDevolucion(index) {
+    const order = currentOrders[index];
+    if (!order) return;
+
+    Swal.fire({
+        title: '¿Sin devolución?',
+        text: `¿Confirmas que "${order.llave || 'PED-' + order.nro}" NO tiene envases para devolver?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '✓ Sí, finalizar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#64748b',
+        allowOutsideClick: false
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Limpiar de localStorage
+            try {
+                const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
+                localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes.filter(n => n !== order.nro)));
+            } catch (e) { }
+            // Quitar de la lista local
+            currentOrders = currentOrders.filter(o => o.nro !== order.nro);
+            renderOrders();
+
+            Swal.fire({
+                title: '¡Listo!',
+                text: 'Pedido finalizado correctamente.',
+                icon: 'success',
+                timer: 1500,
+                showConfirmButton: false
+            });
+        }
+    });
+}
+
+// =========================================================================
 // --- QUICK SHARE LOGIC (STEP 1 & 3) ---
 // =========================================================================
 
@@ -1449,8 +1510,12 @@ async function processQuickShare(e) {
                     marcarSalidaEnServidor(quickShareOrder.nro);
                 }
 
-                // Si es devolución, cerramos tras compartir
+                // Si es devolución, cerramos tras compartir y limpiamos localStorage
                 if (quickShareMode === 'devolucion') {
+                    try {
+                        const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
+                        localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes.filter(n => n !== quickShareOrder.nro)));
+                    } catch (e) { }
                     currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
                     renderOrders();
                 }
