@@ -1176,9 +1176,15 @@ async function handleSendToWhatsApp() {
     }).catch(e => console.warn('⚠️ Error background marcando Por Validar', e));
 
     // 2. FLUJO INMEDIATO DE WHATSAPP (SIN ESPERAR AL SERVIDOR)
-    const money = parseFloat(orderRef.monto).toFixed(2);
+    const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
+    const isEfectivo = String(orderRef.pago || '').toUpperCase().includes('EFECTIVO');
+    let paymentText = isEfectivo
+        ? `S/ ${numMoney.toFixed(2)}`
+        : `S/ ${numMoney.toFixed(2)}`;
+    let posIcon = isEfectivo ? '💵' : (String(orderRef.pago || '').toUpperCase().includes('ONLINE') ? '🌐' : '💳');
+
     const llave = orderRef.llave || `PED-${orderRef.nro}`;
-    const msgText = `✅ PEDIDO ENTREGADO\n📦 Llave: ${llave}\n💵 Monto: S/ ${money}\n🏍️ Repartidor: ${userRef}`;
+    const msgText = `PEDIDO ENTREGADO\n📦 ${llave}\n${posIcon} S/ ${numMoney.toFixed(2)}\n🏍️ ${userRef}`;
 
     // Enviamos las fotos por separado (juntas en la acción de compartir) pero manteniendo el texto único
     const filesToSend = [posFileRef, eviFileRef];
@@ -1331,7 +1337,7 @@ async function handleSendCancelToWhatsApp() {
     const evidenceFileRef = photoCancelEvidenciaFile;
     const userRef = currentUser;
     const llave = orderRef.llave || `PED-${orderRef.nro}`;
-    const msgText = `❌ PEDIDO CANCELADO\n📦 Llave: ${llave}\n🏍️ Repartidor: ${userRef}\n📋 Evidencias adjuntas\n`;
+    const msgText = `PEDIDO CANCELADO\n📦 ${llave}\n🏍️ ${userRef}`;
 
     console.log("🚀 Iniciando cancelación en segundo plano para:", llave);
 
@@ -1477,8 +1483,10 @@ async function processQuickShare(e) {
     if (!file || !quickShareOrder) return;
 
     try {
-        const label = (quickShareMode === 'salida') ? '📦 SALIDA DE RUTA' : '🔄 DEVOLUCIÓN';
-        const msgText = `${label}\n📦 Llave: ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ Repartidor: ${currentUser}`;
+        const label = (quickShareMode === 'salida') ? 'SALIDA' : 'RETORNO';
+        const msgText = (quickShareMode === 'salida')
+            ? `SALIDA\n📦 ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ ${currentUser}`
+            : `RETORNO\n📦 ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ ${currentUser}`;
 
         // Para asegurar compatibilidad en Android/iOS, usamos un modal intermedio con un botón.
         // Los navegadores bloquean el 'share' si no viene de una acción DIRECTA del usuario (un clic).
