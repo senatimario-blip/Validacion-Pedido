@@ -3388,12 +3388,19 @@ function resetImportTextModal() {
     }, 100);
 }
 
-importTextDropZone.addEventListener('paste', (e) => {
-    e.preventDefault();
-    const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+document.addEventListener('paste', (e) => {
+    // Verificar si el modal de importar texto está abierto (visible)
+    const isModalOpen = importTextModal.classList.contains('active') || importTextModal.classList.contains('flex') || importTextModal.style.display === 'flex';
 
-    if (pastedText) {
-        processPastedText(pastedText);
+    if (isModalOpen) {
+        // Omitir si el usuario está escribiendo en algún input (aunque en este modal no hay inputs, por seguridad)
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+        if (pastedText) {
+            e.preventDefault();
+            processPastedText(pastedText);
+        }
     }
 });
 
@@ -3407,7 +3414,6 @@ function processPastedText(text) {
 
 function parseRawCopiedText(text) {
     const ordersFound = [];
-
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
 
     const keyRegex = /^[A-Z0-9]{9}$/;
@@ -3420,26 +3426,34 @@ function parseRawCopiedText(text) {
 
         if (keyRegex.test(line)) {
             const llave = line;
-
             let fechaStr = '';
             let horaStr = '';
             let status = '';
             let envio = '';
             let monto = 0;
+            let pago = '';
 
+            i++; // skip llave
+
+            // Formato nuevo: Llave -> Nombre -> (Vacíos) -> Fecha -> Hora -> Status -> Envio -> Monto -> Pago
+
+            // Saltamos el Nombre
             i++;
 
+            // Buscamos fecha
             while (i < lines.length && !dateRegex.test(lines[i])) { i++; }
             if (i < lines.length && dateRegex.test(lines[i])) {
                 const dMatch = lines[i].match(dateRegex);
-                const dtIso = parseSpanishDate(dMatch[0]);
-                if (dtIso) {
-                    const [y, m, d] = dtIso.split('-');
-                    fechaStr = `${d}/${m}/${y}`;
-                }
+                const day = dMatch[1].padStart(2, '0');
+                const monthStr = dMatch[2].toLowerCase();
+                const months = { 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06', 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12' };
+                const m = months[monthStr.substring(0, 3)] || '01';
+                const y = dMatch[3];
+                fechaStr = `${day}/${m}/${y}`;
                 i++;
             }
 
+            // Buscamos hora
             if (i < lines.length && timeRegex.test(lines[i])) {
                 const tMatch = lines[i].match(timeRegex);
                 let hour = parseInt(tMatch[1]);
@@ -3451,36 +3465,36 @@ function parseRawCopiedText(text) {
                 i++;
             }
 
-            if (i < lines.length) {
+            // Status
+            if (i < lines.length && (lines[i] === 'Terminado' || lines[i] === 'En tránsito' || lines[i] === 'Cancelado')) {
                 status = lines[i];
                 i++;
             }
 
-            if (i < lines.length) {
-                if (lines[i].startsWith('S/')) {
-                    const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
-                    monto = parseFloat(amountClean).toFixed(2);
-                    envio = '';
-                    i++;
-                } else {
-                    envio = lines[i];
-                    i++;
-                    if (i < lines.length && lines[i].startsWith('S/')) {
-                        const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
-                        monto = parseFloat(amountClean).toFixed(2);
-                        i++;
-                    }
-                }
+            // Envío (Nombre de Moto) - Solo si no es un precio
+            if (i < lines.length && !lines[i].startsWith('$') && !lines[i].startsWith('S/')) {
+                envio = lines[i];
+                i++;
+            }
+
+            // Monto
+            if (i < lines.length && (lines[i].startsWith('$') || lines[i].startsWith('S/'))) {
+                const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
+                monto = parseFloat(amountClean).toFixed(2);
+                i++;
+            }
+
+            // Pago
+            if (i < lines.length && !keyRegex.test(lines[i])) {
+                pago = lines[i];
+                if (pago.includes('QR_CODE_YAPE')) pago = 'YAPE';
+                if (pago.includes('Tarjeta')) pago = 'TARJETA';
+                if (pago.includes('Contado')) pago = 'EFECTIVO';
+                i++;
             }
 
             let finalDate = fechaStr;
             if (fechaStr && horaStr) finalDate = `${fechaStr} ${horaStr}`;
-
-            let pago = '';
-            if (i < lines.length && !keyRegex.test(lines[i])) {
-                pago = lines[i];
-                i++;
-            }
 
             ordersFound.push({
                 llave: llave,
