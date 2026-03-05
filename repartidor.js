@@ -1212,7 +1212,8 @@ async function handleSendToWhatsApp() {
                 } else {
                     // Fallback si no soporta compartir archivos
                     try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-                    window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    // Envío directo a app nativa (Intento de saltar selector si hay chat reciente)
+                    window.location.href = `whatsapp://send?text=${encodeURIComponent(msgText)}`;
                 }
 
                 // 3. Auto-marcar como esperando devolución (sin popup)
@@ -1404,7 +1405,8 @@ async function handleSendCancelToWhatsApp() {
                     a2.download = `cancel_fachada_${llave}.jpg`;
                     document.body.appendChild(a2); a2.click(); document.body.removeChild(a2);
 
-                    window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    // Envío directo a app nativa
+                    window.location.href = `whatsapp://send?text=${encodeURIComponent(msgText)}`;
                 }
 
                 // Eliminar el pedido de la lista visual tras compartir
@@ -1510,7 +1512,8 @@ async function processQuickShare(e) {
                 } else {
                     // Fallback para PC
                     try { await navigator.clipboard.writeText(msgText); } catch (e1) { }
-                    window.location.href = `https://wa.me/?text=${encodeURIComponent(msgText)}`;
+                    // Envío directo a app nativa
+                    window.location.href = `whatsapp://send?text=${encodeURIComponent(msgText)}`;
                 }
 
                 // Si es salida, marcamos como "En Camino" en el servidor para ocultar el botón

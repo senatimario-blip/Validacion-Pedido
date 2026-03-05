@@ -1,8 +1,8 @@
-// --- CÓDIGO GOOGLE APPS SCRIPT FINAL v3.0 ---
+﻿// --- CÃ“DIGO GOOGLE APPS SCRIPT FINAL v3.0 ---
 // Hoja: "Pedidos" con 14 columnas (A-N)
 // A: Nro  B: Fecha  C: Llave  D: Monto  E: Foto(URL)  F: Monto Foto
-// G: Estado  H: Validado Por  I: Fecha Validación  J: Resp. Envío
-// K: Pago Original  L: Tipo Pago Val.  M: Vuelto  N: Motivo Cancelación
+// G: Estado  H: Validado Por  I: Fecha ValidaciÃ³n  J: Resp. EnvÃ­o
+// K: Pago Original  L: Tipo Pago Val.  M: Vuelto  N: Motivo CancelaciÃ³n
 
 function doGet(e) {
   return HtmlService.createHtmlOutput("API Activa - v3.0 Columnas Limpias");
@@ -34,7 +34,11 @@ function doPost(e) {
       case 'corregirEntrega':     result = corregirEntrega(payload); break;
       case 'getPhotoBase64':      result = getPhotoBase64(payload.nro); break;
       case 'crearMotorizado':     result = crearMotorizado(payload); break;
-      default:                    result = { success: false, message: 'Acción no encontrada' };
+      case 'guardarHorarioSemananal': result = guardarHorarioSemananal(payload); break;
+      case 'obtenerHorariosSemanales': result = obtenerHorariosSemanales(payload.semanaId); break;
+      case 'registrarMovimientoCaja': result = registrarMovimientoCaja(payload); break;
+      case 'getCajaData':             result = getCajaData(); break;
+      default:                    result = { success: false, message: 'AcciÃ³n no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
   } catch (err) {
@@ -65,7 +69,7 @@ function loginMotorizado(user, pass) {
   if (!sheet) return { success: false, message: "Hoja de Motorizados no encontrada" };
   
   const data = sheet.getDataRange().getValues();
-  // Asumimos Fila 1 = Encabezados, Fila 2 en adelante = Datos (Col0: Nombre, Col1: Contraseña)
+  // Asumimos Fila 1 = Encabezados, Fila 2 en adelante = Datos (Col0: Nombre, Col1: ContraseÃ±a)
   for (let i = 1; i < data.length; i++) {
     const dbUser = String(data[i][0]).trim();
     const dbPass = String(data[i][1]).trim();
@@ -73,7 +77,7 @@ function loginMotorizado(user, pass) {
       return { success: true, user: dbUser };
     }
   }
-  return { success: false, message: "Contraseña incorrecta o usuario no encontrado" };
+  return { success: false, message: "ContraseÃ±a incorrecta o usuario no encontrado" };
 }
 
 function listarPedidos() {
@@ -83,7 +87,7 @@ function listarPedidos() {
 
   // Leer 20 columnas (A..T)
   const data = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
-  // Traemos también los Textos (Display Values) para ignorar el formato histórico de Time/Dates en Sheets
+  // Traemos tambiÃ©n los Textos (Display Values) para ignorar el formato histÃ³rico de Time/Dates en Sheets
   const displayData = sheet.getRange(2, 1, lastRow - 1, 20).getDisplayValues();
 
   const pedidos = data.map((row, index) => ({
@@ -100,13 +104,13 @@ function listarPedidos() {
     pago:              row[10],  // K: Pago Original
     tipo_pago:         row[11],  // L: Tipo Pago Val.
     vuelto:            row[12],  // M: Vuelto
-    motivo_cancelacion: row[13], // N: Motivo Cancelación
+    motivo_cancelacion: row[13], // N: Motivo CancelaciÃ³n
     sla_fuera:         row[14],  // O: SLA Fuera Tiempo
     fecha_entrega:     displayData[index][15],  // P: Fecha Entrega como texto en hoja
     hora_entrega:      displayData[index][16],  // Q: Hora Entrega como texto en hoja
     tiempo_transcurrido: displayData[index][17], // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
-    orden_ruta:        row[18],  // S: Ordenamiento explícito para la ruta del motorizado
-    viaje_id:          row[19]   // T: ID de Viaje para agrupación y pagos
+    orden_ruta:        row[18],  // S: Ordenamiento explÃ­cito para la ruta del motorizado
+    viaje_id:          row[19]   // T: ID de Viaje para agrupaciÃ³n y pagos
   })).filter(p => p.nro);
 
   return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
@@ -166,8 +170,8 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega) {
         
         return { success: true };
       } else {
-         // Si por alguna razón la oficina ya lo validó mientras el patita manejaba
-         return { success: true, msg: 'El pedido ya había cambiado de estado' };
+         // Si por alguna razÃ³n la oficina ya lo validÃ³ mientras el patita manejaba
+         return { success: true, msg: 'El pedido ya habÃ­a cambiado de estado' };
       }
     }
   }
@@ -179,7 +183,7 @@ function marcarEnCamino(nro) {
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] == nro) {
-      // Solo cambiar si está en Pendiente para no sobreescribir otros estados
+      // Solo cambiar si estÃ¡ en Pendiente para no sobreescribir otros estados
       if (rows[i][6] === 'Pendiente') {
         sheet.getRange(i + 1, 7).setValue('En Camino');
         return { success: true };
@@ -195,7 +199,7 @@ function asignarMotorizado(data) {
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] == data.nro) {
-      sheet.getRange(i + 1, 10).setValue(data.envio || ""); // Columna J: Responsable Envío
+      sheet.getRange(i + 1, 10).setValue(data.envio || ""); // Columna J: Responsable EnvÃ­o
       return { success: true };
     }
   }
@@ -228,7 +232,7 @@ function validarPedido(data) {
       photoUrl = "Error al subir: " + e.toString();
     }
   } else {
-    // Mantener URL existente de columna E (ya está limpia)
+    // Mantener URL existente de columna E (ya estÃ¡ limpia)
     photoUrl = rows[rowIndex - 1][4] || "";
     // Si la URL guardada tiene texto concatenado por versiones anteriores, limpiarla
     if (photoUrl && photoUrl.indexOf(' ') > -1) {
@@ -241,8 +245,8 @@ function validarPedido(data) {
   sheet.getRange(rowIndex, 6).setValue(data.montoFoto || 0); // F: Monto foto OCR
   sheet.getRange(rowIndex, 7).setValue("Validado");          // G: Estado
   sheet.getRange(rowIndex, 8).setValue(data.usuario);        // H: Validado por
-  sheet.getRange(rowIndex, 9).setValue(new Date());          // I: Fecha validación
-  sheet.getRange(rowIndex, 10).setValue(data.envio || "");    // J: Responsable Envío
+  sheet.getRange(rowIndex, 9).setValue(new Date());          // I: Fecha validaciÃ³n
+  sheet.getRange(rowIndex, 10).setValue(data.envio || "");    // J: Responsable EnvÃ­o
   sheet.getRange(rowIndex, 12).setValue(data.tipo || "");    // L: Tipo Pago Val.
   sheet.getRange(rowIndex, 13).setValue(                     // M: Vuelto
     (data.tipo === "EFECTIVO" && data.vuelto) ? parseFloat(data.vuelto) : ""
@@ -255,13 +259,13 @@ function validarPedido(data) {
 }
 
 // ============== ENDPOINT PARA LA APP DEL REPARTIDOR ==============
-// Sube la foto pura a Drive y la asocia al Pedido sin validarlo aún.
+// Sube la foto pura a Drive y la asocia al Pedido sin validarlo aÃºn.
 function guardarFotoOcrSilent(llaveBusqueda, fotoB64) {
   if (!fotoB64 || !llaveBusqueda) return { success: false, msg: 'Faltan datos' };
   
   const sheet = getSheet();
   const data = sheet.getDataRange().getValues();
-  // Busca el pedido por Llave exacta (ignorando vacíos)
+  // Busca el pedido por Llave exacta (ignorando vacÃ­os)
   const llaveTarget = llaveBusqueda.toString().trim().toUpperCase();
   let rowIndex = -1;
   
@@ -274,7 +278,7 @@ function guardarFotoOcrSilent(llaveBusqueda, fotoB64) {
   }
 
   if (rowIndex === -1) {
-    return { success: false, msg: 'No se encontró la llave: ' + llaveTarget };
+    return { success: false, msg: 'No se encontrÃ³ la llave: ' + llaveTarget };
   }
 
   try {
@@ -311,16 +315,16 @@ function crearPedidosMasivos(payload) {
       order.fecha,      // B: Fecha
       order.llave,      // C: Llave
       parseFloat(order.monto), // D: Monto
-      "",               // E: Foto URL (vacía, se llena al validar)
+      "",               // E: Foto URL (vacÃ­a, se llena al validar)
       0,                // F: Monto Foto
       "Pendiente",      // G: Estado
       "",               // H: Validado Por
-      "",               // I: Fecha Validación
-      order.envio || "", // J: Responsable Envío
+      "",               // I: Fecha ValidaciÃ³n
+      order.envio || "", // J: Responsable EnvÃ­o
       order.pago || "", // K: Pago Original
-      "",               // L: Tipo Pago Val. (se llenará al validar)
+      "",               // L: Tipo Pago Val. (se llenarÃ¡ al validar)
       "",               // M: Vuelto
-      ""                // N: Motivo Cancelación
+      ""                // N: Motivo CancelaciÃ³n
     ]);
   });
 
@@ -369,8 +373,8 @@ function rechazarPedido(data) {
       sheet.getRange(i + 1, 7).setValue("Cancelado");          // G: Estado
       sheet.getRange(i + 1, 8).setValue(data.usuario);         // H
       sheet.getRange(i + 1, 9).setValue(new Date());           // I
-      sheet.getRange(i + 1, 10).setValue(data.envio || "");    // J: Responsable Envío
-      sheet.getRange(i + 1, 14).setValue(data.motivo || "");   // N: Motivo Cancelación
+      sheet.getRange(i + 1, 10).setValue(data.envio || "");    // J: Responsable EnvÃ­o
+      sheet.getRange(i + 1, 14).setValue(data.motivo || "");   // N: Motivo CancelaciÃ³n
       
       // Guardar fecha/hora de evidencia (posiblemente editada por el admin)
       if (data.fechaEntrega) sheet.getRange(i + 1, 16).setValue(data.fechaEntrega); // P
@@ -407,7 +411,7 @@ function processVoucherOCR(data) {
     + 'Extrae estos campos y devuelve SOLO JSON valido sin markdown ni backticks: '
     + '{"fecha":"DD/MM/YY","total":0.00,"tipoPago":"QR o TARJETA","esOnlineValido":false} '
     + 'Reglas: total es monto TOTAL en decimal. tipoPago es QR si menciona QR/Yape/Plin, sino TARJETA. '
-    + 'esOnlineValido DEBE ser true SOLO SI se encuentra exactamente el texto "Tarjeta de crédito o débito en línea" en cualquier parte de la imagen, de lo contrario false. '
+    + 'esOnlineValido DEBE ser true SOLO SI se encuentra exactamente el texto "Tarjeta de crÃ©dito o dÃ©bito en lÃ­nea" en cualquier parte de la imagen, de lo contrario false. '
     + 'Ignora la hora. Si no es visible usa "" o 0. SOLO JSON.';
 
   // Try models in order
@@ -468,7 +472,7 @@ function processVoucherOCR(data) {
     }
   }
 
-  return { success: false, message: 'OCR falló: ' + lastError };
+  return { success: false, message: 'OCR fallÃ³: ' + lastError };
 }
 
 function guardarOrdenRutaMotorizado(payload) {
@@ -553,7 +557,7 @@ function asignarViajePedido(payload) {
     
     let updates = 0;
     for (let i = 1; i < rows.length; i++) {
-      // Verificamos si el NRO del pedido está en la lista recibida
+      // Verificamos si el NRO del pedido estÃ¡ en la lista recibida
       if (nros.indexOf(rows[i][0]) !== -1) {
         // Columna T es la 20 (Index 19)
         sheet.getRange(i + 1, 20).setValue(viajeId);
@@ -589,7 +593,7 @@ function crearMotorizado(payload) {
     }
     
     sheet.appendRow([user, pass]);
-    return { success: true, message: 'Repartidor '+user+' creado con éxito' };
+    return { success: true, message: 'Repartidor '+user+' creado con Ã©xito' };
   } catch(e) {
     return { success: false, message: e.toString() };
   }
@@ -602,7 +606,7 @@ function corregirEntrega(data) {
     console.log("CorregirEntrega Recibido para Nro:", data.nro);
     
     for (let i = 1; i < rows.length; i++) {
-      // Comparación robusta de número de pedido
+      // ComparaciÃ³n robusta de nÃºmero de pedido
       if (String(rows[i][0]).trim() == String(data.nro).trim()) {
         const rowIndex = i + 1;
         console.log("Pedido encontrado en fila:", rowIndex);
@@ -643,6 +647,291 @@ function corregirEntrega(data) {
     return { success: false, message: "Pedido #" + data.nro + " no encontrado en la hoja" };
   } catch (e) {
     console.error("Error en corregirEntrega:", e);
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- HORARIOS DE MOTORIZADOS ---
+
+function getHorariosSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('Horarios_Semanales');
+  if (!sheet) {
+    sheet = ss.insertSheet('Horarios_Semanales');
+    // Cabeceras: SemanaID | Nro | Status | Repartidor | Lunes | Martes | Miercoles | Jueves | Viernes | Sabado | Domingo
+    sheet.appendRow(['SemanaID', 'Nro', 'Status', 'Repartidor', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']);
+  }
+  return sheet;
+}
+
+function obtenerHorariosSemanales(semanaId) {
+  try {
+    const sheet = getHorariosSheet();
+    const data = sheet.getDataRange().getValues();
+    const result = [];
+    
+    // Si no hay datos (solo cabeceras), devolver vacÃ­o
+    if (data.length <= 1) return { success: true, data: [] };
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === semanaId) {
+        result.push({
+          nro: data[i][1],
+          status: data[i][2],
+          driver: data[i][3],
+          lunes: data[i][4],
+          martes: data[i][5],
+          miercoles: data[i][6],
+          jueves: data[i][7],
+          viernes: data[i][8],
+          sabado: data[i][9],
+          domingo: data[i][10]
+        });
+      }
+    }
+    return { success: true, data: result };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function guardarHorarioSemananal(payload) {
+  try {
+    const sheet = getHorariosSheet();
+    const semanaId = payload.semanaId;
+    const horarios = payload.horarios || [];
+    
+    if (!semanaId) return { success: false, message: "Falta SemanaID" };
+
+    // 1. Eliminar los registros existentes para esa semana para sobrescribir
+    const data = sheet.getDataRange().getValues();
+    // Iterar de abajo hacia arriba para no alterar los Ã­ndices al borrar
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (data[i][0] === semanaId) {
+        sheet.deleteRow(i + 1);
+      }
+    }
+
+    // 2. Insertar los nuevos registros
+    if (horarios.length > 0) {
+      const rowsToInsert = horarios.map(h => [
+        semanaId,
+        h.nro || '',
+        h.status || '',
+        h.driver || '',
+        h.lunes || '',
+        h.martes || '',
+        h.miercoles || '',
+        h.jueves || '',
+        h.viernes || '',
+        h.sabado || '',
+        h.domingo || ''
+      ]);
+      
+      // AÃ±adir todas las filas juntas es mÃ¡s eficiente
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToInsert.length, 11).setValues(rowsToInsert);
+    }
+
+    return { success: true, message: "Horarios guardados correctamente" };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ================= CAJA CHICA (CASH MANAGEMENT) =================
+
+function ensureCajaSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Caja_Movimientos');
+  if (!sheet) {
+    sheet = ss.insertSheet('Caja_Movimientos');
+    sheet.appendRow([
+      'ID', 'Fecha', 'Hora', 'Tipo', 'Concepto', 'Monto', 'Pedido_Nro', 'Repartidor', 'Usuario', 'Metodo', 'Saldo_Fisico', 'Saldo_Digital'
+    ]);
+    sheet.getRange(1, 1, 1, 12).setFontWeight('bold').setBackground('#f3f3f3');
+  }
+  return sheet;
+}
+
+function registrarMovimientoCaja(data) {
+  try {
+    var sheet = ensureCajaSheet();
+    var lastRow = sheet.getLastRow();
+    
+    var lastSaldoFisico = 0;
+    var lastSaldoDigital = 0;
+    
+    if (lastRow >= 2) {
+      // Columnas K(11) y L(12) para los saldos
+      var lastValues = sheet.getRange(lastRow, 11, 1, 2).getValues()[0];
+      lastSaldoFisico = parseFloat(lastValues[0]) || 0;
+      lastSaldoDigital = parseFloat(lastValues[1]) || 0;
+    }
+    
+    var monto = parseFloat(data.monto) || 0;
+    var nuevoSaldoFisico = lastSaldoFisico;
+    var nuevoSaldoDigital = lastSaldoDigital;
+    
+    if (data.metodo === "FISICO") {
+      nuevoSaldoFisico += (data.tipo === "INGRESO" ? monto : -monto);
+    } else {
+      nuevoSaldoDigital += (data.tipo === "INGRESO" ? monto : -monto);
+    }
+    
+    var now = new Date();
+    var fechaStr = Utilities.formatDate(now, "GMT-5", "dd/MM/yyyy");
+    var horaStr = Utilities.formatDate(now, "GMT-5", "HH:mm:ss");
+    
+    sheet.appendRow([
+      Date.now(),           // A: ID
+      fechaStr,             // B: Fecha
+      horaStr,              // C: Hora
+      data.tipo || "OTRO",  // D: Tipo
+      data.concepto || "",  // E: Concepto
+      monto,                // F: Monto
+      data.pedidoNro || "", // G: Pedido Nro
+      data.repartidor || "",// H: Repartidor
+      data.usuario || "",   // I: Usuario
+      data.metodo || "FISICO", // J: Metodo
+      nuevoSaldoFisico,     // K: Saldo Fisico
+      nuevoSaldoDigital     // L: Saldo Digital
+    ]);
+    
+    // Si es un EGRESO de vuelto para un pedido especifico, actualizar columna M (Vuelto) en Pedidos
+    if (data.tipo === "EGRESO" && data.pedidoNro) {
+      try {
+        var pedidosSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Pedidos");
+        var pedidosData = pedidosSheet.getDataRange().getValues();
+        for (var pi = 1; pi < pedidosData.length; pi++) {
+          if (pedidosData[pi][0].toString() === data.pedidoNro.toString()) {
+            pedidosSheet.getRange(pi + 1, 13).setValue(monto); // Col M (index 12) = Vuelto
+            break;
+          }
+        }
+      } catch(pe) { /* silently ignore */ }
+    }
+    
+    return { success: true, saldoFisico: nuevoSaldoFisico, saldoDigital: nuevoSaldoDigital };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function getCajaData() {
+  try {
+    var sheet = ensureCajaSheet();
+    var lastRow = sheet.getLastRow();
+    
+    var saldoFisico = 0;
+    var saldoDigital = 0;
+    var movimientos = [];
+
+    if (lastRow >= 2) {
+      var data = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+      var displayValues = sheet.getRange(2, 1, lastRow - 1, 12).getDisplayValues();
+      
+      movimientos = data.map((row, i) => ({
+        id: row[0],
+        fecha: displayValues[i][1],
+        hora: displayValues[i][2],
+        tipo: row[3],
+        concepto: row[4],
+        monto: row[5],
+        pedidoNro: row[6],
+        repartidor: row[7],
+        usuario: row[8],
+        metodo: row[9],
+        saldoFisico: row[10],
+        saldoDigital: row[11]
+      })).reverse(); // Mas recientes primero
+
+      var ultimoRow = data[data.length - 1];
+      saldoFisico = ultimoRow[10];
+      saldoDigital = ultimoRow[11];
+    }
+
+    // --- Obtener Pedidos Contado Pendientes ---
+    var pedidosSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Pedidos");
+    var pedidosDisplay = pedidosSheet.getDataRange().getDisplayValues();
+    var pedidosRaw    = pedidosSheet.getDataRange().getValues();
+    var pedidosContado = [];
+
+    // Obtener fecha de hoy para comparar (objeto Date con timezone Peru GMT-5)
+    var hoy = new Date();
+    var hoyStr = Utilities.formatDate(hoy, "GMT-5", "dd/MM/yyyy");
+
+    for (var j = 1; j < pedidosDisplay.length; j++) {
+      var pDisp = pedidosDisplay[j];
+      var pRaw  = pedidosRaw[j];
+      
+      var pEstado  = (pDisp[6]  || "").toString().trim().toUpperCase();
+      var pPago    = (pDisp[10] || "").toString().trim().toUpperCase();
+      var pFechaDisp = (pDisp[1] || "").toString(); // Fecha en display, igual que la ves en Sheets
+      
+      // Verificar si el pedido es de hoy usando la fecha mostrada en la hoja
+      var esDeHoy = pFechaDisp.includes(hoyStr);
+      
+      // Fallback: comparar con objeto Date si la columna B es Date
+      if (!esDeHoy && pRaw[1] instanceof Date) {
+        esDeHoy = (pRaw[1].getDate()     === hoy.getDate()     &&
+                   pRaw[1].getMonth()    === hoy.getMonth()    &&
+                   pRaw[1].getFullYear() === hoy.getFullYear());
+      }
+      
+      if (esDeHoy &&
+          (pEstado === "PENDIENTE" || pEstado === "EN CAMINO" || pEstado === "POR VALIDAR" || pEstado === "VALIDADO") &&
+          pPago.includes("CONTADO")) {
+        
+        // Estado inicial del card: VALIDADO si ya fue validado, sino pendiente
+        var estadoInicial = (pEstado === "VALIDADO") ? "VALIDADO" : "PENDIENTE_VUELTO";
+        
+        pedidosContado.push({
+          nro:         pDisp[0],
+          fecha:       pFechaDisp,
+          llave:       pDisp[2],
+          repartidor:  pDisp[9],
+          monto:       pRaw[3],
+          pago:        pDisp[10],
+          vueltoEgresado:  0,
+          metodoVuelto:    "",
+          cobroIngresado:  0,
+          estado:          estadoInicial
+        });
+      }
+    }
+
+    // Cross-reference Caja_Movimientos para encontrar vuelto/cobro de cada pedido
+    if (movimientos.length > 0 || lastRow >= 2) {
+      // Re-leer todos los movimientos (no solo los de hoy) para buscar por pedidoNro
+      var cajaMov = sheet.getRange(2, 1, sheet.getLastRow() - 1, 12).getValues();
+      pedidosContado.forEach(function(p) {
+        cajaMov.forEach(function(row) {
+          var movNro    = (row[6] || "").toString().trim();
+          var movTipo   = (row[3] || "").toString().toUpperCase();
+          var movMonto  = parseFloat(row[5]) || 0;
+          var movMetodo = (row[9] || "").toString().toUpperCase();
+          if (movNro === p.nro.toString()) {
+            if (movTipo === "EGRESO") {
+              p.vueltoEgresado = movMonto;
+              p.metodoVuelto   = movMetodo;
+              p.estado = "PENDIENTE_COBRO";
+            } else if (movTipo === "INGRESO" && movNro !== "") {
+              p.cobroIngresado = movMonto;
+              p.estado = "COBRADO";
+            }
+          }
+        });
+      });
+    }
+    
+    return {
+      success: true,
+      saldoFisico: saldoFisico,
+      saldoDigital: saldoDigital,
+      movimientos: movimientos.slice(0, 50), // Ultimos 50
+      pedidosContado: pedidosContado
+    };
+  } catch (e) {
     return { success: false, message: e.toString() };
   }
 }

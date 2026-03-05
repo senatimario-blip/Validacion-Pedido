@@ -51,7 +51,9 @@ function clasificarPago(o) {
 }
 
 function esCancelado(o) {
-    return o.estado === 'Cancelado' || o.estado === 'Rechazado';
+    if (!o.estado) return false;
+    const est = o.estado.toLowerCase();
+    return est.includes('cancelado') || est.includes('rechazado');
 }
 
 function dashParseDate(dateStr) {
@@ -151,7 +153,9 @@ function initDashboard() {
         document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
         document.getElementById('nav-dashboard').classList.add('active');
         document.getElementById('app-content').style.display = 'none';
+        document.getElementById('app-content').classList.add('hidden');
         document.getElementById('reports-content').style.display = 'none';
+        document.getElementById('reports-content').classList.add('hidden');
         const mc = document.getElementById('mapa-content');
         if (mc) mc.classList.add('hidden');
         document.getElementById('dashboard-view').style.display = 'block';

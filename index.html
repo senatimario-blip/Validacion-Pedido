@@ -106,6 +106,8 @@
                 <li id="nav-reportes"><a href="#"><i class="fa-solid fa-file-invoice"></i> Reportes</a></li>
                 <li id="nav-dashboard"><a href="#"><i class="fa-solid fa-chart-pie"></i> Dashboard</a></li>
                 <li id="nav-mapa"><a href="#"><i class="fa-solid fa-map-location-dot"></i> Motorizados</a></li>
+                <li id="nav-horarios"><a href="#"><i class="fa-solid fa-calendar-days"></i> Horarios</a></li>
+                <li id="nav-caja"><a href="#"><i class="fa-solid fa-wallet"></i> Caja</a></li>
             </ul>
             <button id="logout-btn" class="logout-link">
                 <i class="fa-solid fa-right-from-bracket"></i> Salir
@@ -239,6 +241,297 @@
                     </div>
                 </div>
             </div> <!-- End APP Content -->
+
+            <!-- CONTENEDOR: HORARIOS (Solo Admin) -->
+            <div id="horarios-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <header class="top-bar glass-panel" style="justify-content: space-between;">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <h2 style="margin: 0; color: white;"><i class="fa-solid fa-calendar-days"
+                                style="color:#3b82f6;"></i>
+                            Organizador de Horarios</h2>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.9em;">Semana:</label>
+                        <input type="week" id="horario-semana-picker" class="search-input"
+                            style="padding: 8px; width: 220px;">
+                        <button id="btn-clone-horario" class="btn-secondary"
+                            style="margin-left:10px; border-color: rgba(96, 165, 250, 0.4); color: #60a5fa;">
+                            <i class="fa-solid fa-copy"></i> Clonar Anterior
+                        </button>
+                        <button id="btn-save-horario" class="btn-primary" style="background:#10b981; margin-left:10px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Guardar Horario
+                        </button>
+                    </div>
+                </header>
+
+                <div style="display: flex; gap: 20px; padding: 20px; align-items: flex-start;">
+                    <!-- Main Editable Table -->
+                    <div class="glass-panel" style="flex: 3; padding: 20px; border-radius: 16px;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="margin: 0; font-size: 1.1em; color: rgba(255,255,255,0.9);">Programación ATE</h3>
+                            <div>
+                                <button id="btn-paste-horario" class="btn-secondary small"
+                                    style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.3); margin-right: 10px;">
+                                    <i class="fa-solid fa-paste"></i> Pegar desde Excel
+                                </button>
+                                <button id="btn-add-horario-row" class="btn-secondary small"
+                                    style="background: rgba(59,130,246,0.1); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3);">
+                                    <i class="fa-solid fa-plus"></i> Añadir Repartidor
+                                </button>
+                            </div>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table class="data-table" id="horarios-table" style="width: 100%; white-space: nowrap;">
+                                <thead>
+                                    <tr style="background: rgba(0,0,0,0.3);">
+                                        <th style="width: 50px;">Nro</th>
+                                        <th style="width: 100px;">Status</th>
+                                        <th style="width: 200px;">Driver</th>
+                                        <th>Lunes</th>
+                                        <th>Martes</th>
+                                        <th>Miércoles</th>
+                                        <th>Jueves</th>
+                                        <th>Viernes</th>
+                                        <th>Sábado</th>
+                                        <th>Domingo</th>
+                                        <th style="width: 50px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="horarios-table-body">
+                                    <!-- Rows will be dynamically loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right Sidebar (Templates + Summary) -->
+                    <div
+                        style="flex: 1; display: flex; flex-direction: column; gap: 20px; position: sticky; top: 20px;">
+
+                        <!-- Shift Templates -->
+                        <div class="glass-panel" style="padding: 20px; border-radius: 16px;">
+                            <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #6ee7b7;"><i
+                                    class="fa-solid fa-shapes"></i> Plantillas</h3>
+                            <div style="font-size: 0.85em; color: rgba(255,255,255,0.6); margin-bottom: 12px;">Arrastra
+                                estos turnos a la cuadrícula.</div>
+
+                            <div id="shift-templates-container" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                <div class="shift-chip template-chip" draggable="true" data-time="08 a 23"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> 08 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="08 a 16"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> 08 a 16
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="09 a 23"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> 09 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="10 a 23"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> 10 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="15 a 23"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> 15 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="16 a 23"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> 16 a 23
+                                </div>
+                                <div class="shift-chip template-chip shift-descanso" draggable="true"
+                                    data-time="Descanso" data-status="DESCANSO" data-is-template="true">
+                                    <i class="fa-solid fa-mug-hot"></i> Descanso
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="F180"
+                                    data-status="PENDING" data-is-template="true">
+                                    <i class="fa-solid fa-clock"></i> F180
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="Otros"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3);">
+                                    <i class="fa-solid fa-pen"></i> Otros
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="Borrar"
+                                    data-status="DELETE" data-is-template="true"
+                                    style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5;">
+                                    <i class="fa-solid fa-eraser"></i> Borrar
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Summary Table (Dotación) -->
+                        <div class="glass-panel" style="padding: 20px; border-radius: 16px;">
+                            <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #fcd34d;"><i
+                                    class="fa-solid fa-users-viewfinder"></i> Resumen Dotación</h3>
+                            <table class="data-table" id="horarios-summary-table"
+                                style="width: 100%; font-size: 0.9em;">
+                                <thead>
+                                    <tr style="background: rgba(0,0,0,0.3);">
+                                        <th style="text-align: left;">Turno</th>
+                                        <th>L</th>
+                                        <th>M</th>
+                                        <th>M</th>
+                                        <th>J</th>
+                                        <th>V</th>
+                                        <th>S</th>
+                                        <th>D</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="font-weight:bold; color: #818cf8;">Rooster (08h)</td>
+                                        <td id="sum-l-ro" style="text-align:center;">0</td>
+                                        <td id="sum-m-ro" style="text-align:center;">0</td>
+                                        <td id="sum-x-ro" style="text-align:center;">0</td>
+                                        <td id="sum-j-ro" style="text-align:center;">0</td>
+                                        <td id="sum-v-ro" style="text-align:center;">0</td>
+                                        <td id="sum-s-ro" style="text-align:center;">0</td>
+                                        <td id="sum-d-ro" style="text-align:center;">0</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-weight:bold; color: #93c5fd;">AM (Otros hasta 12h)</td>
+                                        <td id="sum-l-am" style="text-align:center;">0</td>
+                                        <td id="sum-m-am" style="text-align:center;">0</td>
+                                        <td id="sum-x-am" style="text-align:center;">0</td>
+                                        <td id="sum-j-am" style="text-align:center;">0</td>
+                                        <td id="sum-v-am" style="text-align:center;">0</td>
+                                        <td id="sum-s-am" style="text-align:center;">0</td>
+                                        <td id="sum-d-am" style="text-align:center;">0</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-weight:bold; color: #fca5a5;">PM (16h+)</td>
+                                        <td id="sum-l-pm" style="text-align:center;">0</td>
+                                        <td id="sum-m-pm" style="text-align:center;">0</td>
+                                        <td id="sum-x-pm" style="text-align:center;">0</td>
+                                        <td id="sum-j-pm" style="text-align:center;">0</td>
+                                        <td id="sum-v-pm" style="text-align:center;">0</td>
+                                        <td id="sum-s-pm" style="text-align:center;">0</td>
+                                        <td id="sum-d-pm" style="text-align:center;">0</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div
+                                style="margin-top: 15px; font-size: 0.8em; color: rgba(255,255,255,0.4); text-align: center;">
+                                El resumen se actualiza automáticamente al cambiar las celdas de la tabla principal.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <!-- CONTENEDOR CAJA -->
+            <div id="caja-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <header class="top-bar glass-panel" style="justify-content: space-between;">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <h2 style="margin: 0; color: white;"><i class="fa-solid fa-cash-register"
+                                style="color:#10b981;"></i>
+                            Gestión de Caja</h2>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.9em;">Fecha:</label>
+                        <input type="date" id="caja-date-picker" class="search-input"
+                            style="padding: 8px; width: 180px;">
+                        <button id="btn-abrir-caja" class="btn-primary" style="background:#10b981;">
+                            <i class="fa-solid fa-door-open"></i> Apertura
+                        </button>
+                        <button id="btn-add-caja-entry" class="btn-primary" style="background:#3b82f6;">
+                            <i class="fa-solid fa-plus"></i> Movimiento
+                        </button>
+                        <button id="btn-cerrar-caja" class="btn-primary" style="background:#ef4444;">
+                            <i class="fa-solid fa-door-closed"></i> Cierre (11 PM)
+                        </button>
+                    </div>
+                </header>
+                <div id="caja-vueltos-container"
+                    style="margin: 20px 20px 0 20px; display: none; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px; padding: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h5
+                            style="color:rgba(255,255,255,0.8); font-size:1.1em; margin:0; display:flex; align-items:center; gap:10px;">
+                            <i class="fa-solid fa-clock-rotate-left" style="color:#60a5fa;"></i> Pedidos Contado en Ruta
+                            (Pendientes de Vuelto / Cobro)
+                        </h5>
+                        <button onclick="loadCajaData()" class="btn-icon-small" title="Refrescar pedidos"
+                            style="background:rgba(255,255,255,0.1); border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border:none; color:white; cursor:pointer;">
+                            <i class="fa-solid fa-rotate" id="caja-refresh-icon"></i>
+                        </button>
+                    </div>
+                    <div id="caja-vueltos-list"
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px;">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 20px; padding: 20px; align-items: flex-start; flex: 1;">
+                    <!-- Main Caja Table -->
+                    <div class="glass-panel"
+                        style="flex: 2; padding: 20px; border-radius: 16px; display: flex; flex-direction: column;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="margin: 0; font-size: 1.1em; color: rgba(255,255,255,0.9);">Movimientos de Caja
+                            </h3>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="btn-export-caja" class="btn-secondary small"
+                                    style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">
+                                    <i class="fa-solid fa-file-excel"></i> Exportar
+                                </button>
+                            </div>
+                        </div>
+                        <div style="overflow-x: auto; flex: 1;">
+                            <table class="data-table" id="caja-table" style="width: 100%; white-space: nowrap;">
+                                <thead>
+                                    <tr style="background: rgba(0,0,0,0.3);">
+                                        <th style="width: 50px;">Nro</th>
+                                        <th style="width: 120px;">Hora</th>
+                                        <th style="width: 150px;">Tipo</th>
+                                        <th>Descripción</th>
+                                        <th style="width: 120px;">Monto (S/)</th>
+                                        <th style="width: 100px;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="caja-table-body">
+                                    <!-- Rows will be dynamically loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right Sidebar (Summary) -->
+                    <div class="glass-panel"
+                        style="flex: 1; padding: 20px; border-radius: 16px; display: flex; flex-direction: column; gap: 15px;">
+                        <h3 style="margin: 0; font-size: 1.1em; color: #fcd34d;"><i class="fa-solid fa-chart-pie"></i>
+                            Resumen de Caja</h3>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span style="color: rgba(255,255,255,0.7);">Saldo Inicial:</span>
+                            <span id="caja-saldo-inicial" style="font-weight: bold; color: #fff;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span style="color: rgba(255,255,255,0.7);">Ingresos:</span>
+                            <span id="caja-ingresos" style="font-weight: bold; color: #10b981;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span style="color: rgba(255,255,255,0.7);">Egresos:</span>
+                            <span id="caja-egresos" style="font-weight: bold; color: #ef4444;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 2px solid rgba(255,255,255,0.2);">
+                            <span style="font-size: 1.1em; font-weight: bold; color: #fff;">Saldo Final:</span>
+                            <span id="caja-saldo-final" style="font-size: 1.2em; font-weight: bold; color: #3b82f6;">S/
+                                0.00</span>
+                        </div>
+                        <div
+                            style="margin-top: 15px; font-size: 0.8em; color: rgba(255,255,255,0.4); text-align: center;">
+                            El resumen se actualiza automáticamente con los movimientos.
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- CONTENEDOR PRINCIPAL: REPORTES -->
             <div id="reports-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
@@ -626,9 +919,24 @@
                             </div>
 
                             <div id="efectivo-options" style="display: none;">
-                                <label>Vuelto Entregado (S/):</label>
-                                <input type="number" id="val-vuelto-amount" class="form-control" step="0.01"
-                                    placeholder="Ej: 15.50" style="margin-top: 5px; width: 100%;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <div>
+                                        <label>Vuelto Entregado (S/):</label>
+                                        <input type="number" id="val-vuelto-amount" class="form-control" step="0.01"
+                                            placeholder="0.00" style="margin-top: 5px; width: 100%;">
+                                    </div>
+                                    <div>
+                                        <label>Monto Recibido (S/):</label>
+                                        <input type="number" id="val-monto-recibido" class="form-control" step="0.01"
+                                            placeholder="Redondo"
+                                            style="margin-top: 5px; width: 100%; font-weight: bold; color: #4ade80;">
+                                    </div>
+                                </div>
+                                <small
+                                    style="display: block; margin-top: 8px; color: rgba(255,255,255,0.4); font-size: 0.8em;">
+                                    <i class="fa-solid fa-circle-info"></i> Sugerido Redondo: <span
+                                        id="val-sugerido-redondo" style="color: #60a5fa; font-weight: bold;">--</span>
+                                </small>
                             </div>
 
                             <div id="online-options" style="display: none;">
@@ -710,6 +1018,61 @@
         </div>
     </div>
 
+    <!-- Edit Shift Modal -->
+    <div id="modal-shift-edit" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-clock"></i> Editar Turno</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="edit-shift-form">
+                <input type="hidden" id="edit-shift-day">
+                <input type="hidden" id="edit-shift-row">
+                <div class="form-group">
+                    <label>Horario</label>
+                    <input type="text" id="edit-shift-time" autocomplete="off" list="shift-suggestions" required
+                        placeholder="Ej: 08 a 23, Descanso"
+                        style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); color: white;">
+                    <datalist id="shift-suggestions">
+                        <option value="08 a 23">
+                        <option value="08 a 16">
+                        <option value="10 a 23">
+                        <option value="16 a 23">
+                        <option value="Descanso">
+                        <option value="F180">
+                        <option value="Otros">
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label>Cumplimiento</label>
+                    <div class="validation-type-selector" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <label class="radio-label">
+                            <input type="radio" name="shiftStatus" value="PENDING" checked>
+                            <span style="color: var(--warning);"><i class="fa-solid fa-hourglass-half"></i>
+                                Pendiente</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="shiftStatus" value="OK">
+                            <span style="color: var(--success);"><i class="fa-solid fa-check"></i> Cumplió</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="shiftStatus" value="FAIL">
+                            <span style="color: var(--danger);"><i class="fa-solid fa-xmark"></i> Faltó</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                    <button type="button" class="btn-secondary" id="btn-clear-shift"
+                        style="color: var(--danger); border-color: rgba(239, 68, 68, 0.3);">Borrar Turno</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+
     <!-- Driver Management Modal -->
     <div id="modal-manage-drivers" class="modal-backdrop">
         <div class="modal-card glass-panel" style="max-width: 400px;">
@@ -740,7 +1103,8 @@
     <script src="app.js?v=22"></script>
     <script src="dashboard.js?v=22"></script>
     <script src="mapa.js?v=22"></script>
-
+    <script src="horarios.js"></script>
+    <script src="caja.js"></script>
     <!-- Registro del Service Worker para PWA (Panel Admin) -->
     <script>
         if ('serviceWorker' in navigator) {

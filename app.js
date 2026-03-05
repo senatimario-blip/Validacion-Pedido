@@ -217,17 +217,37 @@ const navMapa = document.getElementById('nav-mapa'); // NUEVO
 const contentPedidos = document.getElementById('app-content');
 const contentReportes = document.getElementById('reports-content');
 const contentMapa = document.getElementById('mapa-content'); // NUEVO
+const contentHorarios = document.getElementById('horarios-content'); // NUEVO
 
 navPedidos.addEventListener('click', (e) => {
     e.preventDefault();
     navPedidos.classList.add('active');
     navReportes.classList.remove('active');
     navMapa.classList.remove('active');
+    const navHorarios = document.getElementById('nav-horarios');
+    if (navHorarios) navHorarios.classList.remove('active');
+    const nc = document.getElementById('nav-caja');
+    if (nc) nc.classList.remove('active');
     document.getElementById('nav-dashboard').classList.remove('active');
 
     contentPedidos.style.display = 'block';
+    contentPedidos.classList.remove('hidden'); // Fix just in case
+
+    contentReportes.style.display = 'none';
     contentReportes.classList.add('hidden');
-    contentMapa.classList.add('hidden');
+    if (contentMapa) {
+        contentMapa.style.display = 'none';
+        contentMapa.classList.add('hidden');
+    }
+    if (contentHorarios) {
+        contentHorarios.style.display = 'none';
+        contentHorarios.classList.add('hidden');
+    }
+    const cc = document.getElementById('caja-content');
+    if (cc) {
+        cc.style.display = 'none';
+        cc.classList.add('hidden');
+    }
     const dv = document.getElementById('dashboard-view');
     if (dv) dv.style.display = 'none';
 });
@@ -237,10 +257,27 @@ navReportes.addEventListener('click', (e) => {
     navReportes.classList.add('active');
     navPedidos.classList.remove('active');
     navMapa.classList.remove('active');
+    const navHorarios = document.getElementById('nav-horarios');
+    if (navHorarios) navHorarios.classList.remove('active');
+    const nc = document.getElementById('nav-caja');
+    if (nc) nc.classList.remove('active');
     document.getElementById('nav-dashboard').classList.remove('active');
 
     contentPedidos.style.display = 'none';
-    contentMapa.classList.add('hidden');
+    contentPedidos.classList.add('hidden');
+    if (contentMapa) {
+        contentMapa.style.display = 'none';
+        contentMapa.classList.add('hidden');
+    }
+    if (contentHorarios) {
+        contentHorarios.style.display = 'none';
+        contentHorarios.classList.add('hidden');
+    }
+    const cc = document.getElementById('caja-content');
+    if (cc) {
+        cc.style.display = 'none';
+        cc.classList.add('hidden');
+    }
     contentReportes.style.display = '';
     contentReportes.classList.remove('hidden');
     const dv = document.getElementById('dashboard-view');
@@ -266,15 +303,32 @@ navMapa.addEventListener('click', (e) => {
     navMapa.classList.add('active');
     navPedidos.classList.remove('active');
     navReportes.classList.remove('active');
+    const navHorarios = document.getElementById('nav-horarios');
+    if (navHorarios) navHorarios.classList.remove('active');
+    const nc = document.getElementById('nav-caja');
+    if (nc) nc.classList.remove('active');
     document.getElementById('nav-dashboard').classList.remove('active');
 
     contentPedidos.style.display = 'none';
+    contentPedidos.classList.add('hidden');
     contentReportes.classList.add('hidden');
     contentReportes.style.display = 'none';
+    if (contentHorarios) {
+        contentHorarios.style.display = 'none';
+        contentHorarios.classList.add('hidden');
+    }
+    const cc = document.getElementById('caja-content');
+    if (cc) {
+        cc.style.display = 'none';
+        cc.classList.add('hidden');
+    }
     const dv = document.getElementById('dashboard-view');
     if (dv) dv.style.display = 'none';
 
-    contentMapa.classList.remove('hidden');
+    if (contentMapa) {
+        contentMapa.style.display = 'flex';
+        contentMapa.classList.remove('hidden');
+    }
 
     const mainDate = document.getElementById('date-filter').value;
     const mapaDateFilter = document.getElementById('mapa-date-filter');
@@ -286,6 +340,100 @@ navMapa.addEventListener('click', (e) => {
         renderMapaMotorizados();
     }
 });
+
+// NUEVO MANEJADOR DE HORARIOS
+const navHorarios = document.getElementById('nav-horarios');
+if (navHorarios) {
+    navHorarios.addEventListener('click', (e) => {
+        e.preventDefault();
+        navHorarios.classList.add('active');
+        navPedidos.classList.remove('active');
+        navReportes.classList.remove('active');
+        navMapa.classList.remove('active');
+        const nc = document.getElementById('nav-caja');
+        if (nc) nc.classList.remove('active');
+        document.getElementById('nav-dashboard').classList.remove('active');
+
+        contentPedidos.style.display = 'none';
+        contentPedidos.classList.add('hidden');
+        contentReportes.classList.add('hidden');
+        contentReportes.style.display = 'none';
+        if (contentMapa) {
+            contentMapa.style.display = 'none';
+            contentMapa.classList.add('hidden');
+        }
+        const cc = document.getElementById('caja-content');
+        if (cc) {
+            cc.style.display = 'none';
+            cc.classList.add('hidden');
+        }
+
+        const dv = document.getElementById('dashboard-view');
+        if (dv) dv.style.display = 'none';
+
+        if (contentHorarios) {
+            contentHorarios.style.display = '';
+            contentHorarios.classList.remove('hidden');
+        }
+
+        // Initialize week picker if empty
+        const weekPicker = document.getElementById('horario-semana-picker');
+        if (weekPicker && !weekPicker.value) {
+            const now = new Date();
+            const year = now.getFullYear();
+            const start = new Date(now.getFullYear(), 0, 1);
+            const days = Math.floor((now - start) / (24 * 60 * 60 * 1000));
+            const weekNumber = Math.ceil((now.getDay() + 1 + days) / 7);
+            weekPicker.value = `${year}-W${weekNumber.toString().padStart(2, '0')}`;
+        }
+
+        // Always load existing data for the selected week when visiting the tab
+        if (typeof window.loadHorarioSemana === 'function') {
+            window.loadHorarioSemana();
+        }
+    });
+}
+
+// NUEVO MANEJADOR DE CAJA
+const navCajaElem = document.getElementById('nav-caja');
+if (navCajaElem) {
+    navCajaElem.addEventListener('click', (e) => {
+        e.preventDefault();
+        navCajaElem.classList.add('active');
+        navPedidos.classList.remove('active');
+        navReportes.classList.remove('active');
+        navMapa.classList.remove('active');
+        if (navHorarios) navHorarios.classList.remove('active');
+        document.getElementById('nav-dashboard').classList.remove('active');
+
+        contentPedidos.style.display = 'none';
+        contentPedidos.classList.add('hidden');
+        contentReportes.classList.add('hidden');
+        contentReportes.style.display = 'none';
+        if (contentMapa) {
+            contentMapa.style.display = 'none';
+            contentMapa.classList.add('hidden');
+        }
+        if (contentHorarios) {
+            contentHorarios.style.display = 'none';
+            contentHorarios.classList.add('hidden');
+        }
+
+        const dv = document.getElementById('dashboard-view');
+        if (dv) dv.style.display = 'none';
+
+        const contentCajaElem = document.getElementById('caja-content');
+        if (contentCajaElem) {
+            contentCajaElem.style.display = 'flex';
+            contentCajaElem.classList.remove('hidden');
+        }
+
+        if (typeof window.loadCajaData === 'function') {
+            window.loadCajaData();
+        }
+    });
+}
+
 
 // --- Orders Management ---
 
@@ -1157,6 +1305,8 @@ window.openValidateModal = (nro) => {
         if (order.vuelto !== '' && order.vuelto !== null && order.vuelto !== undefined) {
             document.getElementById('val-vuelto-amount').value = parseFloat(order.vuelto) || '';
         }
+        document.getElementById('val-monto-recibido').value = '';
+        updateSugeridoRedondo();
     } else if (tipoPago === 'ONLINE') {
         document.querySelector('input[name="valType"][value="online"]').checked = true;
         updateValidationMode('online');
@@ -1277,10 +1427,34 @@ window.openValidateModal = (nro) => {
     document.getElementById('modal-validate').classList.add('active');
 };
 
+const valVueltoAmount = document.getElementById('val-vuelto-amount');
+const valMontoRecibido = document.getElementById('val-monto-recibido');
 const valTypeRadios = document.querySelectorAll('input[name="valType"]');
+
+if (valVueltoAmount) {
+    valVueltoAmount.addEventListener('input', () => {
+        updateSugeridoRedondo();
+    });
+}
+
+function updateSugeridoRedondo() {
+    if (!currentOrderForValidation) return;
+    const montoPedido = parseFloat(currentOrderForValidation.monto) || 0;
+    const montoVuelto = parseFloat(document.getElementById('val-vuelto-amount')?.value) || 0;
+    const sugerido = montoPedido + montoVuelto;
+
+    const display = document.getElementById('val-sugerido-redondo');
+    if (display) {
+        display.textContent = sugerido > 0 ? 'S/ ' + sugerido.toFixed(2) : '--';
+    }
+}
+
 valTypeRadios.forEach(radio => {
     radio.addEventListener('change', (e) => {
         updateValidationMode(e.target.value);
+        if (e.target.value === 'efectivo') {
+            updateSugeridoRedondo();
+        }
     });
 });
 
@@ -1526,6 +1700,36 @@ function updatePhotoTransform(smooth = true) {
     photoPreview.style.transition = smooth ? 'transform 0.2s ease-out' : 'none';
     photoPreview.style.transform = `translate(${translateX}px, ${translateY}px) scale(${currentZoom}) rotate(${currentRotation}deg)`;
 }
+
+// Enable mouse wheel scroll to zoom
+photoPreview.addEventListener('wheel', (e) => {
+    // Si estamos en zoom 1x y el usuario hace scroll hacia abajo, dejamos que la página baje
+    if (currentZoom === 1 && e.deltaY > 0) {
+        return;
+    }
+
+    e.preventDefault();
+    const zoomIntensity = 0.15;
+    if (e.deltaY < 0) {
+        currentZoom = Math.min(currentZoom + zoomIntensity, 5); // Zoom In max 5x
+    } else {
+        currentZoom = Math.max(currentZoom - zoomIntensity, 1);  // Zoom Out min 1x
+        // Auto center when returning to 1x zoom
+        if (currentZoom === 1) {
+            translateX = 0;
+            translateY = 0;
+        }
+    }
+
+    // Cambiar cursor según zoom
+    if (currentZoom > 1) {
+        photoPreview.classList.add('zoomed');
+    } else {
+        photoPreview.classList.remove('zoomed');
+    }
+
+    updatePhotoTransform(false); // disable smooth css transition for responsive mouse wheel
+});
 
 photoPreview.addEventListener('mousedown', (e) => {
     if (currentZoom > 1) {
@@ -2486,6 +2690,7 @@ validateForm.addEventListener('submit', async (e) => {
             usuario: currentUser.usuario,
             tipo: tipoFinal,
             vuelto: (valType === 'efectivo') ? document.getElementById('val-vuelto-amount').value : '',
+            montoRecibido: (valType === 'efectivo') ? document.getElementById('val-monto-recibido').value : '',
             envio: driverName,
             fechaEntrega: document.getElementById('val-fecha-entrega').value || '',
             horaEntrega: document.getElementById('val-hora-entrega').value || '',
@@ -3417,8 +3622,8 @@ function parseRawCopiedText(text) {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
 
     const keyRegex = /^[A-Z0-9]{9}$/;
-    const dateRegex = /(\d{1,2})\s+([a-zA-Z]{3})\.?\s+(\d{4})/;
-    const timeRegex = /(\d{1,2}):(\d{2})\s+([ap]\.?\s*m\.?)/i;
+    const dateRegex = /(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})|(\d{1,2})\s+([a-zA-Z]{3})\.?\s+(\d{4})/;
+    const timeRegex = /(\d{1,2}):(\d{2})(\s*[ap]\.?\s*m\.?)?|(\d{1,2}):(\d{2})\s*horas\.?/i;
 
     let i = 0;
     while (i < lines.length) {
@@ -3433,63 +3638,77 @@ function parseRawCopiedText(text) {
             let monto = 0;
             let pago = '';
 
-            i++; // skip llave
+            i++; // saltar llave
 
-            // Formato nuevo: Llave -> Nombre -> (Vacíos) -> Fecha -> Hora -> Status -> Envio -> Monto -> Pago
-
-            // Saltamos el Nombre
-            i++;
-
-            // Buscamos fecha
-            while (i < lines.length && !dateRegex.test(lines[i])) { i++; }
-            if (i < lines.length && dateRegex.test(lines[i])) {
-                const dMatch = lines[i].match(dateRegex);
-                const day = dMatch[1].padStart(2, '0');
-                const monthStr = dMatch[2].toLowerCase();
-                const months = { 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06', 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12' };
-                const m = months[monthStr.substring(0, 3)] || '01';
-                const y = dMatch[3];
-                fechaStr = `${day}/${m}/${y}`;
+            // 1. Saltar el Nombre del Cliente (suele ser la siguiente línea)
+            if (i < lines.length && !dateRegex.test(lines[i]) && !keyRegex.test(lines[i])) {
                 i++;
             }
 
-            // Buscamos hora
+            // 2. Buscar Fecha
+            while (i < lines.length && !dateRegex.test(lines[i]) && !keyRegex.test(lines[i])) { i++; }
+            if (i < lines.length && dateRegex.test(lines[i])) {
+                const dMatch = lines[i].match(dateRegex);
+                let day, monthStr, year;
+                if (dMatch[1]) { // Formato "4 de marzo de 2026"
+                    day = dMatch[1].padStart(2, '0');
+                    monthStr = dMatch[2].toLowerCase();
+                    year = dMatch[3];
+                } else { // Formato "4 mar. 2026"
+                    day = dMatch[4].padStart(2, '0');
+                    monthStr = dMatch[5].toLowerCase();
+                    year = dMatch[6];
+                }
+                const months = { 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06', 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12' };
+                const m = months[monthStr.substring(0, 3).replace('set', 'sep')] || '01';
+                fechaStr = `${day}/${m}/${year}`;
+                i++;
+            }
+
+            // 3. Buscar Hora
+            while (i < lines.length && !timeRegex.test(lines[i]) && !keyRegex.test(lines[i])) { i++; }
             if (i < lines.length && timeRegex.test(lines[i])) {
                 const tMatch = lines[i].match(timeRegex);
-                let hour = parseInt(tMatch[1]);
-                const min = tMatch[2];
-                const ampm = tMatch[3].toLowerCase();
+                let hour = parseInt(tMatch[1] || tMatch[4]);
+                const min = tMatch[2] || tMatch[5];
+                const ampm = (tMatch[3] || '').toLowerCase();
+
                 if (ampm.includes('p') && hour < 12) hour += 12;
                 if (ampm.includes('a') && hour === 12) hour = 0;
+
                 horaStr = `${String(hour).padStart(2, '0')}:${min}`;
                 i++;
             }
 
-            // Status
-            if (i < lines.length && (lines[i] === 'Terminado' || lines[i] === 'En tránsito' || lines[i] === 'Cancelado')) {
-                status = lines[i];
+            // 4. Buscar Status (Terminado, Aceptado, Cancelado, etc.)
+            const statusKeywords = ['Terminado', 'Aceptado', 'En tránsito', 'Cancelado', 'En preparacion'];
+            while (i < lines.length && !keyRegex.test(lines[i])) {
+                const isStatus = statusKeywords.some(kw => lines[i].includes(kw));
+                if (isStatus) {
+                    status = lines[i];
+                    i++;
+                    break;
+                }
                 i++;
             }
 
-            // Envío (Nombre de Moto) - Solo si no es un precio
-            if (i < lines.length && !lines[i].startsWith('$') && !lines[i].startsWith('S/')) {
+            // 5. Envío (Nombre de Repartidor) - La línea siguiente si no es monto
+            if (i < lines.length && !lines[i].startsWith('$') && !lines[i].startsWith('S/') && !keyRegex.test(lines[i])) {
                 envio = lines[i];
                 i++;
             }
 
-            // Monto
+            // 6. Monto
+            while (i < lines.length && !lines[i].startsWith('$') && !lines[i].startsWith('S/') && !keyRegex.test(lines[i])) { i++; }
             if (i < lines.length && (lines[i].startsWith('$') || lines[i].startsWith('S/'))) {
                 const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
                 monto = parseFloat(amountClean).toFixed(2);
                 i++;
             }
 
-            // Pago
+            // 7. Pago
             if (i < lines.length && !keyRegex.test(lines[i])) {
                 pago = lines[i];
-                if (pago.includes('QR_CODE_YAPE')) pago = 'YAPE';
-                if (pago.includes('Tarjeta')) pago = 'TARJETA';
-                if (pago.includes('Contado')) pago = 'EFECTIVO';
                 i++;
             }
 
@@ -3538,7 +3757,13 @@ function renderImportTextTable(importedOrders) {
 
     importedOrders.forEach((order) => {
         const isDupe = orders.some(o => o.llave === order.llave);
-        const statusHTML = isDupe ? '<span class="badge Rechazado">Duplicado en Sistema</span>' : `<span class="badge" style="background: rgba(255,255,255,0.1)">${order.originalStatus}</span>`;
+
+        let statusHTML = '';
+        if (isDupe) {
+            statusHTML = '<span class="badge Rechazado" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">Duplicado en Sistema</span>';
+        } else {
+            statusHTML = '<span class="badge Pendiente" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">Pendiente</span>';
+        }
 
         const tr = document.createElement('tr');
 
@@ -3678,10 +3903,13 @@ function makeDraggable(modalId) {
     if (!modalBackdrop) return;
 
     const modalCard = modalBackdrop.querySelector('.modal-card');
-    // Ahora el "handle" es toda la tarjeta
-    const handle = modalCard;
-
     if (!modalCard) return;
+
+    // Ahora el "handle" es estrictamente el encabezado (h2) para no asobrar/bloquear el contenido (fotos, inputs interactivos)
+    const handle = modalCard.querySelector('h2') || modalCard;
+
+    // Solo cambiar el cursor al header, no a toda la tarjeta
+    handle.style.cursor = 'move';
 
     let isDragging = false;
     let startX, startY;
@@ -3690,6 +3918,9 @@ function makeDraggable(modalId) {
     handle.addEventListener('mousedown', (e) => {
         // Solo arrastrar con botón primario
         if (e.button !== 0) return;
+
+        // Si el click fue específicamente dentro del área de la foto (o es la foto), no iniciar drag del modal general
+        if (e.target.closest('.photo-upload-area') || e.target.id === 'photo-preview') return;
 
         // IMPORTANTE: No arrastrar si el clic fue en un input, botón, select o textarea
         const tag = e.target.tagName.toLowerCase();
