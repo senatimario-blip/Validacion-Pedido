@@ -282,9 +282,9 @@
                     </div>
                 </header>
 
-                <div style="display: flex; gap: 20px; padding: 20px; align-items: flex-start;">
-                    <!-- Main Editable Table -->
-                    <div class="glass-panel" style="flex: 3; padding: 20px; border-radius: 16px;">
+                <div style="display: flex; flex-direction: column; gap: 20px; padding: 20px;">
+                    <!-- Main Editable Table (FULL WIDTH) -->
+                    <div class="glass-panel" style="width: 100%; padding: 20px; border-radius: 16px; overflow: hidden;">
                         <div
                             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <h3 style="margin: 0; font-size: 1.1em; color: rgba(255,255,255,0.9);">Programación ATE</h3>
@@ -304,15 +304,16 @@
                                 <thead>
                                     <tr style="background: rgba(0,0,0,0.3);">
                                         <th style="width: 50px;">Nro</th>
-                                        <th style="width: 150px;">Status</th>
-                                        <th style="width: 200px;">Driver</th>
-                                        <th>Lunes</th>
-                                        <th>Martes</th>
-                                        <th>Miércoles</th>
-                                        <th>Jueves</th>
-                                        <th>Viernes</th>
-                                        <th>Sábado</th>
-                                        <th>Domingo</th>
+                                        <th style="width: 120px;">Status</th>
+                                        <th style="width: 180px;">Driver</th>
+                                        <th style="width: 110px;">Lunes</th>
+                                        <th style="width: 110px;">Martes</th>
+                                        <th style="width: 110px;">Miércoles</th>
+                                        <th style="width: 110px;">Jueves</th>
+                                        <th style="width: 110px;">Viernes</th>
+                                        <th style="width: 110px;">Sábado</th>
+                                        <th style="width: 110px;">Domingo</th>
+                                        <th style="width: 100px; text-align: center; color: #60a5fa;">Hrs LU-JU</th>
                                         <th style="width: 50px;"></th>
                                     </tr>
                                 </thead>
@@ -323,62 +324,68 @@
                         </div>
                     </div>
 
-                    <!-- Right Sidebar (Templates + Summary) -->
-                    <div
-                        style="flex: 1; display: flex; flex-direction: column; gap: 20px; position: sticky; top: 20px;">
+                    <!-- Bottom Bar (Templates + Summary) -->
+                    <div style="display: flex; gap: 20px; align-items: stretch;">
 
-                        <!-- Shift Templates -->
-                        <div class="glass-panel" style="padding: 20px; border-radius: 16px;">
+                        <!-- Shift Templates (HORIZONTAL WRAP) -->
+                        <div class="glass-panel" style="flex: 2; padding: 20px; border-radius: 16px;">
                             <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #6ee7b7;"><i
-                                    class="fa-solid fa-shapes"></i> Plantillas</h3>
+                                    class="fa-solid fa-shapes"></i> Plantillas de Turnos</h3>
                             <div style="font-size: 0.85em; color: rgba(255,255,255,0.6); margin-bottom: 12px;">Arrastra
-                                estos turnos a la cuadrícula.</div>
+                                estos turnos a la cuadrícula superior.</div>
 
                             <div id="shift-templates-container" style="display: flex; flex-wrap: wrap; gap: 10px;">
                                 <div class="shift-chip template-chip" draggable="true" data-time="08 a 23"
-                                    data-status="PENDING" data-is-template="true">
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-clock"></i> 08 a 23
                                 </div>
                                 <div class="shift-chip template-chip" draggable="true" data-time="08 a 16"
-                                    data-status="PENDING" data-is-template="true">
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-clock"></i> 08 a 16
                                 </div>
                                 <div class="shift-chip template-chip" draggable="true" data-time="09 a 23"
-                                    data-status="PENDING" data-is-template="true">
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-clock"></i> 09 a 23
                                 </div>
                                 <div class="shift-chip template-chip" draggable="true" data-time="10 a 23"
-                                    data-status="PENDING" data-is-template="true">
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-clock"></i> 10 a 23
                                 </div>
                                 <div class="shift-chip template-chip" draggable="true" data-time="15 a 23"
-                                    data-status="PENDING" data-is-template="true">
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-clock"></i> 15 a 23
                                 </div>
                                 <div class="shift-chip template-chip" draggable="true" data-time="16 a 23"
-                                    data-status="PENDING" data-is-template="true">
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-clock"></i> 16 a 23
                                 </div>
                                 <div class="shift-chip template-chip shift-descanso" draggable="true"
-                                    data-time="Descanso" data-status="DESCANSO" data-is-template="true">
+                                    data-time="Descanso" data-status="DESCANSO" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-mug-hot"></i> Descanso
                                 </div>
 
                                 <div class="shift-chip template-chip" draggable="true" data-time="Otros"
                                     data-status="PENDING" data-is-template="true"
-                                    style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3);">
+                                    style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-pen"></i> Otros
                                 </div>
                                 <div class="shift-chip template-chip" draggable="true" data-time="Borrar"
                                     data-status="DELETE" data-is-template="true"
-                                    style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5;">
+                                    style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; width: auto; min-width: 100px;">
                                     <i class="fa-solid fa-eraser"></i> Borrar
                                 </div>
                             </div>
                         </div>
 
                         <!-- Summary Table (Dotación) -->
-                        <div class="glass-panel" style="padding: 20px; border-radius: 16px;">
+                        <div class="glass-panel" style="flex: 1; padding: 20px; border-radius: 16px;">
                             <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #fcd34d;"><i
                                     class="fa-solid fa-users-viewfinder"></i> Resumen Dotación</h3>
                             <table class="data-table" id="horarios-summary-table"
@@ -397,7 +404,7 @@
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td style="font-weight:bold; color: #a78bfa;">Rooster (08h)</td>
+                                        <td style="font-weight:bold; color: #a78bfa;">Rooster</td>
                                         <td id="sum-l-ro" style="text-align:center;">0</td>
                                         <td id="sum-m-ro" style="text-align:center;">0</td>
                                         <td id="sum-x-ro" style="text-align:center;">0</td>
@@ -407,7 +414,7 @@
                                         <td id="sum-d-ro" style="text-align:center;">0</td>
                                     </tr>
                                     <tr>
-                                        <td style="font-weight:bold; color: #60a5fa;">AM (10h-12h)</td>
+                                        <td style="font-weight:bold; color: #60a5fa;">AM</td>
                                         <td id="sum-l-am" style="text-align:center;">0</td>
                                         <td id="sum-m-am" style="text-align:center;">0</td>
                                         <td id="sum-x-am" style="text-align:center;">0</td>
@@ -417,7 +424,7 @@
                                         <td id="sum-d-am" style="text-align:center;">0</td>
                                     </tr>
                                     <tr>
-                                        <td style="font-weight:bold; color: #fca5a5;">PM (Cierre 23h)</td>
+                                        <td style="font-weight:bold; color: #fca5a5;">PM</td>
                                         <td id="sum-l-pm" style="text-align:center;">0</td>
                                         <td id="sum-m-pm" style="text-align:center;">0</td>
                                         <td id="sum-x-pm" style="text-align:center;">0</td>
@@ -428,13 +435,10 @@
                                     </tr>
                                 </tbody>
                             </table>
-                            <div
-                                style="margin-top: 15px; font-size: 0.8em; color: rgba(255,255,255,0.4); text-align: center;">
-                                El resumen se actualiza automáticamente al cambiar las celdas de la tabla principal.
-                            </div>
                         </div>
                     </div>
                 </div>
+
             </div>
             </div>
 

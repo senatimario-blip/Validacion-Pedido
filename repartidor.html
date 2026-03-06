@@ -198,6 +198,33 @@
             </button>
         </header>
 
+        <!-- Admin Only: Date Filter & View Toggle (PERSISTENTE) -->
+        <div id="admin-ruta-controls"
+            class="hidden px-4 py-3 bg-slate-800/50 border-b border-slate-700 flex flex-col gap-3 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 cursor-pointer active:scale-95 transition-all"
+                    onclick="document.getElementById('admin-date-filter').showPicker()">
+                    <i class="fa-solid fa-calendar-days"></i>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-0.5 tracking-widest">Filtrar
+                        Fecha</label>
+                    <input type="date" id="admin-date-filter"
+                        class="bg-transparent border-none text-white text-base font-bold focus:ring-0 outline-none w-full appearance-none p-0 cursor-pointer">
+                </div>
+            </div>
+            <div class="flex p-1 bg-slate-900 rounded-xl border border-slate-700">
+                <button id="admin-view-summary" onclick="setAdminSubView('summary')"
+                    class="flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all bg-primary text-white">
+                    Por Repartidor
+                </button>
+                <button id="admin-view-global" onclick="setAdminSubView('global')"
+                    class="flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all text-slate-400">
+                    Crónologico Total
+                </button>
+            </div>
+        </div>
+
         <!-- Lista scrolleable de Tarjetas -->
         <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-24" id="lista-pedidos-container">
             <!-- Pull to Refresh Indicator -->
@@ -206,11 +233,14 @@
                 <span id="ptr-text">Desliza para actualizar</span>
             </div>
 
+
             <!-- Loading State -->
             <div class="text-center py-10" id="loading-pedidos">
                 <i class="fa-solid fa-spinner fa-spin text-3xl text-primary mb-3"></i>
-                <p class="text-slate-400">Cargando tus pedidos en camino...</p>
+                <p class="text-slate-400">Cargando pedidos...</p>
             </div>
+
+
             <!-- Aquí se inyectarán los pedidos dinámicamente -->
         </main>
 
@@ -244,7 +274,8 @@
                 <i class="fa-solid fa-calendar-day"></i>
             </div>
             <div class="flex-1">
-                <label class="block text-[10px] uppercase font-bold text-slate-500 mb-0.5 tracking-widest">Filtrar por
+                <label class="block text-[10px] uppercase font-bold text-slate-500 mb-0.5 tracking-widest">Filtrar
+                    por
                     Fecha</label>
                 <input type="date" id="history-date-filter"
                     class="bg-transparent border-none text-white text-base font-bold focus:ring-0 outline-none w-full appearance-none p-0 cursor-pointer"
@@ -370,7 +401,8 @@
                         <i class="fa-solid fa-receipt"></i>
                     </div>
                     <div class="text-center">
-                        <span class="font-bold text-lg block text-white" id="lbl-tipo-pago-modal">Foto de Pago</span>
+                        <span class="font-bold text-lg block text-white" id="lbl-tipo-pago-modal">Foto de
+                            Pago</span>
                         <span class="text-sm text-slate-400">Voucher POS, Billete o Captura</span>
                     </div>
                     <img id="preview-pos"
@@ -432,7 +464,8 @@
                     <i class="fa-solid fa-ban text-3xl text-red-400"></i>
                 </div>
                 <p class="text-red-200 font-semibold text-lg">Pedido Cancelado</p>
-                <p class="text-slate-400 text-sm mt-1">Adjunta las evidencias requeridas para reportar la cancelación.
+                <p class="text-slate-400 text-sm mt-1">Adjunta las evidencias requeridas para reportar la
+                    cancelación.
                 </p>
             </div>
 
@@ -498,7 +531,8 @@
             <div class="p-6 space-y-4">
                 <input type="hidden" id="edit-delivery-nro">
                 <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Fecha de
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Fecha
+                        de
                         Entrega</label>
                     <input type="date" id="edit-delivery-date"
                         class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-primary">
@@ -509,7 +543,8 @@
                     <input type="time" id="edit-delivery-time"
                         class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-primary">
                 </div>
-                <p class="text-[10px] text-slate-500 italic">* El sistema recalculará automáticamente si la entrega fue
+                <p class="text-[10px] text-slate-500 italic">* El sistema recalculará automáticamente si la
+                    entrega fue
                     exitosa (SLA).</p>
             </div>
             <div class="p-4 bg-slate-800/50 flex gap-3">

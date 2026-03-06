@@ -4,37 +4,49 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQ
 function getYMDLima(rawDate) {
     if (!rawDate) return "";
     let d;
-    if (rawDate instanceof Date) {
-        d = rawDate;
-    } else {
-        const s = String(rawDate).trim();
+
+    // Si ya es un String
+    if (typeof rawDate === 'string') {
+        const s = rawDate.trim();
+        // Caso 1: YYYY-MM-DD PURA (Solo si tiene exactamente 10 caracteres y formato YYYY-MM-DD)
+        const ymdMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (ymdMatch) return ymdMatch[0];
+
+        // Caso 2: DD/MM/YYYY
         if (s.includes('/')) {
             const parts = s.split(' ')[0].split('/');
             if (parts.length === 3) {
-                const day = parseInt(parts[0], 10);
-                const month = parseInt(parts[1], 10) - 1;
-                let year = parseInt(parts[2], 10);
-                if (year < 100) year += 2000;
-                const mStr = String(month + 1).padStart(2, '0');
-                const dStr = String(day).padStart(2, '0');
-                return `${year}-${mStr}-${dStr}`;
+                const day = parts[0].padStart(2, '0');
+                const month = parts[1].padStart(2, '0');
+                let year = parts[2];
+                if (year.length === 2) year = "20" + year;
+                return `${year}-${month}-${day}`;
             }
         }
         d = new Date(s);
+    } else if (rawDate instanceof Date) {
+        d = rawDate;
+    } else {
+        d = new Date(rawDate);
     }
+
     if (!d || isNaN(d.getTime())) return "";
+
     try {
+        // Usar Intl para asegurar que siempre sea Lima
         return new Intl.DateTimeFormat('en-CA', {
             timeZone: 'America/Lima',
             year: 'numeric', month: '2-digit', day: '2-digit'
         }).format(d);
     } catch (e) {
+        // Fallback local (menos preciso si el browser no está en Lima)
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${day}`;
     }
 }
+
 
 // State
 let currentUser = localStorage.getItem('repartidor_user') || null;
@@ -48,6 +60,10 @@ let quickShareOrder = null;
 let quickShareMode = 'salida'; // 'salida' o 'devolucion'
 let selectedDriverForAdmin = null; // null = ver todos los repartidores (resumen), "Nombre" = ver solo ese
 let selectedDriverForHistoryAdmin = null; // null = resumen historial, "Nombre" = detalle historial
+
+// Admin Global Features
+let adminSubView = 'summary'; // 'summary' or 'global'
+let adminSelectedDate = getYMDLima(new Date());
 
 // DOM Elements
 const pantallaLogin = document.getElementById('pantalla-login');
@@ -129,6 +145,16 @@ document.addEventListener('DOMContentLoaded', () => {
         autoLoginData(savedDriver);
     }
 
+    // Admin Date Filter Listener
+    const adminDateFilter = document.getElementById('admin-date-filter');
+    if (adminDateFilter) {
+        adminDateFilter.value = adminSelectedDate;
+        adminDateFilter.addEventListener('change', () => {
+            adminSelectedDate = adminDateFilter.value;
+            fetchDriverOrders();
+        });
+    }
+
     if (btnTogglePass) {
         btnTogglePass.addEventListener('click', () => {
             const type = inputDriverPass.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -207,6 +233,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentUser) {
                 const icon = btnRefreshHistory.querySelector('i');
                 if (icon) icon.classList.add('fa-spin-fast');
+                // Verificamos si es admin para mostrar controles
+                const adminControls = document.getElementById('admin-ruta-controls');
+                if (adminControls) {
+                    if (currentUser && currentUser.toLowerCase() === 'admin') {
+                        adminControls.classList.remove('hidden');
+                    } else {
+                        adminControls.classList.add('hidden');
+                    }
+                }
                 fetchDriverOrders().finally(() => {
                     if (icon) icon.classList.remove('fa-spin-fast');
                 });
@@ -273,16 +308,13 @@ document.addEventListener('DOMContentLoaded', () => {
     initConnectivityMonitoring();
     initPullToRefresh();
 
-    // Inicializar filtro de fecha de historial a hoy
+    // Inicializar filtro de fecha de historial a hoy (Lima)
     const historyDateFilter = document.getElementById('history-date-filter');
     if (historyDateFilter) {
-        console.log("📅 Inicializando filtro de fecha de historial...");
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        historyDateFilter.value = `${yyyy}-${mm}-${dd}`;
-        console.log("📅 Valor inicial del filtro:", historyDateFilter.value);
+        console.log("📅 Inicializando filtro de fecha de historial (Lima)...");
+        const todayStr = getYMDLima(new Date());
+        historyDateFilter.value = todayStr;
+        console.log("📅 Valor inicial del filtro:", todayStr);
 
         historyDateFilter.addEventListener('change', () => {
             console.log("📅 Cambio de fecha detectado:", historyDateFilter.value);
@@ -442,6 +474,17 @@ function autoLoginData(name) {
 
     if (btnSwitchView) btnSwitchView.classList.add('hidden'); // Ocultar switch de modo
     document.getElementById('nav-footer').classList.remove('hidden');
+
+    // Admin Controls Check
+    const adminControls = document.getElementById('admin-ruta-controls');
+    if (adminControls) {
+        if (name.toLowerCase() === 'admin') {
+            adminControls.classList.remove('hidden');
+        } else {
+            adminControls.classList.add('hidden');
+        }
+    }
+
     fetchDriverOrders();
 }
 
@@ -528,7 +571,15 @@ async function fetchDriverOrders() {
                     const statusOk = (o.estado === 'Pendiente' || o.estado === 'En Camino' || o.estado === 'Reservado' || o.estado === '' || (o.estado === 'Por Validar' && devPendientesFilter.includes(o.nro)));
                     // Si es Admin (o modo admin list), ve TODO lo activo. Si es repartidor, solo lo suyo.
                     const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
-                    if (isAdminListView || isUserAdmin) return statusOk;
+
+                    // Filter by Date (Admin Only)
+                    if (isUserAdmin) {
+                        const orderYMD = getYMDLima(o.fecha);
+                        if (orderYMD !== adminSelectedDate) return false;
+                        return statusOk;
+                    }
+
+                    if (isAdminListView) return statusOk;
 
                     const sheetName = String(o.envio || '').trim().toLowerCase();
                     const loginName = String(currentUser || '').trim().toLowerCase();
@@ -565,6 +616,12 @@ async function fetchDriverOrders() {
 
                 renderOrders();
                 renderHistory(); // Asegurar que el historial también se refresque
+
+                // RE-VERIFICAR VISIBILIDAD DE CONTROLES ADMIN
+                const adminControls = document.getElementById('admin-ruta-controls');
+                if (adminControls && currentUser && currentUser.toLowerCase() === 'admin') {
+                    adminControls.classList.remove('hidden');
+                }
             }
         } else {
             console.warn('Servidor respondió sin éxito o data es null', data);
@@ -609,7 +666,11 @@ function renderOrders() {
     if (isUserAdmin || isAdminListView) {
         if (!selectedDriverForAdmin) {
             // VISTA 1: RESUMEN DE REPARTIDORES (Lista de nombres con contadores)
-            renderAdminSummary(currentOrders);
+            if (adminSubView === 'summary') {
+                renderAdminSummary(currentOrders);
+            } else {
+                renderAdminGlobalChronological(currentOrders);
+            }
         } else {
             // VISTA 2: DETALLE DE UN REPARTIDOR ESPECÍFICO
             renderAdminDriverDetail(currentOrders, selectedDriverForAdmin);
@@ -773,6 +834,13 @@ function renderSingleOrderCard(order, index) {
                 <i class="fa-solid fa-${tipoIcon}"></i>
                 ${tipoPagoDisplay}
             </span>
+
+            ${(currentUser && currentUser.toLowerCase() === 'admin' && adminSubView === 'global') ? `
+                <span class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                    <i class="fa-solid fa-motorcycle text-primary"></i>
+                    ${order.envio || 'ADMIN'}
+                </span>
+            ` : ''}
             
             <div class="flex items-center gap-3">
                 <button type="button" class="btn-cancelar-pedido w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 text-red-500 hover:text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all shadow-lg" onclick="event.stopPropagation(); openCancelModal(currentOrders[${index}])" title="Cancelar Pedido">
@@ -1803,7 +1871,55 @@ function renderAdminSummary(orders) {
     });
 }
 
+// --- Admin Global Chronological View ---
+function renderAdminGlobalChronological(orders) {
+    const container = document.getElementById('lista-pedidos-container');
+    container.innerHTML = '';
+
+    if (orders.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-12 px-4 border border-dashed border-slate-700 rounded-2xl">
+                <i class="fa-solid fa-clock text-4xl text-slate-500 mb-4"></i>
+                <h3 class="text-xl font-bold text-slate-300">No hay pedidos</h3>
+                <p class="text-slate-500 mt-2">No se encontraron pedidos para la fecha seleccionada.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Sort by Registration Date (Older/More urgent first)
+    const sorted = [...orders].sort((a, b) => {
+        const dateA = new Date(a.fecha || 0);
+        const dateB = new Date(b.fecha || 0);
+        return dateA - dateB;
+    });
+
+    sorted.forEach((order, index) => {
+        // We pass the index relative to the sorted list for the card's data access
+        renderSingleOrderCard(order, index);
+    });
+}
+
+function setAdminSubView(view) {
+    adminSubView = view;
+
+    // Update UI Buttons
+    const btnSummary = document.getElementById('admin-view-summary');
+    const btnGlobal = document.getElementById('admin-view-global');
+
+    if (view === 'summary') {
+        btnSummary.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all bg-primary text-white';
+        btnGlobal.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all text-slate-400';
+    } else {
+        btnGlobal.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all bg-primary text-white';
+        btnSummary.className = 'flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all text-slate-400';
+    }
+
+    renderOrders();
+}
+
 function renderAdminDriverDetail(orders, driverName) {
+
     const container = document.getElementById('lista-pedidos-container');
     container.innerHTML = '';
 

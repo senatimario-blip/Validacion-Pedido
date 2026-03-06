@@ -460,6 +460,7 @@
             <td><div class="shift-cell in-v" data-day="v">${createChipHTML(data.viernes)}</div></td>
             <td><div class="shift-cell in-s" data-day="s">${createChipHTML(data.sabado)}</div></td>
             <td><div class="shift-cell in-d" data-day="d">${createChipHTML(data.domingo)}</div></td>
+            <td style="text-align:center;"><span class="row-total-hrs" style="display:inline-block; padding: 6px 16px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa; font-weight: bold; font-family: monospace; min-width: 60px; font-size: 1.1em;">0</span></td>
             <td style="text-align:center;"><button type="button" class="btn-icon btn-delete-row" style="color:#ef4444;"><i class="fa-solid fa-trash"></i></button></td>
         `;
         return tr;
@@ -476,6 +477,7 @@
         const rows = document.querySelectorAll('tr.horario-row');
 
         rows.forEach(tr => {
+            let rowTotalLUtoJU = 0;
             days.forEach(day => {
                 const cell = tr.querySelector(`.in-${day}`);
                 if (!cell) return;
@@ -486,20 +488,36 @@
                 const val = chip.dataset.time.toLowerCase();
                 const status = chip.dataset.status;
 
-                if (!val || val.includes('descanso')) return;
-
-                // Si la ficha está marcada explícitamente como FAIL (Faltó), entonces NO sumamos a la dotación
-                if (status === 'FAIL') return;
-
+                let hoursInShift = 0;
                 const nums = val.match(/\d+/g);
-                if (nums && nums.length > 0) {
-                    const firstNum = parseInt(nums[0], 10);
-                    const lastNum = parseInt(nums[nums.length - 1], 10);
+                if (nums && nums.length >= 2) {
+                    const hStart = parseInt(nums[0], 10);
+                    const hEnd = parseInt(nums[nums.length - 1], 10);
+                    if (hEnd > hStart) {
+                        hoursInShift = hEnd - hStart;
+                    } else if (hEnd < hStart) {
+                        // Caso cruce de medianoche
+                        hoursInShift = (24 - hStart) + hEnd;
+                    }
+
+                    // Sumar a la columna de LU a JU (solo si NO es fallido)
+                    if (['l', 'm', 'x', 'j'].includes(day) && status !== 'FAIL') {
+                        rowTotalLUtoJU += hoursInShift;
+                    }
+
+                    if (!val || val.includes('descanso')) return;
+
+                    // Si la ficha está marcada explícitamente como FAIL (Faltó), entonces NO sumamos a la dotación
+                    if (status === 'FAIL') return;
+
+                    const firstNum = hStart;
+                    const lastNum = hEnd;
 
                     // ROOSTER: Empieza a las 8 AM
                     if (firstNum === 8) {
                         totals.rooster[day]++;
                     }
+
                     // AM: Empieza a las 10, 11 o 12
                     else if (firstNum === 10 || firstNum === 11 || firstNum === 12) {
                         totals.am[day]++;
@@ -511,6 +529,10 @@
                     }
                 }
             });
+
+            // Actualizar celda de total de la fila (LU a JU)
+            const totalCell = tr.querySelector('.row-total-hrs');
+            if (totalCell) totalCell.textContent = rowTotalLUtoJU;
         });
 
         days.forEach(day => {
