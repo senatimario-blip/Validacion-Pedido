@@ -20,7 +20,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=2.0">
 
     <!-- Alerts -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -74,24 +74,9 @@
         <nav class="sidebar glass-panel">
 
             <!-- LOGO CABIFY CENTRADO -->
-            <div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                width: 100%;
-                padding: 20px 12px 16px 12px;
-                box-sizing: border-box;
-                border-bottom: 1px solid rgba(255,255,255,0.08);
-                margin-bottom: 8px;
-            ">
-                <img src="Logo_mio.png" alt="Cabify" style="
-                        width: 100%;
-                        max-width: 160px;
-                        height: auto;
-                        object-fit: contain;
-                        filter: brightness(0) invert(1);
-                        display: block;
-                     ">
+            <div class="nav-brand" style="justify-content: center; padding: 10px 0;">
+                <img src="Logo_mio.png" alt="Cabify"
+                    style="width: 40px; height: auto; filter: brightness(0) invert(1);">
             </div>
 
             <div class="user-profile">
@@ -102,16 +87,31 @@
                 </div>
             </div>
             <ul class="nav-links">
-                <li class="active" id="nav-pedidos"><a href="#"><i class="fa-solid fa-table-list"></i> Pedidos</a></li>
-                <li id="nav-reportes"><a href="#"><i class="fa-solid fa-file-invoice"></i> Reportes</a></li>
-                <li id="nav-dashboard"><a href="#"><i class="fa-solid fa-chart-pie"></i> Dashboard</a></li>
-                <li id="nav-mapa"><a href="#"><i class="fa-solid fa-map-location-dot"></i> Motorizados</a></li>
-                <li id="nav-horarios"><a href="#"><i class="fa-solid fa-calendar-days"></i> Horarios</a></li>
-                <li id="nav-caja"><a href="#"><i class="fa-solid fa-wallet"></i> Caja</a></li>
+                <li class="active" id="nav-pedidos" title="Pedidos">
+                    <a href="#"><i class="fa-solid fa-table-list"></i> <span>Pedidos</span></a>
+                </li>
+                <li id="nav-mapa" title="Monitor">
+                    <a href="#"><i class="fa-solid fa-map-location-dot"></i> <span>Monitor</span></a>
+                </li>
+                <li id="nav-caja" title="Caja">
+                    <a href="#"><i class="fa-solid fa-wallet"></i> <span>Caja</span></a>
+                </li>
+                <li id="nav-horarios" title="Horario">
+                    <a href="#"><i class="fa-solid fa-calendar-days"></i> <span>Horario</span></a>
+                </li>
+                <li id="nav-dashboard" title="Dashboard">
+                    <a href="#"><i class="fa-solid fa-chart-pie"></i> <span>Dashboard</span></a>
+                </li>
+                <li id="nav-reportes" title="Reportes">
+                    <a href="#"><i class="fa-solid fa-file-invoice"></i> <span>Reportes</span></a>
+                </li>
             </ul>
-            <button id="logout-btn" class="logout-link">
-                <i class="fa-solid fa-right-from-bracket"></i> Salir
-            </button>
+            <div style="margin-top: auto; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
+                <button id="logout-btn" class="logout-link" title="Salir" style="width: 100%; border-radius: 12px;">
+                    <i class="fa-solid fa-right-from-bracket"></i> <span>Salir</span>
+                </button>
+            </div>
+
         </nav>
 
         <!-- Main Content -->
@@ -177,9 +177,18 @@
                             <p class="stat-subtext" id="stat-pending-count">0 pedidos</p>
                         </div>
                     </div>
+                    <div class="stat-card en-camino">
+                        <div class="stat-icon" style="background: rgba(255, 255, 255, 0.1); color: #ffffff;"><i
+                                class="fa-solid fa-motorcycle"></i></div>
+                        <div class="stat-info">
+                            <h4>En camino</h4>
+                            <p class="stat-value" id="stat-encamino-amount" style="color: #ffffff;">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-encamino-count">0 pedidos</p>
+                        </div>
+                    </div>
                     <div class="stat-card por-validar">
                         <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;"><i
-                                class="fa-solid fa-person-biking"></i></div>
+                                class="fa-solid fa-eye"></i></div>
                         <div class="stat-info">
                             <h4>Por Validar</h4>
                             <p class="stat-value" id="stat-porvalidar-amount" style="color: #60a5fa;">S/ 0.00</p>
@@ -211,6 +220,7 @@
                         <div class="filter-tabs">
                             <button class="filter-tab active" data-filter="all">Todos</button>
                             <button class="filter-tab" data-filter="Validado">Validados</button>
+                            <button class="filter-tab" data-filter="En Camino">En Camino</button>
                             <button class="filter-tab" data-filter="Por Validar">Por Validar</button>
                             <button class="filter-tab" data-filter="Pendiente">Pendientes</button>
                             <button class="filter-tab" data-filter="Cancelado">Cancelados</button>
@@ -253,13 +263,21 @@
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <label style="color: rgba(255,255,255,0.7); font-size: 0.9em;">Semana:</label>
                         <input type="week" id="horario-semana-picker" class="search-input"
-                            style="padding: 8px; width: 220px;">
+                            style="padding: 8px; width: 220px; background: #1e1b4b; color: white; border: 1px solid rgba(255,255,255,0.4); color-scheme: dark;">
                         <button id="btn-clone-horario" class="btn-secondary"
                             style="margin-left:10px; border-color: rgba(96, 165, 250, 0.4); color: #60a5fa;">
                             <i class="fa-solid fa-copy"></i> Clonar Anterior
                         </button>
                         <button id="btn-save-horario" class="btn-primary" style="background:#10b981; margin-left:10px;">
                             <i class="fa-solid fa-floppy-disk"></i> Guardar Horario
+                        </button>
+                        <button id="btn-refresh-horario" class="btn-icon" title="Refrescar Horario"
+                            style="margin-left:5px;">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                        <button id="btn-compliance-report" class="btn-primary"
+                            style="background:#8b5cf6; margin-left:10px;">
+                            <i class="fa-solid fa-chart-line"></i> Cumplimiento
                         </button>
                     </div>
                 </header>
@@ -286,7 +304,7 @@
                                 <thead>
                                     <tr style="background: rgba(0,0,0,0.3);">
                                         <th style="width: 50px;">Nro</th>
-                                        <th style="width: 100px;">Status</th>
+                                        <th style="width: 150px;">Status</th>
                                         <th style="width: 200px;">Driver</th>
                                         <th>Lunes</th>
                                         <th>Martes</th>
@@ -345,10 +363,7 @@
                                     data-time="Descanso" data-status="DESCANSO" data-is-template="true">
                                     <i class="fa-solid fa-mug-hot"></i> Descanso
                                 </div>
-                                <div class="shift-chip template-chip" draggable="true" data-time="F180"
-                                    data-status="PENDING" data-is-template="true">
-                                    <i class="fa-solid fa-clock"></i> F180
-                                </div>
+
                                 <div class="shift-chip template-chip" draggable="true" data-time="Otros"
                                     data-status="PENDING" data-is-template="true"
                                     style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3);">
@@ -382,7 +397,7 @@
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td style="font-weight:bold; color: #818cf8;">Rooster (08h)</td>
+                                        <td style="font-weight:bold; color: #a78bfa;">Rooster (08h)</td>
                                         <td id="sum-l-ro" style="text-align:center;">0</td>
                                         <td id="sum-m-ro" style="text-align:center;">0</td>
                                         <td id="sum-x-ro" style="text-align:center;">0</td>
@@ -392,7 +407,7 @@
                                         <td id="sum-d-ro" style="text-align:center;">0</td>
                                     </tr>
                                     <tr>
-                                        <td style="font-weight:bold; color: #93c5fd;">AM (Otros hasta 12h)</td>
+                                        <td style="font-weight:bold; color: #60a5fa;">AM (10h-12h)</td>
                                         <td id="sum-l-am" style="text-align:center;">0</td>
                                         <td id="sum-m-am" style="text-align:center;">0</td>
                                         <td id="sum-x-am" style="text-align:center;">0</td>
@@ -402,7 +417,7 @@
                                         <td id="sum-d-am" style="text-align:center;">0</td>
                                     </tr>
                                     <tr>
-                                        <td style="font-weight:bold; color: #fca5a5;">PM (16h+)</td>
+                                        <td style="font-weight:bold; color: #fca5a5;">PM (Cierre 23h)</td>
                                         <td id="sum-l-pm" style="text-align:center;">0</td>
                                         <td id="sum-m-pm" style="text-align:center;">0</td>
                                         <td id="sum-x-pm" style="text-align:center;">0</td>
@@ -434,7 +449,7 @@
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <label style="color: rgba(255,255,255,0.7); font-size: 0.9em;">Fecha:</label>
                         <input type="date" id="caja-date-picker" class="search-input"
-                            style="padding: 8px; width: 180px;">
+                            style="padding: 8px; width: 180px; color-scheme: dark;">
                         <button id="btn-abrir-caja" class="btn-primary" style="background:#10b981;">
                             <i class="fa-solid fa-door-open"></i> Apertura
                         </button>
@@ -513,6 +528,12 @@
                             style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
                             <span style="color: rgba(255,255,255,0.7);">Ingresos:</span>
                             <span id="caja-ingresos" style="font-weight: bold; color: #10b981;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(252, 211, 77, 0.05); margin: 0 -10px; padding: 8px 10px; border-radius: 8px;">
+                            <span style="color: #fcd34d; font-size: 0.9em; font-weight: 500;">Recaudado
+                                (Pedidos):</span>
+                            <span id="caja-recaudado-pedidos" style="font-weight: bold; color: #fcd34d;">S/ 0.00</span>
                         </div>
                         <div
                             style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
@@ -606,7 +627,7 @@
                             <i class="fa-solid fa-user-plus"></i>
                         </button>
                         <input type="date" id="mapa-date-filter" class="form-control"
-                            style="width: 140px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); height: 32px; font-size: 0.85em;">
+                            style="width: 140px; background: #1e1b4b; color: white; border: 1px solid rgba(255,255,255,0.4); height: 32px; font-size: 0.85em; color-scheme: dark;">
                         <button id="btn-refresh-mapa" class="btn-icon" title="Actualizar Datos">
                             <i class="fa-solid fa-rotate-right"></i>
                         </button>
@@ -1119,6 +1140,39 @@
             });
         }
     </script>
+    <!-- Compliance Report Modal -->
+    <div id="modal-compliance-report" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-chart-line"></i> Reporte de Cumplimiento</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div style="padding: 20px;">
+                <p id="compliance-week-title"
+                    style="color: rgba(255,255,255,0.7); margin-bottom: 20px; font-weight: bold;"></p>
+                <div class="table-responsive">
+                    <table class="data-table" id="compliance-table" style="width: 100%;">
+                        <thead>
+                            <tr style="background: rgba(0,0,0,0.3);">
+                                <th>Repartidor</th>
+                                <th style="text-align: center;">Total Turnos</th>
+                                <th style="text-align: center; color: #4ade80;">OK</th>
+                                <th style="text-align: center; color: #f87171;">FAIL</th>
+                                <th style="text-align: center;">% Cumplimiento</th>
+                            </tr>
+                        </thead>
+                        <tbody id="compliance-table-body">
+                            <!-- Inyectado por JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary close-modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 
 </html>

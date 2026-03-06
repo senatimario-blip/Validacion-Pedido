@@ -10,12 +10,11 @@ const cajaSaldoInicial = document.getElementById('caja-saldo-inicial');
 const cajaIngresos = document.getElementById('caja-ingresos');
 const cajaEgresos = document.getElementById('caja-egresos');
 const cajaSaldoFinal = document.getElementById('caja-saldo-final');
+const cajaRecaudadoPedidos = document.getElementById('caja-recaudado-pedidos');
 const cajaDatePicker = document.getElementById('caja-date-picker');
 
 document.addEventListener('DOMContentLoaded', () => {
     if (cajaDatePicker) {
-        const today = new Date().toISOString().split('T')[0];
-        cajaDatePicker.value = today;
         cajaDatePicker.addEventListener('change', loadCajaData);
     }
 
@@ -54,11 +53,24 @@ async function loadCajaData() {
     console.log("Cargando datos de caja...");
 
     try {
-        const res = await fetchAPI('getCajaData');
+        const selectedDate = cajaDatePicker.value; // yyyy-mm-dd
+        let dateQuery = null;
+        if (selectedDate) {
+            const [y, m, d] = selectedDate.split('-');
+            dateQuery = `${d}/${m}/${y}`;
+        }
+
+        const res = await fetchAPI('getCajaData', { fecha: dateQuery });
         console.log("Respuesta de Caja:", res);
         if (res.success) {
             renderCajaHistory(res);
             renderPedidosContadoPendientes(res.pedidosContado);
+
+            // Calcular recaudado total de pedidos (monto de todos los pedidos contado de hoy)
+            const totalRecaudado = (res.pedidosContado || []).reduce((acc, p) => acc + (parseFloat(p.monto) || 0), 0);
+            if (cajaRecaudadoPedidos) {
+                cajaRecaudadoPedidos.textContent = `S/ ${totalRecaudado.toFixed(2)}`;
+            }
         }
     } catch (err) {
         console.error("Error al cargar datos de caja:", err);
@@ -79,7 +91,7 @@ function renderPedidosContadoPendientes(pedidos) {
         list.innerHTML = `
             <div style="grid-column: 1 / -1; text-align: center; padding: 25px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; color: rgba(255,255,255,0.3);">
                 <i class="fa-solid fa-check-double" style="font-size: 1.8em; margin-bottom: 12px; display: block; color: rgba(16, 185, 129, 0.4);"></i>
-                No hay pedidos al contado de hoy pendientes de vuelto o cobro.
+                No hay pedidos al contado en la fecha seleccionada.
             </div>
         `;
         return;
@@ -307,6 +319,7 @@ function renderCajaHistory(data) {
     const movimientos = data.movimientos || [];
 
     const selectedDate = cajaDatePicker.value; // yyyy-mm-dd
+    if (!selectedDate) return;
     const [y, m, d] = selectedDate.split('-');
     const dateQuery = `${d}/${m}/${y}`;
 

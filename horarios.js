@@ -24,21 +24,8 @@
             if (horariosContent) horariosContent.classList.remove('hidden');
             navHorarios.classList.add('active');
 
-            if (!document.getElementById('horario-semana-picker').value) {
-                const today = new Date();
-                const year = today.getFullYear();
-
-                const target = new Date(today.valueOf());
-                const dayNr = (today.getDay() + 6) % 7;
-                target.setDate(target.getDate() - dayNr + 3);
-                const firstThursday = target.valueOf();
-                target.setMonth(0, 1);
-                if (target.getDay() !== 4) {
-                    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
-                }
-                const weekNum = 1 + Math.ceil((firstThursday - target) / 604800000);
-
-                document.getElementById('horario-semana-picker').value = `${year}-W${weekNum.toString().padStart(2, '0')}`;
+            // Week initialization handled by app.js; trigger load if value exists
+            if (document.getElementById('horario-semana-picker').value) {
                 window.loadHorarioSemana();
             }
         });
@@ -50,6 +37,8 @@
     const btnPaste = document.getElementById('btn-paste-horario');
     const btnSave = document.getElementById('btn-save-horario');
     const btnClone = document.getElementById('btn-clone-horario');
+    const btnRefresh = document.getElementById('btn-refresh-horario');
+    const btnCompliance = document.getElementById('btn-compliance-report');
     const weekPicker = document.getElementById('horario-semana-picker');
 
     if (weekPicker) {
@@ -231,6 +220,20 @@
             } catch (error) {
                 Swal.fire('Error', 'Fallo al clonar horarios.', 'error');
             }
+        });
+    }
+
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', () => {
+            if (typeof loadHorarioSemana === 'function') {
+                loadHorarioSemana({ force: true });
+            }
+        });
+    }
+
+    if (btnCompliance) {
+        btnCompliance.addEventListener('click', () => {
+            showComplianceReport();
         });
     }
 
@@ -491,21 +494,21 @@
                 const nums = val.match(/\d+/g);
                 if (nums && nums.length > 0) {
                     const firstNum = parseInt(nums[0], 10);
-                    let endNum = nums.length > 1 ? parseInt(nums[nums.length - 1], 10) : firstNum;
+                    const lastNum = parseInt(nums[nums.length - 1], 10);
 
+                    // ROOSTER: Empieza a las 8 AM
                     if (firstNum === 8) {
                         totals.rooster[day]++;
-                    } else if (firstNum > 0 && firstNum < 13) {
+                    }
+                    // AM: Empieza a las 10, 11 o 12
+                    else if (firstNum === 10 || firstNum === 11 || firstNum === 12) {
                         totals.am[day]++;
                     }
 
-                    if (firstNum >= 13 || endNum >= 16 || (firstNum < 13 && (val.includes('pm') || val.includes('tarde')))) {
+                    // PM: Cierra a las 23h
+                    if (lastNum === 23) {
                         totals.pm[day]++;
                     }
-                } else if (val.includes('am')) {
-                    totals.am[day]++;
-                } else if (val.includes('pm')) {
-                    totals.pm[day]++;
                 }
             });
         });
@@ -529,5 +532,74 @@
             <option value="ROOSTER"></option>
         `;
         document.body.appendChild(dl);
+    }
+
+    function showComplianceReport() {
+        const rows = document.querySelectorAll('tr.horario-row');
+        const stats = {};
+
+        rows.forEach(tr => {
+            const driver = tr.querySelector('.in-driver').value.trim();
+            if (!driver) return;
+
+            if (!stats[driver]) {
+                stats[driver] = { total: 0, ok: 0, fail: 0 };
+            }
+
+            const dayCells = tr.querySelectorAll('.shift-cell');
+            dayCells.forEach(cell => {
+                const chip = cell.querySelector('.shift-chip');
+                if (!chip) return;
+
+                const time = chip.dataset.time.toLowerCase();
+                const status = chip.dataset.status;
+
+                if (time.includes('descanso')) return;
+
+                stats[driver].total++;
+                if (status === 'OK') stats[driver].ok++;
+                else if (status === 'FAIL') stats[driver].fail++;
+            });
+        });
+
+        const modal = document.getElementById('modal-compliance-report');
+        const tbody = document.getElementById('compliance-table-body');
+        const weekTitle = document.getElementById('compliance-week-title');
+        const weekPicker = document.getElementById('horario-semana-picker');
+
+        if (!modal || !tbody) return;
+
+        weekTitle.textContent = `Resumen semanal: ${weekPicker ? weekPicker.value : 'Actual'}`;
+        tbody.innerHTML = '';
+
+        const driverNames = Object.keys(stats);
+        if (driverNames.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">No hay turnos asignados con repartidor</td></tr>';
+        } else {
+            driverNames.sort((a, b) => a.localeCompare(b)).forEach(name => {
+                const s = stats[name];
+                const compliance = s.total > 0 ? Math.round((s.ok / s.total) * 100) : 0;
+
+                let color = '#4ade80';
+                if (compliance < 100) color = '#fb923c';
+                if (compliance < 70) color = '#f87171';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight:bold;">${name}</td>
+                    <td style="text-align:center;">${s.total}</td>
+                    <td style="text-align:center; color:#4ade80; font-weight:bold;">${s.ok}</td>
+                    <td style="text-align:center; color:#f87171; font-weight:bold;">${s.fail}</td>
+                    <td style="text-align:center;">
+                        <span style="background: rgba(0,0,0,0.2); padding: 4px 10px; border-radius: 12px; border: 1px solid ${color}; color: ${color}; font-weight:bold;">
+                            ${compliance}%
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        modal.classList.add('active');
     }
 })();

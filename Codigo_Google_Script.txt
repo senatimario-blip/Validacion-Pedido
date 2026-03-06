@@ -37,7 +37,7 @@ function doPost(e) {
       case 'guardarHorarioSemananal': result = guardarHorarioSemananal(payload); break;
       case 'obtenerHorariosSemanales': result = obtenerHorariosSemanales(payload.semanaId); break;
       case 'registrarMovimientoCaja': result = registrarMovimientoCaja(payload); break;
-      case 'getCajaData':             result = getCajaData(); break;
+      case 'getCajaData':             result = getCajaData(payload); break;
       default:                    result = { success: false, message: 'AcciÃ³n no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
@@ -331,21 +331,6 @@ function crearPedidosMasivos(payload) {
   return { success: true };
 }
 
-function asignarViajePedido(data) {
-  const sheet = getSheet();
-  const rows = sheet.getDataRange().getValues();
-  const nros = Array.isArray(data.nros) ? data.nros : [data.nro];
-  const viajeId = data.viajeId || "";
-
-  let count = 0;
-  for (let i = 1; i < rows.length; i++) {
-    if (nros.includes(Number(rows[i][0]))) {
-      sheet.getRange(i + 1, 20).setValue(viajeId); // Columna T
-      count++;
-    }
-  }
-  return { success: true, updated: count };
-}
 
 function crearPedido(data) {
   const sheet = getSheet();
@@ -553,7 +538,7 @@ function asignarViajePedido(payload) {
     const nros = payload.nros || [];
     const viajeId = payload.viajeId;
     
-    if (!viajeId) return { success: false, message: 'Falta ID de Viaje' };
+    if (viajeId === undefined || viajeId === null) return { success: false, message: 'Falta ID de Viaje' };
     
     let updates = 0;
     for (let i = 1; i < rows.length; i++) {
@@ -817,8 +802,11 @@ function registrarMovimientoCaja(data) {
   }
 }
 
-function getCajaData() {
+function getCajaData(params) {
   try {
+    params = params || {};
+    var targetFecha = params.fecha || Utilities.formatDate(new Date(), "GMT-5", "dd/MM/yyyy");
+
     var sheet = ensureCajaSheet();
     var lastRow = sheet.getLastRow();
     
@@ -856,9 +844,11 @@ function getCajaData() {
     var pedidosRaw    = pedidosSheet.getDataRange().getValues();
     var pedidosContado = [];
 
-    // Obtener fecha de hoy para comparar (objeto Date con timezone Peru GMT-5)
-    var hoy = new Date();
-    var hoyStr = Utilities.formatDate(hoy, "GMT-5", "dd/MM/yyyy");
+    // Parse components of targetFecha (dd/MM/yyyy) for Date object comparison
+    var parts = targetFecha.split('/');
+    var targetDay   = parseInt(parts[0], 10);
+    var targetMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+    var targetYear  = parseInt(parts[2], 10);
 
     for (var j = 1; j < pedidosDisplay.length; j++) {
       var pDisp = pedidosDisplay[j];
@@ -868,17 +858,17 @@ function getCajaData() {
       var pPago    = (pDisp[10] || "").toString().trim().toUpperCase();
       var pFechaDisp = (pDisp[1] || "").toString(); // Fecha en display, igual que la ves en Sheets
       
-      // Verificar si el pedido es de hoy usando la fecha mostrada en la hoja
-      var esDeHoy = pFechaDisp.includes(hoyStr);
+      // Verificar si el pedido es de la fecha objetivo
+      var esFechaObjetivo = pFechaDisp.includes(targetFecha);
       
       // Fallback: comparar con objeto Date si la columna B es Date
-      if (!esDeHoy && pRaw[1] instanceof Date) {
-        esDeHoy = (pRaw[1].getDate()     === hoy.getDate()     &&
-                   pRaw[1].getMonth()    === hoy.getMonth()    &&
-                   pRaw[1].getFullYear() === hoy.getFullYear());
+      if (!esFechaObjetivo && pRaw[1] instanceof Date) {
+        esFechaObjetivo = (pRaw[1].getDate()     === targetDay   &&
+                           pRaw[1].getMonth()    === targetMonth &&
+                           pRaw[1].getFullYear() === targetYear);
       }
       
-      if (esDeHoy &&
+      if (esFechaObjetivo &&
           (pEstado === "PENDIENTE" || pEstado === "EN CAMINO" || pEstado === "POR VALIDAR" || pEstado === "VALIDADO") &&
           pPago.includes("CONTADO")) {
         
@@ -901,34 +891,40 @@ function getCajaData() {
     }
 
     // Cross-reference Caja_Movimientos para encontrar vuelto/cobro de cada pedido
-    if (movimientos.length > 0 || lastRow >= 2) {
+    if (lastRow >= 2) {
       // Re-leer todos los movimientos (no solo los de hoy) para buscar por pedidoNro
-      var cajaMov = sheet.getRange(2, 1, sheet.getLastRow() - 1, 12).getValues();
+      var cajaMov = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
       pedidosContado.forEach(function(p) {
         cajaMov.forEach(function(row) {
           var movNro    = (row[6] || "").toString().trim();
           var movTipo   = (row[3] || "").toString().toUpperCase();
           var movMonto  = parseFloat(row[5]) || 0;
           var movMetodo = (row[9] || "").toString().toUpperCase();
-          if (movNro === p.nro.toString()) {
+          if (movNro === p.nro.toString() && movNro !== "") {
             if (movTipo === "EGRESO") {
               p.vueltoEgresado = movMonto;
               p.metodoVuelto   = movMetodo;
               p.estado = "PENDIENTE_COBRO";
-            } else if (movTipo === "INGRESO" && movNro !== "") {
+            } else if (movTipo === "INGRESO") {
               p.cobroIngresado = movMonto;
               p.estado = "COBRADO";
             }
           }
         });
       });
+
+      var movsFiltrados = movimientos.filter(function(m) {
+        return (m.fecha || "").toString().includes(targetFecha);
+      });
+    } else {
+      var movsFiltrados = [];
     }
     
     return {
       success: true,
       saldoFisico: saldoFisico,
       saldoDigital: saldoDigital,
-      movimientos: movimientos.slice(0, 50), // Ultimos 50
+      movimientos: movsFiltrados.slice(0, 200), // Ultimos 200 del día
       pedidosContado: pedidosContado
     };
   } catch (e) {

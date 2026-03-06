@@ -18,6 +18,8 @@ const COLORS = {
     cyan: 'rgba(34, 211, 238, 0.85)',
     amarillo: 'rgba(250, 204, 21, 0.85)',
     gris: 'rgba(148, 163, 184, 0.85)',
+    celeste: 'rgba(59, 130, 246, 0.85)',
+    blanco: 'rgba(255, 255, 255, 0.85)',
     azulBG: 'rgba(96, 165, 250, 0.15)',
     verdeBG: 'rgba(74, 222, 128, 0.15)',
     rojoBG: 'rgba(248, 113, 113, 0.15)',
@@ -157,7 +159,11 @@ function initDashboard() {
         document.getElementById('reports-content').style.display = 'none';
         document.getElementById('reports-content').classList.add('hidden');
         const mc = document.getElementById('mapa-content');
-        if (mc) mc.classList.add('hidden');
+        if (mc) { mc.classList.add('hidden'); mc.style.display = 'none'; }
+        const hc = document.getElementById('horarios-content');
+        if (hc) { hc.classList.add('hidden'); hc.style.display = 'none'; }
+        const cc = document.getElementById('caja-content');
+        if (cc) { cc.classList.add('hidden'); cc.style.display = 'none'; }
         document.getElementById('dashboard-view').style.display = 'block';
         const fromEl = document.getElementById('dash-from');
         const toEl = document.getElementById('dash-to');
@@ -301,6 +307,8 @@ function renderKPIs() {
     const validados = dashOrders.filter(o => o.estado === 'Validado').length;
     const cancelados = dashOrders.filter(o => esCancelado(o)).length;
     const pendientes = dashOrders.filter(o => o.estado === 'Pendiente').length;
+    const porValidar = dashOrders.filter(o => o.estado === 'Por Validar').length;
+    const enCamino = dashOrders.filter(o => o.estado === 'En Camino').length;
     const montoVal = dashOrders.filter(o => o.estado === 'Validado').reduce((s, o) => s + (parseFloat(o.monto) || 0), 0);
     const fillRate = total > 0 ? (validados / total * 100).toFixed(1) : '0.0';
     const slaFuera = dashOrders.filter(o => o.sla_fuera && String(o.sla_fuera).trim() !== '').length;
@@ -339,6 +347,8 @@ function renderKPIs() {
     setText('kpi-validados', validados);
     setText('kpi-cancelados', cancelados);
     setText('kpi-pendientes', pendientes);
+    setText('kpi-por-validar', porValidar);
+    setText('kpi-encamino', enCamino);
     setText('kpi-monto', 'S/ ' + montoVal.toFixed(2));
     setText('kpi-fill', fillRate + '%');
     setText('kpi-tpe', tpeString);
@@ -682,11 +692,13 @@ function getDashboardHTML() {
     </div>
 
     <!-- ── KPIs ── -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:14px; margin-bottom:20px;">
         ${kpiCard('kpi-total', 'fa-list-ol', 'Total', '0', COLORS.azul)}
         ${kpiCard('kpi-validados', 'fa-check-circle', 'Validados', '0', COLORS.verde)}
+        ${kpiCard('kpi-por-validar', 'fa-eye', 'Por Validar', '0', COLORS.celeste)}
         ${kpiCard('kpi-cancelados', 'fa-ban', 'Cancelados', '0', COLORS.rojo)}
-        ${kpiCard('kpi-pendientes', 'fa-clock', 'Pendientes', '0', COLORS.amarillo)}
+        ${kpiCard('kpi-pendientes', 'fa-clock', 'Pendientes', '0', COLORS.naranja)}
+        ${kpiCard('kpi-encamino', 'fa-motorcycle', 'En Camino', '0', COLORS.blanco)}
         ${kpiCard('kpi-monto', 'fa-money-bill', 'Monto Val.', 'S/ 0.00', COLORS.cyan)}
         ${kpiCard('kpi-fill', 'fa-percentage', 'Fill Rate', '0%', COLORS.naranja)}
         ${kpiCard('kpi-tpe', 'fa-stopwatch', 'TPE', '--', COLORS.verde)}

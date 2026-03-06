@@ -197,20 +197,35 @@ body {
     background: rgba(0, 0, 0, 0.35);
 }
 
-/* Main App Layout */
 #app-section {
     display: none;
     /* JS will toggle this */
-    grid-template-columns: 250px 1fr;
+    grid-template-columns: 1fr;
+    /* Sidebar is now fixed */
     height: 100vh;
 }
 
-/* Sidebar */
+
+
 .sidebar {
-    margin: 20px;
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    bottom: 20px;
+    width: 250px;
     display: flex;
     flex-direction: column;
-    padding: 20px;
+    padding: 30px 0;
+    background: rgba(15, 23, 42, 0.85);
+    /* Slightly more transparency */
+    backdrop-filter: blur(25px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 1000;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(255, 255, 255, 0.02);
+    transition: var(--transition);
 }
 
 .nav-brand {
@@ -219,28 +234,34 @@ body {
     margin-bottom: 40px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    gap: 12px;
     color: var(--text-main);
+    padding: 0 20px;
 }
 
 .user-profile {
     display: flex;
     align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    margin: 0 15px 30px;
+    padding: 12px 15px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
     gap: 12px;
-    padding: 15px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 10px;
-    margin-bottom: 30px;
 }
 
 .avatar {
-    width: 40px;
-    height: 40px;
-    background: var(--primary);
-    border-radius: 50%;
+    width: 42px;
+    height: 42px;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 1.2rem;
+    color: white;
+    box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
 }
 
 .user-info {
@@ -248,63 +269,107 @@ body {
     flex-direction: column;
 }
 
+.user-info span {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: white;
+}
+
 .user-info small {
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
 }
 
 .nav-links {
     list-style: none;
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 10px;
 }
 
 .nav-links li {
-    margin-bottom: 10px;
+    position: relative;
+    width: 100%;
 }
 
 .nav-links a {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 15px;
+    gap: 15px;
+    padding: 12px 18px;
     color: var(--text-muted);
     text-decoration: none;
-    border-radius: 8px;
-    transition: var(--transition);
+    border-radius: 14px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 0.95rem;
+    font-weight: 500;
 }
 
-.nav-links li.active a,
-.nav-links a:hover {
-    background: rgba(99, 102, 241, 0.1);
-    color: var(--primary);
+.nav-links a i {
+    font-size: 1.2rem;
+    width: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    transition: inherit;
+}
+
+.nav-links li.active a {
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    color: white;
+    box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
+}
+
+.nav-links li.active a i {
+    color: white;
+}
+
+.nav-links a:hover:not(.active a) {
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+}
+
+.nav-links a:hover i {
+    color: white;
+    transform: translateX(3px);
 }
 
 .logout-link {
-    background: transparent;
-    border: none;
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.1);
     color: var(--danger);
-    width: 100%;
-    text-align: left;
+    margin: 20px 15px 0;
     padding: 12px 15px;
+    border-radius: 14px;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 1rem;
+    gap: 15px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.logout-link i {
+    font-size: 1.1rem;
 }
 
 .logout-link:hover {
-    background: rgba(239, 68, 68, 0.1);
+    background: var(--danger);
+    color: white;
+    box-shadow: 0 5px 15px rgba(239, 68, 68, 0.3);
 }
 
-/* Main Content */
+/* Main Content Adjustment */
 .main-content {
-    padding: 20px 20px 20px 0;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    overflow-y: auto;
+    margin-left: 290px;
+    padding: 40px;
+    min-height: 100vh;
+    transition: all 0.3s ease;
 }
+
+
 
 /* Top Bar */
 .top-bar {
@@ -358,6 +423,10 @@ body {
 
 .stat-card.pending {
     border-left: 4px solid var(--warning);
+}
+
+.stat-card.en-camino {
+    border-left: 4px solid #ffffff !important;
 }
 
 .stat-card.por-validar {

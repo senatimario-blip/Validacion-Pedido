@@ -35,16 +35,41 @@ let audioCtx = null;
 document.addEventListener('DOMContentLoaded', () => {
     if (API_URL) apiUrlInput.value = API_URL;
 
-    // Set Date Filter to Today
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const todayStr = `${yyyy}-${mm}-${dd}`;
+    // Set Date Filter to Today (ajustado a zona horaria local para evitar saltos de día)
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    const localDate = new Date(now.getTime() - offset);
+    const todayStr = localDate.toISOString().split('T')[0];
 
-    document.getElementById('date-filter').value = todayStr;
-    const mapaDateFilter = document.getElementById('mapa-date-filter');
-    if (mapaDateFilter) mapaDateFilter.value = todayStr;
+    // 1. Initialize all standard date inputs
+    const dateInputs = [
+        'date-filter',
+        'mapa-date-filter',
+        'report-date-filter',
+        'caja-date-picker',
+        'dash-from',
+        'dash-to'
+    ];
+
+    dateInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = todayStr;
+    });
+
+    // 2. Initialize Week Picker for Horarios (ISO Week)
+    const weekPicker = document.getElementById('horario-semana-picker');
+    if (weekPicker && !weekPicker.value) {
+        const target = new Date(now.valueOf());
+        const dayNr = (now.getDay() + 6) % 7;
+        target.setDate(target.getDate() - dayNr + 3);
+        const firstThursday = target.valueOf();
+        target.setMonth(0, 1);
+        if (target.getDay() !== 4) {
+            target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+        }
+        const weekNum = 1 + Math.ceil((firstThursday - target) / 604800000);
+        weekPicker.value = `${now.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
+    }
 
     checkSession();
 
@@ -2849,6 +2874,7 @@ function updateStats(data = orders) {
     let rejectedCount = 0, rejectedAmount = 0;
 
     let porValidarCount = 0, porValidarAmount = 0;
+    let enCaminoCount = 0, enCaminoAmount = 0;
 
     data.forEach(o => {
         if (o.estado === 'Reservado') return;
@@ -2864,6 +2890,9 @@ function updateStats(data = orders) {
         } else if (o.estado === 'Pendiente') {
             pendingCount++;
             pendingAmount += monto;
+        } else if (o.estado === 'En Camino') {
+            enCaminoCount++;
+            enCaminoAmount += monto;
         } else if (o.estado === 'Por Validar') {
             porValidarCount++;
             porValidarAmount += monto;
@@ -2878,6 +2907,11 @@ function updateStats(data = orders) {
 
     document.getElementById('stat-pending-amount').textContent = `S/ ${formatMoney(pendingAmount)}`;
     document.getElementById('stat-pending-count').textContent = `${pendingCount} pedidos`;
+
+    const ecAmountEl = document.getElementById('stat-encamino-amount');
+    const ecCountEl = document.getElementById('stat-encamino-count');
+    if (ecAmountEl) ecAmountEl.textContent = `S/ ${formatMoney(enCaminoAmount)}`;
+    if (ecCountEl) ecCountEl.textContent = `${enCaminoCount} pedidos`;
 
     document.getElementById('stat-validated-amount').textContent = `S/ ${formatMoney(validAmount)}`;
     document.getElementById('stat-validated-count').textContent = `${validCount} pedidos`;

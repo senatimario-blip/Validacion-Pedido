@@ -178,11 +178,18 @@ function renderMapaMotorizados() {
         return getOrderDateLima(o.fecha) === targetDate;
     });
 
-    // (Ahora SI mostramos los Validados y Cancelados para que puedan ser armados en Viajes)
-    const activeOrders = allOrders.filter(o => !o.viaje_id && o.viaje_id !== 'CANCELADOS_ARCHIVADOS');
+    // (REGLA ACTUALIZADA: Cualquier pedido que NO tenga un viaje_id asignado debe mostrarse en la parte superior)
+    // Esto permite que pedidos 'sueltos' (validados, cancelados o pendientes) puedan ser re-asignados o corregidos.
+    const activeOrders = allOrders.filter(o => {
+        const vId = String(o.viaje_id || "").trim();
+        return vId === "" || vId === "null" || vId === "undefined";
+    });
 
     // Pedidos que ya pertenecen a un viaje real o al archivero de cancelados
-    const tripOrders = allOrders.filter(o => o.viaje_id);
+    const tripOrders = allOrders.filter(o => {
+        const vId = String(o.viaje_id || "").trim();
+        return vId !== "" && vId !== "null" && vId !== "undefined";
+    });
 
     // 2.5 Crear categoría para No Asignados en el monitor activo
     motorizadosMap['___SIN_ASIGNAR___'] = {
@@ -366,9 +373,16 @@ function renderActiveMonitor(motorizadosMap, container, countEl) {
                         </div>
                     </div>
                     ${headerExtra}
+                    <!-- NUEVO: Botón Crear Viaje -->
+                    ${!isCanceledBox && !data.isUnassigned ? `
+                    <button onclick="crearViajeDesdeMonitor('${mKey}')" 
+                            style="background: var(--primary); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 0.8em; font-weight: 700; cursor: pointer; margin-left: 8px; transition: all 0.2s; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                        <i class="fa-solid fa-route"></i> Crear Viaje
+                    </button>
+                    ` : ''}
                 </div>
                 <!-- Div donde funciona el SortableJS / Drag Drop -->
-                <div class="motorizado-dropzone custom-scrollbar" style="flex: 1; overflow-y: auto; padding-right: 8px; min-height: 150px;" id="dropzone-${mKey}">
+                <div class="motorizado-dropzone driver-order-list custom-scrollbar" style="flex: 1; overflow-y: auto; padding-right: 8px; min-height: 150px;" id="dropzone-${mKey}" data-driver-name="${mKey}" data-driver-display-name="${data.name}">
                     ${ordersHtml.length > 0 ? ordersHtml : '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.85em; padding: 32px 0;">Sin pedidos asignados</div>'}
                 </div>
             </div>
@@ -419,7 +433,12 @@ function renderViajesSection(tripOrders, container) {
         driversMap[dName].trips.push(trip);
         driversMap[dName].driverTotal += tripTotal;
 
-        const tId = parseInt(trip.id) || 0;
+        // Manejar ID de viaje para el ordenamiento (ignorar si no es numérico)
+        let tId = 0;
+        if (trip.id && !isNaN(trip.id)) {
+            tId = parseInt(trip.id);
+        }
+
         if (tId > driversMap[dName].latestTripId) {
             driversMap[dName].latestTripId = tId;
         }
@@ -476,10 +495,14 @@ function renderViajesSection(tripOrders, container) {
             </div>
             <div>
                 <h2 style="margin: 0; font-size: 1.4em; font-weight: 800;">RESUMEN DE VIAJES</h2>
-                <p style="margin: 0; font-size: 0.85em; color: rgba(255,255,255,0.5);">${globalTrips} Viajes realizados | ${globalOrders} Pedidos totales</p>
+                <p style="margin: 0; font-size: 0.85em; color: rgba(255,255,255,0.5);">${globalTrips} Viajes realizados</p>
             </div>
         </div>
         <div style="display: flex; gap: 25px; align-items: center; flex-wrap: wrap;">
+            <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
+                <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase; margin-bottom: 2px;">Pedidos Totales</span>
+                <strong style="font-size: 1.25em; color: #ffffff;">${globalOrders}</strong>
+            </div>
             <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
                 <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase; margin-bottom: 2px;">Validados</span>
                 <strong style="font-size: 1.25em; color: #4ade80;">${globalValidado}</strong>
@@ -572,23 +595,28 @@ function renderViajesSection(tripOrders, container) {
             }).join('');
 
             const tripDate = new Date(parseInt(trip.id));
-            const timeStr = isNaN(tripDate.getTime()) ? "---" : tripDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const isInvalidId = !trip.id || isNaN(parseInt(trip.id)) || String(trip.id).trim() === "";
+            const timeStr = isInvalidId ? "---" : tripDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const tripTitle = isInvalidId ? "Viaje Pendiente / Manual" : `Viaje #${String(trip.id).slice(-4)}`;
+            const tripSubtitle = isInvalidId ? "ID no válido" : timeStr;
+            const nrosList = JSON.stringify(trip.orders.map(o => o.nro));
 
             return `
-                        <div class="trip-card" data-trip-id="${trip.id}">
-                            <div class="trip-header">
-                                <div class="trip-driver-info">
-                                    <div class="trip-avatar"><i class="fa-solid fa-clock"></i></div>
-                                    <div>
-                                        <h3 style="margin:0; font-size:1em; font-weight:700; color:#fff;">Viaje #${String(trip.id).slice(-4)}</h3>
-                                        <span style="font-size:0.8em; color:rgba(255,255,255,0.4);">${timeStr}</span>
-                                    </div>
-                                </div>
-                                <div class="trip-payment-summary">
-                                    <div class="trip-payment-label">Subtotal</div>
-                                    <div class="trip-payment-value">S/ ${trip.tripPayout.toFixed(2)}</div>
-                                </div>
-                            </div>
+                         <div class="trip-card" data-trip-id="${trip.id}">
+                             <div class="trip-header">
+                                 <div class="trip-driver-info">
+                                     <div class="trip-avatar"><i class="fa-solid fa-clock"></i></div>
+                                     <div style="flex:1;">
+                                         <h3 style="margin:0; font-size:1em; font-weight:700; color:#fff;">${tripTitle}</h3>
+                                         <span style="font-size:0.8em; color:rgba(255,255,255,0.4);">${tripSubtitle}</span>
+                                     </div>
+                                     ${isInvalidId ? `<button onclick='quitarPedidoDeViaje(${nrosList})' title="Desvincular todos los pedidos" style="background:#f87171; border:none; color:white; cursor:pointer; font-size:0.7em; padding:4px 8px; border-radius:4px; font-weight:bold; margin-right:10px;"><i class="fa-solid fa-link-slash"></i> Soltar Pedidos</button>` : ''}
+                                 </div>
+                                 <div class="trip-payment-summary">
+                                     <div class="trip-payment-label">Subtotal</div>
+                                     <div class="trip-payment-value">S/ ${trip.tripPayout.toFixed(2)}</div>
+                                 </div>
+                             </div>
                             <div style="display:flex; flex-direction:column; gap:8px;">
                                 ${ordersHtml}
                             </div>
@@ -788,8 +816,8 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
     }
 
     // Preparar el HTML para las casillas de verificación
-    let htmlContent = `<div style="text-align: left; max-height: 300px; overflow-y: auto; padding-right: 10px;">
-        <p style="margin-bottom: 15px; font-size: 0.9em; color: #aaa;">Selecciona los pedidos a incluir en el viaje. Desmarca los pedidos 'Pendientes' si deseas dejarlos para después.</p>`;
+    let htmlContent = `<div style="text-align: left; max-height: 350px; overflow-y: auto; padding-right: 10px; font-family: 'Inter', sans-serif;">
+        <p style="margin-bottom: 20px; font-size: 0.95em; color: #475569; line-height: 1.5;">Selecciona los pedidos a incluir en el viaje. Desmarca los pedidos 'Pendientes' si deseas dejarlos para después.</p>`;
 
     cards.forEach(c => {
         const nro = c.getAttribute('data-nro');
@@ -797,19 +825,21 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
         const o = orders.find(x => x.nro == nro);
         if (!o) return;
 
-        let labelColor = '#fff';
+        let labelColor = '#1e293b';
         let badgeHtml = '';
         if (o.estado === 'Pendiente') {
-            badgeHtml = `<span style="font-size:0.7em; background:rgba(234,179,8,0.2); color:#EAB308; padding:2px 4px; border-radius:4px; margin-left:6px;">Pendiente</span>`;
+            badgeHtml = `<span style="font-size:0.75em; background:#f59e0b; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);">Pendiente</span>`;
         } else if (o.estado === 'Validado') {
-            badgeHtml = `<span style="font-size:0.7em; background:rgba(74,222,128,0.2); color:#4ADE80; padding:2px 4px; border-radius:4px; margin-left:6px;">Validado</span>`;
+            badgeHtml = `<span style="font-size:0.75em; background:#10b981; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(16,185,129,0.2);">Validado</span>`;
+        } else if (o.estado === 'Por Validar') {
+            badgeHtml = `<span style="font-size:0.75em; background:#3b82f6; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(59,130,246,0.2);">Por Validar</span>`;
         }
 
         htmlContent += `
-        <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; margin-bottom: 8px; cursor: pointer; background: rgba(0,0,0,0.2);">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <input type="checkbox" checked value="${nro}" class="trip-order-checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary);">
-                <span style="color: ${labelColor}; font-weight: bold;">${o.llave || '#' + o.nro}</span>
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border: 1.5px solid #e2e8f0; border-radius: 12px; margin-bottom: 10px; cursor: pointer; background: #f8fafc; transition: all 0.2s ease;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <input type="checkbox" checked value="${nro}" class="trip-order-checkbox" style="width: 20px; height: 20px; cursor: pointer; accent-color: #6366f1;">
+                <span style="color: ${labelColor}; font-weight: 700; font-size: 1.05em;">${o.llave || '#' + o.nro}</span>
             </div>
             ${badgeHtml}
         </label>`;
@@ -893,8 +923,8 @@ function initDragAndDrop() {
             const targetList = draggable.closest('.driver-order-list');
             if (!targetList) return;
 
-            const newDriverName = targetList.getAttribute('data-driver-name');
-            const newDriverKey = newDriverName.trim().toUpperCase();
+            const newDriverKey = targetList.getAttribute('data-driver-name'); // uppercase key
+            const newDriverName = targetList.getAttribute('data-driver-display-name') || targetList.getAttribute('data-driver-name'); // original casing
 
             // 1. Si cambió de repartidor, primero sincronizar asignación
             const oldDriverKey = draggable.getAttribute('data-driver');
@@ -1089,35 +1119,41 @@ window.asignarMotorizadoDesdeMapa = async function (nro) {
     }
 };
 
-window.quitarPedidoDeViaje = async function (nro) {
+window.quitarPedidoDeViaje = async function (input) {
+    const isArray = Array.isArray(input);
+    const nros = isArray ? input : [Number(input)];
+    const count = nros.length;
+
     const result = await Swal.fire({
-        title: '¿Remover pedido del viaje?',
-        text: "El pedido volverá al monitor activo.",
+        title: count > 1 ? `¿Desvincular ${count} pedidos?` : '¿Remover pedido del viaje?',
+        text: count > 1 ? "Todos los pedidos volverán al monitor activo para ser re-asignados." : "El pedido volverá al monitor activo.",
         icon: 'question',
         showCancelButton: true,
-        confirmButtonText: 'Sí, remover',
+        confirmButtonText: count > 1 ? 'Sí, desvincular todos' : 'Sí, remover',
         cancelButtonText: 'Cancelar'
     });
 
     if (result.isConfirmed) {
         Swal.fire({
-            title: 'Removiendo...',
+            title: count > 1 ? 'Desvinculando...' : 'Removiendo...',
             didOpen: () => Swal.showLoading(),
             allowOutsideClick: false
         });
 
         try {
             const response = await fetchAPI('asignarViajePedido', {
-                nros: [Number(nro)],
-                viajeId: " "
+                nros: nros.map(n => Number(n)),
+                viajeId: "" // Enviar vacío para desvincular
             });
 
             if (response.success) {
                 if (typeof orders !== 'undefined') {
-                    const idx = orders.findIndex(x => x.nro == nro);
-                    if (idx !== -1) orders[idx].viaje_id = "";
+                    nros.forEach(n => {
+                        const idx = orders.findIndex(x => x.nro == n);
+                        if (idx !== -1) orders[idx].viaje_id = "";
+                    });
                 }
-                Swal.fire({ icon: 'success', title: 'Pedido removido', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+                Swal.fire({ icon: 'success', title: count > 1 ? 'Pedidos desvinculados' : 'Pedido removido', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
                 renderMapaMotorizados();
                 if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
             } else {
