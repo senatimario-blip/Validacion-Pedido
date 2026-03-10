@@ -1290,8 +1290,7 @@ function handlePhotoCapture(e, type) {
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            // --- MARCA DE AGUA (MODO SOMBRA: DESACTIVADO PARA PRUEBAS) ---
-            /*
+            // --- MARCA DE AGUA (MODO SOMBRA: ACTIVADO) ---
             const now = new Date();
             const timeStr = now.toLocaleString('es-PE', { hour12: false });
             const locStr = currentLocation.lat ? `${currentLocation.lat.toFixed(5)}, ${currentLocation.lng.toFixed(5)} (±${Math.round(currentLocation.accuracy)}m)` : 'GPS no disponible';
@@ -1309,7 +1308,6 @@ function handlePhotoCapture(e, type) {
 
             ctx.fillStyle = '#4ade80'; // Verde brillante para la marca
             ctx.fillText(watermarkText, 20, canvas.height - 18);
-            */
             // -------------------------------------------------------------
             // ----------------------------------------------
 
