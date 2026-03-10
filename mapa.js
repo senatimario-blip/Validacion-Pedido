@@ -452,7 +452,7 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                         ${title} <span style="opacity: 0.5; font-weight: 400; margin-left: 5px;">(${keys.length})</span>
                     </h2>
                 </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 20px; width: 100%;">
+                <div class="monitor-group-container" style="display: flex; flex-wrap: wrap; gap: 20px; width: 100%;">
         `;
 
         keys.forEach(mKey => {
@@ -1396,15 +1396,18 @@ function getDriverStatusDetailed(driverOrders) {
 
 // Handler for manual reordering of the Boxes themselves
 function initBoxDragAndDrop() {
-    const containers = document.querySelectorAll('.custom-scrollbar[style*="flex"]');
-    // Capturamos el contenedor principal de las columnas (el que tiene display: flex y gap: 20px)
+    const containers = document.querySelectorAll('.monitor-group-container');
 
     containers.forEach(container => {
         const columns = container.querySelectorAll('.motorizado-columna');
 
         columns.forEach(col => {
             col.addEventListener('dragstart', (e) => {
-                if (e.target.classList.contains('motorizado-order-card')) return; // Prioridad al drag de pedidos
+                // Si el drag proviene de una tarjeta de pedido o un elemento interno que no sea el header de la columna, ignoramos
+                // o si estamos arrastrando un motorizado-order-card, priorizamos eso.
+                if (document.querySelector('.dragging')) return;
+
+                e.stopPropagation();
                 e.target.classList.add('dragging-box');
                 e.dataTransfer.setData('text/plain', e.target.getAttribute('data-driver-key'));
             });
@@ -1419,7 +1422,7 @@ function initBoxDragAndDrop() {
             const draggingBox = document.querySelector('.dragging-box');
             if (!draggingBox) return;
 
-            const afterElement = getDragAfterElementHorizontal(container, e.clientX);
+            const afterElement = getDragAfterElementHorizontal(container, e.clientX, e.clientY);
             if (afterElement == null) {
                 container.appendChild(draggingBox);
             } else {
@@ -1429,41 +1432,51 @@ function initBoxDragAndDrop() {
 
         container.addEventListener('drop', (e) => {
             e.preventDefault();
+            const draggingBox = document.querySelector('.dragging-box');
+            if (!draggingBox) return;
+
             // Al soltar, guardamos el nuevo orden de las llaves
             const allBoxes = Array.from(container.querySelectorAll('.motorizado-columna'));
             const newOrder = allBoxes.map(b => b.getAttribute('data-driver-key')).filter(k => k);
 
             if (newOrder.length > 0) {
                 // Actualizamos el estado global de orden de cajas
-                // Nota: Esto mezclará llaves de diferentes grupos, pero el sort lo manejará
-                newOrder.forEach(key => {
-                    if (!boxSortState.includes(key)) boxSortState.push(key);
-                });
+                // Nota: Mantenemos las llaves que no están en este grupo pero están en boxSortState
+                const otherKeys = boxSortState.filter(k => !newOrder.includes(k));
+                boxSortState = [...newOrder, ...otherKeys];
 
-                // Refinamos: Solo guardamos el orden relativo actual que vemos en pantalla
-                boxSortState = [...new Set([...newOrder, ...boxSortState])];
                 localStorage.setItem(BOX_SORT_STATE_KEY, JSON.stringify(boxSortState));
                 console.log("Nuevo orden de cajas guardado:", boxSortState);
+                // No llamamos a renderMapaMotorizados() inmediatamente para evitar parpadeo si no es necesario,
+                // pero como el orden visual ya cambió por el insertBefore, solo guardamos.
+                // Sin embargo, para asegurar consistencia en el estado global (como el sorting de motorizadosMap), lo llamamos.
                 renderMapaMotorizados();
             }
         });
     });
 }
 
-// Helper to find position during drag (Horizontal support)
-function getDragAfterElementHorizontal(container, x) {
+// Helper to find position during drag (Horizontal & Vertical support for Wrap)
+function getDragAfterElementHorizontal(container, x, y) {
     const draggableElements = [...container.querySelectorAll('.motorizado-columna:not(.dragging-box)')];
 
     return draggableElements.reduce((closest, child) => {
         const box = child.getBoundingClientRect();
-        const offset = x - box.left - box.width / 2;
 
-        if (offset < 0 && offset > closest.offset) {
-            return { offset: offset, element: child };
+        // En un layout wrap, comparamos primero si estamos en la misma fila (aproximadamente)
+        // O simplemente usamos la distancia al centro de la caja.
+        const centerX = box.left + box.width / 2;
+        const centerY = box.top + box.height / 2;
+
+        // Distancia euclidiana simple al centro de la caja para manejar el wrap de forma intuitiva
+        const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+
+        if (distance < closest.distance) {
+            return { distance: distance, element: child };
         } else {
             return closest;
         }
-    }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }, { distance: Number.POSITIVE_INFINITY }).element;
 }
 
 // Handler for manual up/down arrows
