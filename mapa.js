@@ -1902,7 +1902,7 @@ setInterval(() => {
 
 // Handler for the Assign button explicitly called from HTML
 window.asignarMotorizadoDesdeMapa = async function (nro) {
-    const selectEl = document.getElementById(`sel - assign - ${nro} `);
+    const selectEl = document.getElementById(`sel-assign-${nro}`);
     if (!selectEl) return;
 
     const newDriver = selectEl.value;
