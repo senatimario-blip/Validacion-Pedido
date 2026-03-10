@@ -4,7 +4,9 @@
 
 // Local storage key para guardar el orden personalizado de los pedidos por motorizado
 const SORT_STATE_KEY = 'motorizado_order_sort_state';
+const BOX_SORT_STATE_KEY = 'monitor_box_sort_state';
 let driverSortState = JSON.parse(localStorage.getItem(SORT_STATE_KEY) || '{}');
+let boxSortState = JSON.parse(localStorage.getItem(BOX_SORT_STATE_KEY) || '[]');
 
 function saveDriverSortState() {
     localStorage.setItem(SORT_STATE_KEY, JSON.stringify(driverSortState));
@@ -71,10 +73,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     newDriverForm.reset();
                     if (modalManageDrivers) modalManageDrivers.classList.remove('active');
 
-                    // Actualizar la lista de repartidores en los dropdowns
+                    // Actualizar la lista de repartidores en los dropdowns y monitor
+                    if (typeof loadAllDrivers === 'function') {
+                        await loadAllDrivers();
+                    }
                     if (typeof updateDriverFilterOptions === 'function') {
                         updateDriverFilterOptions();
                     }
+                    renderMapaMotorizados();
                 } else {
                     Swal.fire('Error', response.message, 'error');
                 }
@@ -129,32 +135,55 @@ window.limpiarCancelados = async function (idsArray) {
     }
 };
 
+// --- STATE PERSISTENCE (v5.0) ---
+// Guardamos asignaciones locales que aún no han sido confirmadas 100% por el servidor
+// para evitar el efecto "regreso" durante los refrescos silenciosos.
+window.pendingAssignments = window.pendingAssignments || {};
+
 function renderMapaMotorizados() {
     const activeContainer = document.getElementById('mapa-grid');
     const viajesContainer = document.getElementById('viajes-grid');
-    const countEl = document.getElementById('mapa-active-count');
-    if (!activeContainer) return;
+    if (!activeContainer || !viajesContainer) return;
 
-    // 1. Obtener todos los motorizados únicos
-    const motorizadosMap = {};
-    const uniqueDrivers = new Set();
+    // --- LOGICA DE PERSISTENCIA OPTIMISTA ---
+    // Clonamos u obtenemos pedidos para no mutar el array original de app.js permanentemente
+    let currentOrders = (typeof orders !== 'undefined' ? [...orders] : []);
 
-    if (typeof orders !== 'undefined') {
-        orders.forEach(o => {
-            if (o.envio && o.envio.trim() !== '') {
-                uniqueDrivers.add(o.envio.trim().toUpperCase());
+    // Aplicar sobrescritura de "Verdad Local" sobre "Verdad de Servidor"
+    currentOrders.forEach(o => {
+        const pending = window.pendingAssignments[o.nro];
+        if (pending) {
+            // Solo aplicamos si el cambio es reciente (menos de 15 seg)
+            // o si el servidor aún no refleja el cambio solicitado
+            const now = Date.now();
+            if (now - pending.timestamp < 15000) {
+                o.envio = pending.envio;
+                o.viaje_id = pending.viaje_id;
+            } else {
+                // Si ya pasó mucho tiempo, asumimos que el servidor ya sincronizó o falló
+                delete window.pendingAssignments[o.nro];
             }
-        });
+        }
+    });
 
-        uniqueDrivers.forEach(dName => {
-            const originalName = orders.find(o => o.envio && o.envio.trim().toUpperCase() === dName).envio.trim();
-            motorizadosMap[dName] = {
-                name: originalName,
-                orders: [],
-                totalMoney: 0
-            };
-        });
-    }
+    const motorizadosMap = {};
+    // 1. Obtener todos los motorizados únicos (Prioridad: Lista maestra del Excel v1.21)
+    const officialDrivers = (window.allDriversList && window.allDriversList.length > 0)
+        ? window.allDriversList
+        : [];
+
+    // Inicializar el mapa con los nombres oficiales siempre para que aparezcan sus cajas
+    officialDrivers.forEach(dName => {
+        const key = dName.trim().toUpperCase();
+        motorizadosMap[key] = {
+            name: dName.trim(),
+            orders: [],
+            totalMoney: 0
+        };
+    });
+
+    // Si hay nombres en los pedidos que no están en la lista oficial, 
+    // se tratarán como "Sin Asignar" más adelante para evitar cajas fantasma.
 
     // 2. Filtrar por la fecha seleccionada en el Monitor
     const filterEl = document.getElementById('mapa-date-filter');
@@ -173,22 +202,22 @@ function renderMapaMotorizados() {
         } catch (e) { return ""; }
     };
 
-    const allOrders = (typeof orders !== 'undefined' ? orders : []).filter(o => {
+    const allOrders = currentOrders.filter(o => {
         if (!o.fecha) return false;
         return getOrderDateLima(o.fecha) === targetDate;
     });
 
-    // (REGLA ACTUALIZADA: Cualquier pedido que NO tenga un viaje_id asignado debe mostrarse en la parte superior)
-    // Esto permite que pedidos 'sueltos' (validados, cancelados o pendientes) puedan ser re-asignados o corregidos.
+    // (REGLA ACTUALIZADA: Monitor Activo incluye SIN viaje Y viajes temporales "AUTO_...")
+    // Esto mantiene el ciclo de vida en la caja superior.
     const activeOrders = allOrders.filter(o => {
         const vId = String(o.viaje_id || "").trim();
-        return vId === "" || vId === "null" || vId === "undefined";
+        return vId === "" || vId === "null" || vId === "undefined" || vId.includes("AUTO_");
     });
 
-    // Pedidos que ya pertenecen a un viaje real o al archivero de cancelados
+    // Pedidos que ya pertenecen a un viaje DEFINITIVO (archivado o liquidado para historial)
     const tripOrders = allOrders.filter(o => {
         const vId = String(o.viaje_id || "").trim();
-        return vId !== "" && vId !== "null" && vId !== "undefined";
+        return vId !== "" && vId !== "null" && vId !== "undefined" && !vId.includes("AUTO_");
     });
 
     // 2.5 Crear categoría para No Asignados en el monitor activo
@@ -207,33 +236,65 @@ function renderMapaMotorizados() {
         isCanceledBox: true
     };
 
-    // 3. Asignar pedidos activos a sus repartidores
+    // 3. Asignar pedidos activos a sus repartidores (Agrupando por Viaje para permitir múltiples cajas)
     activeOrders.forEach(o => {
-        let dName = (o.envio && o.envio.trim() !== '') ? o.envio.trim().toUpperCase() : '___SIN_ASIGNAR___';
+        let baseKey = (o.envio && o.envio.trim() !== '') ? o.envio.trim().toUpperCase() : '___SIN_ASIGNAR___';
+        const vId = String(o.viaje_id || "").trim();
+        const hasTripId = (vId !== "" && vId !== "null" && vId !== "undefined");
 
-        // REGLA NUEVA: Si no tiene asignado motorizado Y está cancelado, lo movemos a la caja Cancelados
-        if (dName === '___SIN_ASIGNAR___' && o.estado) {
-            const st = o.estado.toLowerCase();
-            if (st.includes('cancelado') || st.includes('rechazado')) {
-                dName = '___CANCELADOS___';
+        let dKey = baseKey;
+        // Solo creamos cajas separadas por viaje si es un motorizado real
+        // Los pedidos 'Sin Asignar' siempre van a la caja principal ___SIN_ASIGNAR___ (v3.0)
+        if (hasTripId && baseKey !== '___SIN_ASIGNAR___' && baseKey !== '___CANCELADOS___') {
+            dKey = baseKey + "_" + vId;
+        }
+
+        // Si la caja no existe, la creamos (solo si viene de un motorizado válido o es especial)
+        if (!motorizadosMap[dKey]) {
+            if (baseKey === '___SIN_ASIGNAR___' || baseKey === '___CANCELADOS___' || motorizadosMap[baseKey] || officialDrivers.some(d => d.trim().toUpperCase() === baseKey)) {
+                motorizadosMap[dKey] = {
+                    name: (motorizadosMap[baseKey] ? motorizadosMap[baseKey].name : (o.envio || baseKey)),
+                    tripId: hasTripId ? vId : null,
+                    orders: [],
+                    totalMoney: 0,
+                    isUnassigned: (baseKey === '___SIN_ASIGNAR___'),
+                    isCanceledBox: (baseKey === '___CANCELADOS___')
+                };
+            } else {
+                dKey = '___SIN_ASIGNAR___';
             }
         }
 
-        if (motorizadosMap[dName]) {
-            motorizadosMap[dName].orders.push(o);
-            motorizadosMap[dName].totalMoney += (parseFloat(o.monto) || 0);
+        // REGLA: Si estÃ¡ en Sin Asignar Y estÃ¡ cancelado, lo movemos a la caja Cancelados
+        // PERO: Si tiene viaje_id, debe quedarse en su caja de viaje para no romper la ruta visual
+        if (dKey === '___SIN_ASIGNAR___' && o.estado && !hasTripId) {
+            const st = o.estado.toLowerCase();
+            if (st.includes('cancelado') || st.includes('rechazado')) {
+                dKey = '___CANCELADOS___';
+                if (!motorizadosMap[dKey]) {
+                    motorizadosMap[dKey] = { name: '⛔ CANCELADOS', orders: [], totalMoney: 0, isCanceledBox: true };
+                }
+            }
+        }
+
+        if (motorizadosMap[dKey]) {
+            motorizadosMap[dKey].orders.push(o);
+            motorizadosMap[dKey].totalMoney += (parseFloat(o.monto) || 0);
         }
     });
 
-    if (motorizadosMap['___SIN_ASIGNAR___'].orders.length === 0) {
-        delete motorizadosMap['___SIN_ASIGNAR___'];
-    }
-    if (motorizadosMap['___CANCELADOS___'].orders.length === 0) {
-        delete motorizadosMap['___CANCELADOS___'];
-    }
+
+    // Mantenemos estas cajas siempre visibles por requerimiento del usuario (v2.0)
+    // if (motorizadosMap['___SIN_ASIGNAR___'].orders.length === 0) {
+    //     delete motorizadosMap['___SIN_ASIGNAR___'];
+    // }
+    // if (motorizadosMap['___CANCELADOS___'].orders.length === 0) {
+    //     delete motorizadosMap['___CANCELADOS___'];
+    // }
 
     // 4. Renderizar Monitor Activo
-    renderActiveMonitor(motorizadosMap, activeContainer, countEl);
+    const counts = calculateGlobalCounts(motorizadosMap, tripOrders);
+    renderActiveMonitor(motorizadosMap, activeContainer, counts);
 
     // 5. Renderizar Sección de Viajes
     renderViajesSection(tripOrders, viajesContainer);
@@ -241,23 +302,129 @@ function renderMapaMotorizados() {
     // 6. Reinicializar Drag & Drop
     initDragAndDrop();
     initTripDropZone();
+    initBoxDragAndDrop();
 }
 
-function renderActiveMonitor(motorizadosMap, container, countEl) {
-    const allKeys = Object.keys(motorizadosMap);
-    const motorizadosKeys = allKeys.sort((a, b) => {
-        if (a === '___SIN_ASIGNAR___') return -1;
-        if (b === '___SIN_ASIGNAR___') return 1;
-        const diff = motorizadosMap[b].orders.length - motorizadosMap[a].orders.length;
-        if (diff !== 0) return diff;
-        return a.localeCompare(b);
+function calculateGlobalCounts(motorizadosMap, tripOrders) {
+    let pendingOrders = 0;
+    let enRuta = 0;
+    let llegaron = 0;
+
+    // 1. Solo contamos lo que está en el MONITOR ACTIVO (Lo que el usuario ve arriba)
+    Object.keys(motorizadosMap).forEach(mKey => {
+        const m = motorizadosMap[mKey];
+        if (m.isCanceledBox) return;
+
+        // Contar pedidos en almacén (aún sin viaje)
+        m.orders.forEach(o => {
+            const vId = String(o.viaje_id || "").trim();
+            if (vId === "" || vId === "null" || vId === "undefined") {
+                pendingOrders++;
+            }
+        });
+
+        // Ver si esta caja ya es un viaje activo (Temporal) en el Monitor
+        const stats = getDriverStatusDetailed(m.orders);
+        if (m.tripId) {
+            if (stats.enRuta) enRuta++;
+            else if (stats.llegaron) llegaron++;
+        }
     });
 
-    let activeDriversKeys = motorizadosKeys.filter(k => k !== '___SIN_ASIGNAR___');
-    const totalActivos = activeDriversKeys.filter(k => motorizadosMap[k].orders.length > 0).length;
+    // NOTA: Ignoramos tripOrders del historial para los contadores superiores, 
+    // ya que el usuario solo quiere ver el estado de su operación actual de 5 motorizados.
 
-    if (countEl) {
-        countEl.innerHTML = `<i class="fa-solid fa-motorcycle"></i> ${totalActivos} Activos / ${activeDriversKeys.length} Total`;
+    return { pendingOrders, enRuta, llegaron };
+}
+
+function renderActiveMonitor(motorizadosMap, container, counts) {
+    if (!container) return;
+
+    // Forzamos al contenedor principal a ser flex vertical y ocupar el 100%
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '30px';
+    container.style.width = '100%';
+    container.style.gridTemplateColumns = 'none'; // Anulamos el grid de index.html
+
+    const allKeys = Object.keys(motorizadosMap);
+    const motorizadosKeys = allKeys.sort((a, b) => {
+        // PRIORIDAD 0: ORDEN MANUAL (Drag & Drop de Boxes)
+        if (boxSortState && boxSortState.length > 0) {
+            const indexA = boxSortState.indexOf(a);
+            const indexB = boxSortState.indexOf(b);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+        }
+
+        if (a === '___SIN_ASIGNAR___') return -1;
+        if (b === '___SIN_ASIGNAR___') return 1;
+        if (a === '___CANCELADOS___') return 1;
+        if (b === '___CANCELADOS___') return -1;
+
+        const dataA = motorizadosMap[a];
+        const dataB = motorizadosMap[b];
+        const statsA = getDriverStatusDetailed(dataA.orders);
+        const statsB = getDriverStatusDetailed(dataB.orders);
+
+        // REGLA 1: EN RUTA (Rojo) a la IZQUIERDA vs LLEGÓ (Verde) a la DERECHA
+        if (statsA.enRuta && !statsB.enRuta) return -1;
+        if (!statsA.enRuta && statsB.enRuta) return 1;
+
+        // REGLA 2: Si ambos están EN RUTA -> Ordenar por el pedido más ANTIGUO (fecha)
+        if (statsA.enRuta && statsB.enRuta) {
+            const minA = Math.min(...dataA.orders.map(o => {
+                const d = new Date(o.fecha);
+                return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
+            }));
+            const minB = Math.min(...dataB.orders.map(o => {
+                const d = new Date(o.fecha);
+                return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
+            }));
+            return minA - minB;
+        }
+
+        // REGLA 3: Si ambos ya LLEGARON -> Ordenar por HORA DE ENTREGA (el primero que llegó va primero)
+        if (statsA.llegaron && statsB.llegaron) {
+            const getArrivedMinutes = (orders) => {
+                const minsList = orders.map(o => {
+                    const rawVal = [o.fechaHoraReal]
+                        .filter(v => v && String(v).trim() !== "" && String(v).trim() !== "---")
+                        .join(" ");
+                    const match = rawVal.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?/i);
+                    if (match) {
+                        let h = parseInt(match[1]);
+                        const m = parseInt(match[2]);
+                        const ampm = match[3] ? match[3].toLowerCase() : null;
+                        if (ampm) {
+                            if (ampm.includes('p') && h < 12) h += 12;
+                            if (ampm.includes('a') && h === 12) h = 0;
+                        }
+                        return h * 60 + m;
+                    }
+                    return null;
+                }).filter(v => v !== null);
+                return minsList.length > 0 ? Math.max(...minsList) : 999999;
+            };
+
+            const minA = getArrivedMinutes(dataA.orders);
+            const minB = getArrivedMinutes(dataB.orders);
+            if (minA !== minB) return minA - minB;
+        }
+
+        return a.localeCompare(b);
+    });
+    let activeDriversKeys = motorizadosKeys.filter(k => k !== '___SIN_ASIGNAR___' && k !== '___CANCELADOS___');
+
+    if (counts) {
+        const elPending = document.getElementById('mapa-pending-count');
+        const elRoute = document.getElementById('mapa-route-count');
+        const elArrived = document.getElementById('mapa-arrived-count');
+
+        if (elPending) elPending.querySelector('.val').textContent = counts.pendingOrders;
+        if (elRoute) elRoute.querySelector('.val').textContent = counts.enRuta;
+        if (elArrived) elArrived.querySelector('.val').textContent = counts.llegaron;
     }
 
     if (motorizadosKeys.length === 0) {
@@ -265,410 +432,459 @@ function renderActiveMonitor(motorizadosMap, container, countEl) {
         return;
     }
 
-    let htmlBody = '';
-    motorizadosKeys.forEach(mKey => {
-        const data = motorizadosMap[mKey];
-        // Ordenar pedidos: prioritizar driverSortState (sesión actual), luego orden_ruta (base de datos)
-        if (driverSortState[mKey]) {
-            data.orders.sort((a, b) => {
-                let indexA = driverSortState[mKey].indexOf(String(a.nro));
-                let indexB = driverSortState[mKey].indexOf(String(b.nro));
+    const enRutaKeys = motorizadosKeys.filter(k => {
+        if (k === '___SIN_ASIGNAR___' || k === '___CANCELADOS___') return true;
+        return getDriverStatusDetailed(motorizadosMap[k].orders).enRuta;
+    });
 
-                // Si no están en la lista guardada (pedidos nuevos), mandarlos al final (9999)
-                if (indexA === -1) indexA = 9999;
-                if (indexB === -1) indexB = 9999;
+    const llegaronKeys = motorizadosKeys.filter(k => {
+        if (k === '___SIN_ASIGNAR___' || k === '___CANCELADOS___') return false;
+        return getDriverStatusDetailed(motorizadosMap[k].orders).llegaron;
+    });
 
-                if (indexA !== indexB) return indexA - indexB;
-                return b.nro - a.nro; // Fallback al más nuevo
-            });
-        } else {
-            data.orders.sort((a, b) => {
-                const orderA = (a.orden_ruta !== "" && a.orden_ruta !== null) ? Number(a.orden_ruta) : 999999;
-                const orderB = (b.orden_ruta !== "" && b.orden_ruta !== null) ? Number(b.orden_ruta) : 999999;
-                if (orderA !== orderB) return orderA - orderB;
-                return b.nro - a.nro; // Fallback al más nuevo si no hay orden
-            });
-        }
+    const renderGroup = (keys, title, icon, color) => {
+        if (keys.length === 0) return '';
+        let groupHtml = `
+            <div style="margin-bottom: 35px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px; padding-left: 5px; border-left: 4px solid ${color};">
+                    <i class="fa-solid ${icon}" style="color: ${color}; font-size: 1.1em;"></i>
+                    <h2 style="margin: 0; font-size: 0.85em; font-weight: 800; color: ${color}; text-transform: uppercase; letter-spacing: 1px;">
+                        ${title} <span style="opacity: 0.5; font-weight: 400; margin-left: 5px;">(${keys.length})</span>
+                    </h2>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 20px; width: 100%;">
+        `;
 
-        const isCanceledBox = data.isCanceledBox === true;
-        const boxTitleColor = isCanceledBox ? '#F87171' : (data.isUnassigned ? '#FCA5A5' : '#E2E8F0');
-        const customBorderStr = isCanceledBox ? '1px solid rgba(248, 113, 113, 0.3)' : (data.isUnassigned ? '1px solid rgba(248, 113, 113, 0.5)' : '1px solid rgba(255,255,255,0.1)');
-        const customBgStr = isCanceledBox ? 'rgba(248, 113, 113, 0.05)' : (data.isUnassigned ? 'rgba(127, 29, 29, 0.2)' : 'rgba(255,255,255,0.03)');
-
-        let headerExtra = '';
-        if (isCanceledBox) {
-            // Botón para limpiar los cancelados de la visibilidad
-            const idsToDelete = data.orders.map(o => o.nro).join(',');
-            headerExtra = `<button onclick="limpiarCancelados([${idsToDelete}])" title="Ocultar de esta vista" style="background: rgba(248, 113, 113, 0.2); color: #F87171; border: none; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; cursor: pointer; margin-left: auto; transition: all 0.2s;"><i class="fa-solid fa-broom"></i> Limpiar</button>`;
-        }
-
-
-        const ordersHtml = data.orders.map((o, index) => {
-            const timeInfo = calculateElapsedTimeForMap(o.fecha);
-            let tipoPagoDisplay = (o.pago || 'POS/DESC...').toUpperCase();
-            let pColor = tipoPagoDisplay.includes('EFECTIVO') ? '#4ADE80' :
-                (tipoPagoDisplay.includes('QR') ? '#22D3EE' :
-                    (tipoPagoDisplay.includes('TARJETA') ? '#A78BFA' : '#60A5FA'));
-
-            const isManualSort = driverSortState[mKey] ? true : false;
-            const seqNum = index + 1;
-
-            let assignmentHtml = data.isUnassigned ? `
-                <div style="margin-top: 8px; display:flex; gap:6px;">
-                    <select id="sel-assign-${o.nro}" onchange="asignarMotorizadoDesdeMapa(${o.nro})" style="flex:1; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
-                        <option value="">-- Asignar --</option>
-                        ${activeDriversKeys.map(k => `<option value="${motorizadosMap[k].name}">${motorizadosMap[k].name}</option>`).join('')}
-                    </select>
-                </div>` : '';
-
-            let borderColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.4)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.4)' : 'rgba(255,255,255,0.1)');
-            let bgColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.1)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.1)' : 'rgba(0,0,0,0.4)');
-            let statusBadge = '';
-            if (o.estado === 'Validado') {
-                statusBadge = `<span style="font-size: 0.75em; background: rgba(74, 222, 128, 0.2); color: #4ADE80; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 8px;"><i class="fa-solid fa-check-circle"></i> V</span>`;
-            } else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
-                statusBadge = `<span style="font-size: 0.75em; background: rgba(248, 113, 113, 0.2); color: #F87171; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 8px;"><i class="fa-solid fa-ban"></i> C</span>`;
+        keys.forEach(mKey => {
+            const data = motorizadosMap[mKey];
+            // Ordenar pedidos: prioritizar driverSortState (sesiÃ³n actual), luego orden_ruta (base de datos)
+            if (driverSortState[mKey]) {
+                data.orders.sort((a, b) => {
+                    let indexA = driverSortState[mKey].indexOf(String(a.nro));
+                    let indexB = driverSortState[mKey].indexOf(String(b.nro));
+                    if (indexA === -1) indexA = 9999;
+                    if (indexB === -1) indexB = 9999;
+                    if (indexA !== indexB) return indexA - indexB;
+                    return b.nro - a.nro;
+                });
+            } else {
+                data.orders.sort((a, b) => {
+                    const orderA = (a.orden_ruta !== "" && a.orden_ruta !== null) ? Number(a.orden_ruta) : 999999;
+                    const orderB = (b.orden_ruta !== "" && b.orden_ruta !== null) ? Number(b.orden_ruta) : 999999;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return b.nro - a.nro;
+                });
             }
-            let boxShadow = o.estado === 'Validado' ? '0 0 8px rgba(74, 222, 128, 0.2)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? '0 0 8px rgba(248, 113, 113, 0.2)' : 'none');
 
-            return `
-                <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" draggable="true" style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 0.85em; display: flex; gap: 12px; align-items: center; cursor: grab; position: relative; box-shadow: ${boxShadow};">
-                    <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
-                        <span style="font-weight: 800; color: ${isManualSort ? '#A78BFA' : 'rgba(255,255,255,0.2)'}; font-size: 0.9em;">[${seqNum}]</span>
-                        <div style="color: rgba(255,255,255,0.3);"><i class="fa-solid fa-grip-vertical"></i></div>
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:center;">
-                            <strong style="color: #fff; font-size: 1.1em; display:flex; align-items:center;">
-                                ${o.llave || '#' + o.nro}
-                                ${statusBadge}
-                            </strong>
-                            <strong style="color: #4ADE80; font-size: 1.1em;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="color: ${pColor}; font-weight: 600;"><i class="fa-solid fa-wallet"></i> ${tipoPagoDisplay}</span>
-                            <span style="color: ${timeInfo.color}; background: ${timeInfo.bg}; padding: 2px 6px; border-radius: 4px; font-weight: bold;">
-                                <i class="fa-solid fa-clock"></i> ${timeInfo.text}
-                            </span>
-                        </div>
-                        ${assignmentHtml}
-                    </div>
+            const isCanceledBox = data.isCanceledBox === true;
+            let boxTitleColor = '#E2E8F0';
+            let customBorderStr = '1px solid rgba(255,255,255,0.1)';
+            let customBgStr = 'rgba(255,255,255,0.03)';
+
+            if (isCanceledBox) {
+                boxTitleColor = '#F87171';
+                customBorderStr = '1px solid rgba(248, 113, 113, 0.3)';
+                customBgStr = 'rgba(248, 113, 113, 0.05)';
+            } else if (data.isUnassigned) {
+                boxTitleColor = '#FCA5A5';
+                customBorderStr = '2px dashed rgba(248, 113, 113, 0.4)';
+                customBgStr = 'rgba(248, 113, 113, 0.05)';
+            } else if (data.orders.length > 0) {
+                const stats = getDriverStatusDetailed(data.orders);
+                const hasTrip = !!data.tripId;
+                if (hasTrip) {
+                    if (stats.llegaron) {
+                        boxTitleColor = '#4ADE80';
+                        customBorderStr = '2px solid rgba(74, 222, 128, 0.6)';
+                        customBgStr = 'rgba(74, 222, 128, 0.07)';
+                    } else {
+                        boxTitleColor = '#F87171';
+                        customBorderStr = '2px solid rgba(248, 113, 113, 0.6)';
+                        customBgStr = 'rgba(248, 113, 113, 0.07)';
+                    }
+                }
+            }
+
+            let headerExtra = '';
+            if (isCanceledBox) {
+                const idsToDelete = data.orders.map(o => o.nro).join(',');
+                headerExtra = `<button onclick="limpiarCancelados([${idsToDelete}])" title="Ocultar" style="background: rgba(248, 113, 113, 0.2); color: #F87171; border: none; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; cursor: pointer; margin-left: auto;"><i class="fa-solid fa-broom"></i> Limpiar</button>`;
+            }
+
+            const ordersHtml = data.orders.map((o, index) => {
+                let tipoPagoDisplay = (o.pago || 'POS/DESC...').toUpperCase();
+                let pColor = tipoPagoDisplay.includes('EFECTIVO') ? '#4ADE80' : (tipoPagoDisplay.includes('QR') ? '#22D3EE' : (tipoPagoDisplay.includes('TARJETA') ? '#A78BFA' : '#60A5FA'));
+                const isVal = (o.estado === 'Validado');
+                const timeTadaInfo = calculateElapsedTimeForMap(null, o.hora_tada, isVal ? o.fecha_validacion : null);
+                const timeInfo = calculateElapsedTimeForMap(o.fecha, null, isVal ? o.fecha_validacion : null);
+                const isManualSort = driverSortState[mKey] ? true : false;
+                const seqNum = index + 1;
+
+                let assignmentHtml = data.isUnassigned ? `
+                    <div style="margin-top: 8px; display:flex; gap:6px;">
+                        <select id="sel-assign-${o.nro}" onchange="asignarMotorizadoDesdeMapa(${o.nro})" style="flex:1; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
+                            <option value="">-- Asignar --</option>
+                            ${activeDriversKeys.map(k => `<option value="${motorizadosMap[k].name}">${motorizadosMap[k].name}</option>`).join('')}
+                        </select>
+                    </div>` : '';
+
+                let borderColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.4)' :
+                    (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.4)' :
+                        (o.estado === 'Por Validar' ? 'rgba(96, 165, 250, 0.4)' :
+                            (o.estado === 'En Camino' ? 'rgba(255, 255, 255, 0.5)' :
+                                (o.estado === 'Pendiente' ? 'rgba(251, 191, 36, 0.5)' : 'rgba(255,255,255,0.1)'))));
+                let bgColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.1)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.1)' : (o.estado === 'Por Validar' ? 'rgba(96, 165, 250, 0.1)' : 'rgba(0,0,0,0.4)'));
+
+                let sColor = '#94a3b8'; let sBg = 'rgba(148, 163, 184, 0.1)'; let sIcon = 'fa-clock';
+                if (o.estado === 'Validado') { sColor = '#4ADE80'; sBg = 'rgba(74, 222, 128, 0.2)'; sIcon = 'fa-check-circle'; }
+                else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') { sColor = '#F87171'; sBg = 'rgba(248, 113, 113, 0.2)'; sIcon = 'fa-ban'; }
+                else if (o.estado === 'En Camino') { sColor = '#FFFFFF'; sBg = 'rgba(255, 255, 255, 0.2)'; sIcon = 'fa-motorcycle'; }
+                else if (o.estado === 'Por Validar') { sColor = '#3B82F6'; sBg = 'rgba(59, 130, 246, 0.2)'; sIcon = 'fa-eye'; }
+                else if (o.estado === 'Pendiente') { sColor = '#FBBF24'; sBg = 'rgba(251, 191, 36, 0.2)'; sIcon = 'fa-clock'; }
+
+                const hasVId = (o.viaje_id && String(o.viaje_id).trim() !== "" && String(o.viaje_id).trim() !== "null" && String(o.viaje_id).trim() !== "undefined");
+                let unassignBtn = (!data.isUnassigned && !isCanceledBox && !hasVId) ? `
+                    <button onclick="desasignarMotorizadoDesdeMapa(${o.nro})" title="Quitar repartidor" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.8em; cursor: pointer; margin-left: 5px;"><i class="fa-solid fa-user-slash"></i></button>` : '';
+
+                let statusBadge = `<div style="display:flex; align-items:center; margin-left: auto;">
+                    <span style="font-size: 0.7em; background: ${sBg}; color: ${sColor}; padding: 2px 6px; border-radius: 4px; font-weight: 800; border: 1px solid ${sColor}88; text-transform: uppercase;"><i class="fa-solid ${sIcon}"></i> ${o.estado}</span>
+                    ${unassignBtn}
                 </div>`;
-        }).join('');
 
-        htmlBody += `
-            <div class="motorizado-columna" style="min-width: 320px; max-width: 320px; flex-shrink: 0; background: ${customBgStr}; border: ${customBorderStr}; border-radius: 12px; padding: 16px; display: flex; flex-direction: column;" data-driver-container="${mKey}">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); width: 100%;">
-                    <div style="display:flex; align-items:center;">
-                        <div style="width: 36px; height: 36px; border-radius: 50%; background: ${data.isUnassigned || isCanceledBox ? 'rgba(248, 113, 113, 0.2)' : 'rgba(255,255,255,0.1)'}; display: flex; align-items: center; justify-content: center; margin-right: 12px;">
-                             ${data.isUnassigned ? '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i>' : (isCanceledBox ? '<i class="fa-solid fa-ban" style="color:#ef4444;"></i>' : '<i class="fa-solid fa-helmet-safety" style="color:#d1d5db;"></i>')}
+                let boxShadow = o.estado === 'Validado' ? '0 0 8px rgba(74, 222, 128, 0.2)' :
+                    (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? '0 0 8px rgba(248, 113, 113, 0.2)' :
+                        (o.estado === 'Por Validar' ? '0 0 8px rgba(96, 165, 250, 0.2)' :
+                            (o.estado === 'En Camino' ? '0 0 8px rgba(255, 255, 255, 0.3)' :
+                                (o.estado === 'Pendiente' ? '0 0 8px rgba(251, 191, 36, 0.3)' : 'none'))));
+
+                return `
+                    <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" data-estado="${o.estado}" draggable="true" style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 0.82em; display: flex; gap: 8px; align-items: flex-start; cursor: grab; position: relative; box-shadow: ${boxShadow}; width: 100%; box-sizing: border-box; overflow: hidden;">
+                        <div style="display:flex; flex-direction:column; align-items:center; gap:2px; padding-top: 4px;">
+                            <span style="font-weight: 800; color: ${isManualSort ? '#A78BFA' : 'rgba(255,255,255,0.2)'}; font-size: 0.9em;">[${seqNum}]</span>
+                            <div style="color: rgba(255,255,255,0.3);"><i class="fa-solid fa-grip-vertical"></i></div>
                         </div>
-                        <div>
-                            <h3 style="color: ${boxTitleColor}; margin: 0; font-size: 1.1em; font-weight: bold; line-height: 1.2; display: flex; align-items: center; gap: 8px;">
-                                ${data.name} 
-                            </h3>
-                            <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); margin-top: 4px;">
-                                <strong>${data.orders.length}</strong> pedidos
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:6px; align-items:center; flex-wrap: wrap; gap: 4px;">
+                                <div style="display:flex; align-items:center; gap:8px;"><strong style="color: #fff; font-size: 1.05em; white-space: normal; word-break: break-word; flex: 1;" title="${o.llave}">${o.llave || '#' + o.nro}</strong></div>
+                                ${statusBadge}
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 4px;">
+                                <span style="color: ${pColor}; font-weight: 600; font-size: 0.9em;"><i class="fa-solid fa-wallet"></i> ${tipoPagoDisplay}</span>
+                                <div style="display: flex; gap: 4px; align-items: center; flex-direction: column; align-items: flex-end;">
+                                    <strong style="color: #4ADE80; font-size: 1.05em;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</strong>
+                                    <div style="display: flex; gap: 4px;">
+                                        ${(() => {
+                        try {
+                            const d = new Date(o.fecha);
+                            if (isNaN(d.getTime())) return '';
+                            const h = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+                            return `<span title="Hora de Pedido (Columna B)" style="color: #fcd34d; background: rgba(252, 211, 77, 0.1); padding: 2px 5px; border-radius: 4px; font-weight: bold; font-size: 0.75em; white-space: nowrap; border: 1px solid rgba(252, 211, 77, 0.3);"><i class="fa-solid fa-calendar-check"></i> ${h}</span>`;
+                        } catch (e) { return ''; }
+                    })()}
+                                        ${o.hora_tada && o.hora_tada !== '---' ? `<span title="Hora oficial TADA" style="color: #60a5fa; background: rgba(96, 165, 250, 0.1); padding: 2px 5px; border-radius: 4px; font-weight: bold; font-size: 0.75em; white-space: nowrap; border: 1px solid rgba(96, 165, 250, 0.3);"><i class="fa-solid fa-ghost"></i> ${o.hora_tada} (${timeTadaInfo.text})</span>` : ''}
+                                        <span title="SLA desde sincronización" style="color: ${timeInfo.color}; background: ${timeInfo.bg}; padding: 2px 5px; border-radius: 4px; font-weight: bold; font-size: 0.85em; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${timeInfo.text}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ${(tipoPagoDisplay.includes('CONTADO') && o.vuelto && parseFloat(o.vuelto) > 0) ? `
+                            <div style="margin-top: 6px; padding: 4px 8px; background: rgba(16, 185, 129, 0.15); border: 1px dashed rgba(16, 185, 129, 0.4); border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-hand-holding-dollar" style="color: #4ade80;"></i>
+                                <span style="font-size: 0.8em; font-weight: bold; color: #4ade80;">Vuelto entregado: S/ ${parseFloat(o.vuelto).toFixed(2)}</span>
+                            </div>` : ''}
+                            <div style="flex: 1; min-width: 0;">
+                                ${o.fechaHoraReal ? `<div style="font-size: 1.1em; color: #4ADE80; margin-top: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(74, 222, 128, 0.15); padding: 4px 10px; border-radius: 8px; border: 2px solid rgba(74, 222, 128, 0.4); box-shadow: 0 0 10px rgba(74, 222, 128, 0.2); width: 100%; box-sizing: border-box;"><i class="fa-solid fa-flag-checkered"></i> Entregado: ${(() => {
+                        try {
+                            const d = new Date(o.fechaHoraReal);
+                            if (isNaN(d.getTime())) return String(o.fechaHoraReal).split(' ').pop();
+                            return new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+                        } catch (e) { return 'OK'; }
+                    })()}</div>` : ''}
+                            </div>
+                            ${assignmentHtml}
+                        </div>
+                    </div>`;
+            }).join('');
+
+            const extraClasses = data.isUnassigned ? 'box-unassigned' : '';
+
+            groupHtml += `
+                <div class="motorizado-columna ${extraClasses}" draggable="true" style="flex: 0 0 auto; min-width: 360px; max-width: 420px; background: ${customBgStr}; border: ${customBorderStr}; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; cursor: grab;" data-driver-container="${mKey}" data-driver-key="${mKey}">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); width: 100%;">
+                        <div style="display:flex; align-items:center;">
+                            <div style="position: relative; width: 36px; height: 36px; border-radius: 50%; background: ${data.isUnassigned || isCanceledBox ? 'rgba(248, 113, 113, 0.2)' : 'rgba(255,255,255,0.1)'}; display: flex; align-items: center; justify-content: center; margin-right: 12px;">
+                                 ${data.isUnassigned ? '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i>' : (isCanceledBox ? '<i class="fa-solid fa-ban" style="color:#ef4444;"></i>' : '<i class="fa-solid fa-helmet-safety" style="color:#d1d5db;"></i>')}
+                                 ${(() => {
+                    if (data.isUnassigned || isCanceledBox) return '';
+                    const stats = getDriverStatusDetailed(data.orders);
+                    let dotColor = '#94a3b8'; if (stats.enRuta) dotColor = '#ef4444'; else if (stats.llegaron) dotColor = '#10b981';
+                    return `<span style="position: absolute; bottom: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: ${dotColor}; border: 2px solid #1e1b4b;"></span>`;
+                })()}
+                            </div>
+                            <div>
+                                <h3 style="color: ${boxTitleColor}; margin: 0; font-size: 1.1em; font-weight: bold; line-height: 1.2;">${data.name} ${data.tripId ? `<span style="font-size:0.75em; opacity:0.5; font-weight:400;">(#${data.tripId.slice(-4)})</span>` : ''}</h3>
+                                <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); margin-top: 4px;"><strong>${data.orders.length}</strong> pedidos</div>
                             </div>
                         </div>
+                        ${(() => {
+                    if (isCanceledBox || data.isUnassigned || data.orders.length === 0) return '';
+                    const stats = getDriverStatusDetailed(data.orders);
+                    if (!data.tripId) return `<button onclick="agruparTodoPendiente('${data.name.replace(/'/g, "\\'")}')" style="background: var(--primary); color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer;"><i class="fa-solid fa-id-card"></i> ID</button>`;
+                    else if (stats.llegaron) return `<button onclick="liquidarViajeDefinitivo('${data.name.replace(/'/g, "\\'")}', null, '${data.tripId || ''}')" style="background: #10b981; color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer;"><i class="fa-solid fa-dollar-sign"></i> Liquidar</button>`;
+                    else return `<div style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-motorcycle"></i> RUTA</div>`;
+                })()}
                     </div>
-                    ${headerExtra}
-                    <!-- NUEVO: Botón Crear Viaje -->
-                    ${!isCanceledBox && !data.isUnassigned ? `
-                    <button onclick="crearViajeDesdeMonitor('${mKey}')" 
-                            style="background: var(--primary); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 0.8em; font-weight: 700; cursor: pointer; margin-left: 8px; transition: all 0.2s; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
-                        <i class="fa-solid fa-route"></i> Crear Viaje
-                    </button>
-                    ` : ''}
-                </div>
-                <!-- Div donde funciona el SortableJS / Drag Drop -->
-                <div class="motorizado-dropzone driver-order-list custom-scrollbar" style="flex: 1; overflow-y: auto; padding-right: 8px; min-height: 150px;" id="dropzone-${mKey}" data-driver-name="${mKey}" data-driver-display-name="${data.name}">
-                    ${ordersHtml.length > 0 ? ordersHtml : '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.85em; padding: 32px 0;">Sin pedidos asignados</div>'}
-                </div>
-            </div>
-        `;
-    });
+                    <div class="motorizado-dropzone driver-order-list custom-scrollbar" style="flex: 1; overflow-y: auto; padding: 8px; min-height: 200px;" id="dropzone-${mKey}" data-driver-name="${mKey}" data-driver-display-name="${data.name.replace(/'/g, "\\'")}" data-trip-id="${data.tripId || ''}">
+                        ${ordersHtml}
+                    </div>
+                </div>`;
+        });
+
+        groupHtml += `</div></div>`;
+        return groupHtml;
+    };
+
+    let htmlBody = renderGroup(enRutaKeys, 'En Ruta / Pendientes', 'fa-motorcycle', '#ef4444');
+    htmlBody += renderGroup(llegaronKeys, 'Recién Llegados (Libres para Despacho)', 'fa-circle-check', '#10b981');
     container.innerHTML = htmlBody;
 }
 
 function renderViajesSection(tripOrders, container) {
     if (!container) return;
+    console.log("[Viajes] Rendering section with orders:", tripOrders.length);
 
-    // 1. Agrupar por viaje_id primero
-    const tripsMap = {};
-    tripOrders.forEach(o => {
-        if (!tripsMap[o.viaje_id]) {
-            tripsMap[o.viaje_id] = {
-                id: o.viaje_id,
-                driver: o.viaje_id === 'CANCELADOS_ARCHIVADOS' ? '___CANCELADOS_ARCHIVADOS___' : (o.envio || 'Desconocido').trim().toUpperCase(),
-                originalDriverName: o.viaje_id === 'CANCELADOS_ARCHIVADOS' ? '___CANCELADOS_ARCHIVADOS___' : (o.envio || 'Desconocido'),
-                orders: [],
-                tripPayout: 0
-            };
-        }
-        tripsMap[o.viaje_id].orders.push(o);
-    });
-
-    // 2. Agrupar viajes por Repartidor y calcular totales
-    const driversMap = {};
-    Object.values(tripsMap).forEach(trip => {
-        const dName = trip.driver;
-        if (!driversMap[dName]) {
-            driversMap[dName] = {
-                name: trip.originalDriverName,
-                trips: [],
-                driverTotal: 0,
-                latestTripId: 0
-            };
-        }
-
-        // Calcular pago del viaje
-        trip.orders.sort((a, b) => a.nro - b.nro);
-        let tripTotal = 0;
-        trip.orders.forEach((o, idx) => {
-            tripTotal += calculateOrderPayment(o, idx + 1);
+    try {
+        // 1. Agrupar por viaje_id primero
+        const tripsMap = {};
+        tripOrders.forEach(o => {
+            if (!o.viaje_id) return;
+            const vId = String(o.viaje_id).trim();
+            if (!tripsMap[vId]) {
+                tripsMap[vId] = {
+                    id: vId,
+                    driver: vId === 'CANCELADOS_ARCHIVADOS' ? '___CANCELADOS_ARCHIVADOS___' : (o.envio || 'Desconocido').trim().toUpperCase(),
+                    originalDriverName: vId === 'CANCELADOS_ARCHIVADOS' ? '___CANCELADOS_ARCHIVADOS___' : (o.envio || 'Desconocido'),
+                    orders: [],
+                    tripPayout: 0
+                };
+            }
+            tripsMap[vId].orders.push(o);
         });
-        trip.tripPayout = tripTotal;
 
-        driversMap[dName].trips.push(trip);
-        driversMap[dName].driverTotal += tripTotal;
+        // 2. Agrupar viajes por Repartidor y calcular totales
+        const driversMap = {};
+        Object.values(tripsMap).forEach(trip => {
+            const dName = trip.driver;
+            if (!driversMap[dName]) {
+                driversMap[dName] = {
+                    name: trip.originalDriverName || 'Desconocido',
+                    trips: [],
+                    driverTotal: 0,
+                    latestTripId: 0
+                };
+            }
 
-        // Manejar ID de viaje para el ordenamiento (ignorar si no es numérico)
-        let tId = 0;
-        if (trip.id && !isNaN(trip.id)) {
-            tId = parseInt(trip.id);
+            // Calcular pago del viaje
+            trip.orders.sort((a, b) => (Number(a.nro) || 0) - (Number(b.nro) || 0));
+            let tripTotal = 0;
+            trip.orders.forEach((o, idx) => {
+                tripTotal += calculateOrderPayment(o, idx + 1);
+            });
+            trip.tripPayout = tripTotal;
+
+            driversMap[dName].trips.push(trip);
+            driversMap[dName].driverTotal += tripTotal;
+
+            let tId = 0;
+            if (trip.id && !isNaN(trip.id)) {
+                tId = parseInt(trip.id);
+            }
+            if (tId > driversMap[dName].latestTripId) {
+                driversMap[dName].latestTripId = tId;
+            }
+        });
+
+        // 3. Ordenar repartidores por su viaje más reciente
+        const sortedDrivers = Object.values(driversMap).sort((a, b) => (b.latestTripId || 0) - (a.latestTripId || 0));
+
+        if (sortedDrivers.length === 0) {
+            container.innerHTML = `<div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: rgba(255,255,255,0.2); border: 2px dashed rgba(255,255,255,0.05); border-radius: 20px;">
+                <i class="fa-solid fa-route" style="font-size: 3em; margin-bottom: 15px; display: block;"></i>
+                No hay viajes registrados para la fecha seleccionada.
+            </div>`;
+            return;
         }
 
-        if (tId > driversMap[dName].latestTripId) {
-            driversMap[dName].latestTripId = tId;
-        }
-    });
+        // --- CALCULOS GLOBALES ---
+        let globalTrips = Object.values(tripsMap).filter(t => t.id !== 'CANCELADOS_ARCHIVADOS').length;
+        let globalOrders = 0;
+        let globalValidado = 0;
+        let globalPorValidar = 0;
+        let globalCanceladoConsumidor = 0;
+        let globalCanceladoRepartidor = 0;
+        let globalMoney = 0;
 
-    // 3. Ordenar repartidores por su viaje más reciente (el último al inicio)
-    const sortedDrivers = Object.values(driversMap).sort((a, b) => b.latestTripId - a.latestTripId);
+        sortedDrivers.forEach(d => {
+            if (d.name !== '___CANCELADOS_ARCHIVADOS___') {
+                globalMoney += d.driverTotal;
+            }
 
-    if (sortedDrivers.length === 0) {
-        container.innerHTML = `<div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: rgba(255,255,255,0.2); border: 2px dashed rgba(255,255,255,0.05); border-radius: 20px;">
-            <i class="fa-solid fa-route" style="font-size: 3em; margin-bottom: 15px; display: block;"></i>
-            No hay viajes registrados hoy todavía.
-        </div>`;
-        return;
-    }
-
-    // --- CALCULOS GLOBALES ---
-    let globalTrips = Object.values(tripsMap).length;
-    let globalOrders = 0;
-    let globalValidado = 0;
-    let globalPorValidar = 0;
-    let globalCanceladoConsumidor = 0;
-    let globalCanceladoRepartidor = 0;
-    let globalMoney = 0;
-
-    Object.values(driversMap).forEach(d => {
-        globalMoney += d.driverTotal;
-
-        // If this driver is the 'garbage bin' trip, all its cancellations count as Consumidor/PDV
-        const isTrashBin = (d.name === '___CANCELADOS_ARCHIVADOS___');
-
-        d.trips.forEach(t => {
-            globalOrders += t.orders.length;
-            t.orders.forEach(o => {
-                if (o.estado === 'Validado') globalValidado++;
-                else if (o.estado === 'Por Validar' || o.estado === 'En Camino') globalPorValidar++;
-                else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
-                    if (isTrashBin) {
-                        globalCanceladoConsumidor++;
-                    } else {
-                        globalCanceladoRepartidor++;
+            const isTrashBin = (d.name === '___CANCELADOS_ARCHIVADOS___');
+            d.trips.forEach(t => {
+                globalOrders += t.orders.length;
+                t.orders.forEach(o => {
+                    const st = (o.estado || "").toUpperCase();
+                    if (st === 'VALIDADO') globalValidado++;
+                    else if (st === 'POR VALIDAR' || st === 'EN CAMINO') globalPorValidar++;
+                    else if (st === 'PENDIENTE') globalPorValidar++; // También cuenta como activo
+                    else if (st.includes('CANCELADO') || st.includes('RECHAZADO')) {
+                        if (isTrashBin) globalCanceladoConsumidor++;
+                        else globalCanceladoRepartidor++;
                     }
-                }
-            });
-        });
-    });
-
-    let html = `
-    <!-- RESUMEN GENERAL -->
-    <div style="grid-column: 1 / -1; margin-bottom: 25px; padding: 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <div style="width: 50px; height: 50px; border-radius: 12px; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1.5em; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-                <i class="fa-solid fa-chart-line"></i>
-            </div>
-            <div>
-                <h2 style="margin: 0; font-size: 1.4em; font-weight: 800;">RESUMEN DE VIAJES</h2>
-                <p style="margin: 0; font-size: 0.85em; color: rgba(255,255,255,0.5);">${globalTrips} Viajes realizados</p>
-            </div>
-        </div>
-        <div style="display: flex; gap: 25px; align-items: center; flex-wrap: wrap;">
-            <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
-                <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase; margin-bottom: 2px;">Pedidos Totales</span>
-                <strong style="font-size: 1.25em; color: #ffffff;">${globalOrders}</strong>
-            </div>
-            <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
-                <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase; margin-bottom: 2px;">Validados</span>
-                <strong style="font-size: 1.25em; color: #4ade80;">${globalValidado}</strong>
-            </div>
-            <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
-                <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase; margin-bottom: 2px;">Por Validar</span>
-                <strong style="font-size: 1.25em; color: #60a5fa;">${globalPorValidar}</strong>
-            </div>
-            <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
-                <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: flex; align-items:center; justify-content:center; text-transform: uppercase; margin-bottom: 2px;">Cancelados <span style="font-size: 0.8em; margin-left: 5px; opacity: 0.7;">(Consumidor / PDV)</span></span>
-                <strong style="font-size: 1.25em; color: #f87171;">${globalCanceladoConsumidor}</strong>
-            </div>
-            <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
-                <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: flex; align-items:center; justify-content:center; text-transform: uppercase; margin-bottom: 2px;">Cancelados <span style="font-size: 0.8em; margin-left: 5px; opacity: 0.7;">(Repartidor)</span></span>
-                <strong style="font-size: 1.25em; color: #f87171;">${globalCanceladoRepartidor}</strong>
-            </div>
-            <div style="text-align: right; margin-left:10px;">
-                <span style="font-size: 0.75em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase; margin-bottom: 2px;">Pago Total General</span>
-                <strong style="font-size: 1.6em; color: #4ade80; font-family: monospace;">S/ ${globalMoney.toFixed(2)}</strong>
-            </div>
-        </div>
-    </div>`;
-
-    // Separar la basura cancelada para pintarla diferente y al final
-    const normalDrivers = sortedDrivers.filter(d => d.name !== '___CANCELADOS_ARCHIVADOS___');
-    const canceledArchived = sortedDrivers.find(d => d.name === '___CANCELADOS_ARCHIVADOS___');
-
-    normalDrivers.forEach(driver => {
-        // Calcular resumen de estados
-        let totalOrders = 0;
-        let countValidado = 0;
-        let countPorValidar = 0;
-        let countCancelado = 0;
-
-        driver.trips.forEach(t => {
-            totalOrders += t.orders.length;
-            t.orders.forEach(o => {
-                if (o.estado === 'Validado') countValidado++;
-                else if (o.estado === 'Por Validar' || o.estado === 'En Camino') countPorValidar++;
-                else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') countCancelado++;
+                });
             });
         });
 
-        // Ordenar sus viajes: más recientes primero (usando ID como timestamp)
-        driver.trips.sort((a, b) => {
-            const idA = String(a.id || "");
-            const idB = String(b.id || "");
-            return idB.localeCompare(idA);
-        });
+        let html = `
+        <div style="grid-column: 1 / -1; margin-bottom: 25px; padding: 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div style="width: 50px; height: 50px; border-radius: 12px; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1.5em; color: white;">
+                    <i class="fa-solid fa-chart-line"></i>
+                </div>
+                <div>
+                    <h2 style="margin: 0; font-size: 1.4em; font-weight: 800;">RESUMEN DE VIAJES</h2>
+                    <p style="margin: 0; font-size: 0.85em; color: rgba(255,255,255,0.5);">${globalTrips} Viajes activos hoy</p>
+                </div>
+            </div>
+            <div style="display: flex; gap: 25px; align-items: center; flex-wrap: wrap;">
+                <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Pedidos</span>
+                    <strong style="font-size: 1.25em; color: #ffffff;">${globalOrders}</strong>
+                </div>
+                <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Validados</span>
+                    <strong style="font-size: 1.25em; color: #4ade80;">${globalValidado}</strong>
+                </div>
+                <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Activos</span>
+                    <strong style="font-size: 1.25em; color: #3B82F6;">${globalPorValidar}</strong>
+                </div>
+                <div style="text-align: right; margin-left:10px;">
+                    <span style="font-size: 0.75em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Total Liquidación</span>
+                    <strong style="font-size: 1.6em; color: #4ade80; font-family: monospace;">S/ ${globalMoney.toFixed(2)}</strong>
+                </div>
+            </div>
+        </div>`;
 
-        html += `
-        <div class="driver-trip-group" style="margin-bottom: 30px; grid-column: 1 / -1;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px; padding: 12px 20px; background: rgba(96, 165, 250, 0.1); border-left: 4px solid #60a5fa; border-radius: 8px;">
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                    <h3 style="margin:0; font-size:1.25em; font-weight:700; color:#fff; display:flex; align-items:center; gap:10px;">
-                        <i class="fa-solid fa-user-tag" style="color:#60a5fa;"></i> ${driver.name}
-                        <span style="font-size:0.65em; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:10px; color:rgba(255,255,255,0.6); font-weight:400;">
-                            ${driver.trips.length} ${driver.trips.length === 1 ? 'Viaje' : 'Viajes'} | ${totalOrders} Pedidos
-                        </span>
-                    </h3>
-                    <div style="display:flex; gap:12px; font-size:0.75em; color:rgba(255,255,255,0.5);">
-                        ${countValidado > 0 ? `<span><i class="fa-solid fa-circle-check" style="color:#4ade80;"></i> ${countValidado} Validados</span>` : ''}
-                        ${countPorValidar > 0 ? `<span><i class="fa-solid fa-circle-info" style="color:#60a5fa;"></i> ${countPorValidar} Por Validar</span>` : ''}
-                        ${countCancelado > 0 ? `<span><i class="fa-solid fa-circle-xmark" style="color:#f87171;"></i> ${countCancelado} Cancelados</span>` : ''}
+        const normalDrivers = sortedDrivers.filter(d => d.name !== '___CANCELADOS_ARCHIVADOS___');
+        const canceledArchived = sortedDrivers.find(d => d.name === '___CANCELADOS_ARCHIVADOS___');
+
+        normalDrivers.forEach(driver => {
+            let totalOrders = 0;
+            let countValidado = 0;
+            let countActivo = 0;
+            let countCancelado = 0;
+
+            driver.trips.forEach(t => {
+                totalOrders += t.orders.length;
+                t.orders.forEach(o => {
+                    const st = (o.estado || "").toUpperCase();
+                    if (st === 'VALIDADO') countValidado++;
+                    else if (st === 'CANCELADO' || st === 'RECHAZADO') countCancelado++;
+                    else countActivo++;
+                });
+            });
+
+            const safeDriverName = String(driver.name || "Desconocido").replace(/'/g, "\\'");
+
+            html += `
+            <div class="driver-trip-group" style="margin-bottom: 30px; grid-column: 1 / -1;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px; padding: 12px 20px; background: rgba(96, 165, 250, 0.1); border-left: 4px solid #60a5fa; border-radius: 8px;">
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <h3 style="margin:0; font-size:1.25em; font-weight:700; color:#fff; display:flex; align-items:center; gap:10px;">
+                            <i class="fa-solid fa-user-tag" style="color:#60a5fa;"></i> ${driver.name}
+                        </h3>
+                        <div style="display:flex; gap:12px; font-size:0.75em; color:rgba(255,255,255,0.5);">
+                            ${countValidado > 0 ? `<span><i class="fa-solid fa-circle-check" style="color:#4ade80;"></i> ${countValidado} Validados</span>` : ''}
+                            ${countActivo > 0 ? `<span><i class="fa-solid fa-circle-info" style="color:#3B82F6;"></i> ${countActivo} Activos</span>` : ''}
+                            ${countCancelado > 0 ? `<span><i class="fa-solid fa-circle-xmark" style="color:#f87171;"></i> ${countCancelado} Cancelados</span>` : ''}
+                        </div>
+                    </div>
+                    <div style="text-align:right; display:flex; gap:12px; align-items:center;">
+                         <div style="background: rgba(0,0,0,0.3); padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                            <span style="font-size:0.7em; color:rgba(255,255,255,0.5); display:block; text-align:left; margin-bottom: -2px;">TOTAL COMISIÓN ACUMULADA</span>
+                            <strong style="font-size:1.4em; color:#4ade80;">S/ ${driver.driverTotal.toFixed(2)}</strong>
+                         </div>
                     </div>
                 </div>
-                <div style="text-align:right;">
-                    <span style="font-size:0.75em; color:rgba(255,255,255,0.4); display:block; text-transform:uppercase; letter-spacing:0.5px;">Pago Total del Día</span>
-                    <strong style="font-size:1.4em; color:#4ade80; font-family: monospace;">S/ ${driver.driverTotal.toFixed(2)}</strong>
-                </div>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
-                ${driver.trips.map(trip => {
-            let ordersHtml = trip.orders.map((o, index) => {
-                const payment = calculateOrderPayment(o, index + 1);
-                let statusClass = 'status-pendiente';
-                if (o.estado === 'Validado') statusClass = 'status-validado';
-                else if (o.estado === 'En Camino' || o.estado === 'Por Validar') statusClass = 'status-camino';
-                else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') statusClass = 'status-cancelado';
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
+                    ${driver.trips.map(trip => {
+                let ordersHtml = trip.orders.map((o, index) => {
+                    const payment = calculateOrderPayment(o, index + 1);
+                    let st = (o.estado || "").toUpperCase();
+                    let sColor = '#94a3b8'; let sIcon = 'fa-clock';
+                    if (st === 'VALIDADO') { sColor = '#4ADE80'; sIcon = 'fa-check-circle'; }
+                    else if (st.includes('CANCELADO')) { sColor = '#F87171'; sIcon = 'fa-ban'; }
+                    else if (st === 'EN CAMINO') { sColor = '#FFFFFF'; sIcon = 'fa-motorcycle'; }
+                    let mColor = '#4ADE80';
+                    let vueltoHtml = '';
+                    const isContado = (o.pago || '').toUpperCase().includes('CONTADO') || (o.tipo_pago || '').toUpperCase().includes('CONTADO');
+                    if (isContado && o.vuelto && parseFloat(o.vuelto) > 0) {
+                        vueltoHtml = `<div style="font-size: 0.8em; color: #fcd34d; font-weight: 600; text-align: right;"><i class="fa-solid fa-hand-holding-dollar"></i> Vuelto S/ ${parseFloat(o.vuelto).toFixed(2)}</div>`;
+                    }
 
-                return `
-                            <div class="trip-order-item">
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <span class="trip-order-status ${statusClass}">${o.estado}</span>
-                                    <strong style="color:#fff;">${o.llave || '#' + o.nro}</strong>
-                                    <button onclick="quitarPedidoDeViaje(${o.nro})" title="Remover del viaje" style="background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; font-size:0.8em; margin-left:5px;"><i class="fa-solid fa-arrow-up-from-bracket"></i></button>
+                    return `<div class="trip-order-item" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: 8px;">
+                                <div style="display:flex; justify-content:space-between; align-items: flex-start;">
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <span style="font-size:0.7em; color:${sColor}; border:1px solid ${sColor}44; padding:2px 6px; border-radius:4px; font-weight:800;">
+                                            <i class="fa-solid ${sIcon}"></i> ${o.estado}
+                                        </span>
+                                        <strong style="color:#fff;">${o.llave || o.nro}</strong>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                                        <div style="color:rgba(255,255,255,0.5); font-size:0.9em; font-weight: 600;">
+                                            Pago: S/ ${payment.toFixed(2)}
+                                        </div>
+                                        ${vueltoHtml}
+                                    </div>
                                 </div>
-                                <div class="trip-order-payment">S/ ${payment.toFixed(2)}</div>
                             </div>`;
-            }).join('');
+                }).join('');
 
-            const tripDate = new Date(parseInt(trip.id));
-            const isInvalidId = !trip.id || isNaN(parseInt(trip.id)) || String(trip.id).trim() === "";
-            const timeStr = isInvalidId ? "---" : tripDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const tripTitle = isInvalidId ? "Viaje Pendiente / Manual" : `Viaje #${String(trip.id).slice(-4)}`;
-            const tripSubtitle = isInvalidId ? "ID no válido" : timeStr;
-            const nrosList = JSON.stringify(trip.orders.map(o => o.nro));
+                const isInvalidId = isNaN(parseInt(trip.id));
+                const tripTitle = isInvalidId ? "Viaje Manual" : `Viaje #${String(trip.id).slice(-4)}`;
 
-            return `
-                         <div class="trip-card" data-trip-id="${trip.id}">
-                             <div class="trip-header">
-                                 <div class="trip-driver-info">
-                                     <div class="trip-avatar"><i class="fa-solid fa-clock"></i></div>
-                                     <div style="flex:1;">
-                                         <h3 style="margin:0; font-size:1em; font-weight:700; color:#fff;">${tripTitle}</h3>
-                                         <span style="font-size:0.8em; color:rgba(255,255,255,0.4);">${tripSubtitle}</span>
-                                     </div>
-                                     ${isInvalidId ? `<button onclick='quitarPedidoDeViaje(${nrosList})' title="Desvincular todos los pedidos" style="background:#f87171; border:none; color:white; cursor:pointer; font-size:0.7em; padding:4px 8px; border-radius:4px; font-weight:bold; margin-right:10px;"><i class="fa-solid fa-link-slash"></i> Soltar Pedidos</button>` : ''}
-                                 </div>
-                                 <div class="trip-payment-summary">
-                                     <div class="trip-payment-label">Subtotal</div>
-                                     <div class="trip-payment-value">S/ ${trip.tripPayout.toFixed(2)}</div>
-                                 </div>
-                             </div>
-                            <div style="display:flex; flex-direction:column; gap:8px;">
+                const isTripFinished = trip.orders.every(o =>
+                    (o.fechaHoraReal && String(o.fechaHoraReal).trim() !== "" && String(o.fechaHoraReal).trim() !== "---")
+                );
+
+                const statusColor = isTripFinished ? '#10b981' : '#ef4444'; // Verde vs Rojo
+                const statusLabel = isTripFinished ? 'LLEGÓ' : 'EN RUTA';
+
+                return `<div class="trip-card" style="border-top: 4px solid ${statusColor}; border-radius: 12px; background: rgba(30, 41, 59, 0.7); box-shadow: 0 4px 20px rgba(0,0,0,0.2); transition: all 0.3s; position: relative; overflow: hidden;">
+                            <div class="trip-header" style="padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                                <div style="display: flex; flex-direction: column; gap: 2px;">
+                                    <h3 style="margin:0; color:#fff; font-size:1em; font-weight: 800;">${tripTitle}</h3>
+                                    <span style="font-size: 0.7em; color: ${statusColor}; font-weight: 900; letter-spacing: 0.5px;">
+                                        <i class="fa-solid ${isTripFinished ? 'fa-circle-check' : 'fa-truck-fast'}"></i> ${statusLabel}
+                                    </span>
+                                </div>
+                                <div style="text-align: right;">
+                                    <strong style="color:#4ade80; display: block; font-size: 1.1em;">S/ ${trip.tripPayout.toFixed(2)}</strong>
+                                </div>
+                            </div>
+                            <div style="padding: 15px; display:flex; flex-direction:column; gap:8px;">
                                 ${ordersHtml}
                             </div>
                         </div>`;
-        }).join('')}
-            </div>
-        </div>`;
-    });
+            }).join('')}
+            </div>`;
+        });
 
-    // PINTAR LOS CANCELADOS ARCHIVADOS AL FINAL
-    if (canceledArchived && canceledArchived.trips.length > 0) {
-        // Agrupar todas las órdenes canceladas
-        let allCanceledOrders = [];
-        canceledArchived.trips.forEach(t => allCanceledOrders = allCanceledOrders.concat(t.orders));
-
-        // Subdividir por motivo (Basado en el texto del estado)
-        const porRepartidor = allCanceledOrders.filter(o => o.estado && o.estado.toLowerCase().includes('repartidor'));
-        const porOtros = allCanceledOrders.filter(o => !o.estado || !o.estado.toLowerCase().includes('repartidor'));
-
-        const renderCanceledList = (list) => {
-            if (list.length === 0) return '<div class="text-xs opacity-50 p-2">Ninguno</div>';
-            return list.map((o) => {
-                return `
-                    <div class="trip-order-item" style="background: rgba(248, 113, 113, 0.05); border: 1px solid rgba(248, 113, 113, 0.2);">
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <span class="trip-order-status status-cancelado"><i class="fa-solid fa-ban"></i> Cancelado</span>
-                            <strong style="color:#fff;">${o.llave || '#' + o.nro}</strong>
-                            <button onclick="quitarPedidoDeViaje(${o.nro})" title="Restaurar pedido" style="background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; font-size:0.8em; margin-left:auto;"><i class="fa-solid fa-arrow-rotate-left"></i></button>
-                        </div>
-                    </div>`;
-            }).join('');
-        };
-
-        html += `
-        <div class="driver-trip-group" style="margin-top: 50px; margin-bottom: 30px; grid-column: 1 / -1;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 15px; padding: 12px 20px; background: rgba(248, 113, 113, 0.05); border-left: 4px solid #f87171; border-radius: 8px;">
-                <div style="display:flex; flex-direction:column; gap:4px; width:100%;">
-                    <h3 style="margin:0; font-size:1.25em; font-weight:700; color:#f87171; display:flex; align-items:center; gap:10px; width:100%;">
-                        <span><i class="fa-solid fa-trash-can" style="color:#f87171;"></i> Cancelados por consumidor y punto de venta</span>
-                        <span style="font-size:0.65em; background:rgba(248, 113, 113, 0.2); padding:2px 8px; border-radius:10px; color:#fca5a5; font-weight:400;">
-                            ${allCanceledOrders.length} Pedidos
-                        </span>
-                    </h3>
-                </div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 8px; max-width: 600px;">
-                ${renderCanceledList(allCanceledOrders)}
-            </div>
-        </div>`;
+        container.innerHTML = html;
+    } catch (err) {
+        console.error("[Viajes] Error fatal en renderViajesSection:", err);
+        container.innerHTML = `<div style="color:#f87171; padding:20px; background:rgba(248,113,113,0.1); border-radius:10px;">Error al cargar viajes: ${err.message}</div>`;
     }
-
-    container.innerHTML = html;
 }
 
 function calculateOrderPayment(order, position) {
@@ -800,6 +1016,90 @@ async function crearViajeConPedidos(nros, existingTripId = null) {
     }
 }
 
+window.cerrarTodosLosViajesGlobal = async function () {
+    const containers = Array.from(document.querySelectorAll('.driver-order-list'));
+    const driversToClose = [];
+
+    containers.forEach(container => {
+        const driverKey = container.getAttribute('data-driver-name');
+        if (driverKey && !driverKey.includes('SIN_ASIGNAR') && !driverKey.includes('CANCELADOS')) {
+            const cards = Array.from(container.querySelectorAll('.motorizado-order-card'));
+            if (cards.length > 0) {
+                // Solo cerramos si TODOS los pedidos de este repartidor están validados
+                const allValidated = cards.every(c => c.getAttribute('data-estado') === 'Validado');
+                if (allValidated) {
+                    const nros = cards.map(c => Number(c.getAttribute('data-nro')));
+                    driversToClose.push({ driverKey, nros });
+                }
+            }
+        }
+    });
+
+    if (driversToClose.length === 0) {
+        Swal.fire('Atención', 'No hay pedidos activos en ningún repartidor para cerrar.', 'info');
+        return;
+    }
+
+    const { isConfirmed } = await Swal.fire({
+        title: '¿Cerrar Todos los Viajes?',
+        text: `Se crearán viajes definitivos para ${driversToClose.length} repartidores listos(${driversToClose.reduce((acc, d) => acc + d.nros.length, 0)} pedidos validados en total).`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Sí, Cerrar Todo',
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (isConfirmed) {
+        Swal.fire({
+            title: 'Procesando Cierre Global...',
+            html: 'Enviando órdenes al servidor, por favor espera.',
+            didOpen: () => Swal.showLoading(),
+            allowOutsideClick: false
+        });
+
+        let successCount = 0;
+        let failCount = 0;
+
+        // Ejecutamos en serie para no saturar el servidor y asegurar orden
+        for (const driver of driversToClose) {
+            try {
+                const tripId = Date.now().toString() + "_" + Math.floor(Math.random() * 1000);
+                const response = await fetchAPI('asignarViajePedido', {
+                    nros: driver.nros,
+                    viajeId: tripId
+                });
+
+                if (response.success) {
+                    successCount++;
+                    // Actualizar localmente
+                    if (typeof orders !== 'undefined') {
+                        driver.nros.forEach(n => {
+                            const idx = orders.findIndex(x => x.nro == n);
+                            if (idx !== -1) orders[idx].viaje_id = tripId;
+                        });
+                    }
+                } else {
+                    failCount++;
+                }
+            } catch (e) {
+                console.error(`Error cerrando global para ${driver.driverKey}: `, e);
+                failCount++;
+            }
+        }
+
+        if (failCount === 0) {
+            Swal.fire('¡Cierre Exitoso!', `${successCount} viajes fueron creados y movidos a la sección de Viajes.`, 'success');
+        } else {
+            Swal.fire('Cierre Parcial', `${successCount} viajes exitosos, ${failCount} fallidos.Revisa el monitor.`, 'warning');
+        }
+
+        renderMapaMotorizados();
+        if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
+    }
+};
+
 window.crearViajeDesdeMonitor = async function (driverKey) {
     const listContainer = Array.from(document.querySelectorAll('.driver-order-list'))
         .find(el => el.getAttribute('data-driver-name') === driverKey);
@@ -815,8 +1115,14 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
         return;
     }
 
+    // --- VALIDACIÓN DE VIAJE ACTIVO (OPCIONAL) ---
+    const stats = getDriverStatusDetailed(driverKey);
+    if (stats.enRuta || stats.llegaron) {
+        console.log("[Monitor] Viaje activo detectado para", driverKey, "- El usuario decidirá cuándo cerrar.");
+    }
+
     // Preparar el HTML para las casillas de verificación
-    let htmlContent = `<div style="text-align: left; max-height: 350px; overflow-y: auto; padding-right: 10px; font-family: 'Inter', sans-serif;">
+    let htmlContent = `< div style = "text-align: left; max-height: 350px; overflow-y: auto; padding-right: 10px; font-family: 'Inter', sans-serif;" >
         <p style="margin-bottom: 20px; font-size: 0.95em; color: #475569; line-height: 1.5;">Selecciona los pedidos a incluir en el viaje. Desmarca los pedidos 'Pendientes' si deseas dejarlos para después.</p>`;
 
     cards.forEach(c => {
@@ -828,26 +1134,26 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
         let labelColor = '#1e293b';
         let badgeHtml = '';
         if (o.estado === 'Pendiente') {
-            badgeHtml = `<span style="font-size:0.75em; background:#f59e0b; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);">Pendiente</span>`;
+            badgeHtml = `< span style = "font-size:0.75em; background:#f59e0b; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);" > Pendiente</span > `;
         } else if (o.estado === 'Validado') {
-            badgeHtml = `<span style="font-size:0.75em; background:#10b981; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(16,185,129,0.2);">Validado</span>`;
+            badgeHtml = `< span style = "font-size:0.75em; background:#10b981; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(16,185,129,0.2);" > Validado</span > `;
         } else if (o.estado === 'Por Validar') {
-            badgeHtml = `<span style="font-size:0.75em; background:#3b82f6; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(59,130,246,0.2);">Por Validar</span>`;
+            badgeHtml = `< span style = "font-size:0.75em; background:#3b82f6; color:#fff; padding:3px 10px; border-radius:20px; font-weight:800; margin-left:8px; box-shadow: 0 2px 4px rgba(59,130,246,0.2);" > Por Validar</span > `;
         }
 
         htmlContent += `
-        <label style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border: 1.5px solid #e2e8f0; border-radius: 12px; margin-bottom: 10px; cursor: pointer; background: #f8fafc; transition: all 0.2s ease;">
+        < label style = "display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border: 1.5px solid #e2e8f0; border-radius: 12px; margin-bottom: 10px; cursor: pointer; background: #f8fafc; transition: all 0.2s ease;" >
             <div style="display: flex; align-items: center; gap: 12px;">
                 <input type="checkbox" checked value="${nro}" class="trip-order-checkbox" style="width: 20px; height: 20px; cursor: pointer; accent-color: #6366f1;">
-                <span style="color: ${labelColor}; font-weight: 700; font-size: 1.05em;">${o.llave || '#' + o.nro}</span>
+                    <span style="color: ${labelColor}; font-weight: 700; font-size: 1.05em;">${o.llave || '#' + o.nro}</span>
             </div>
             ${badgeHtml}
-        </label>`;
+        </label > `;
     });
-    htmlContent += `</div>`;
+    htmlContent += `</div > `;
 
     const result = await Swal.fire({
-        title: `Armando Viaje: ${driverKey}`,
+        title: `Armando Viaje: ${driverKey} `,
         html: htmlContent,
         width: '450px',
         showCancelButton: true,
@@ -868,20 +1174,303 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
     });
 
     if (result.isConfirmed && result.value && result.value.length > 0) {
-        await crearViajeConPedidos(result.value); // result.value es el array de nros seleccionados
-        // Limpiar el estado de ordenamiento manual local para este driver ya que ahora son un viaje
+        await crearViajeConPedidos(result.value);
         const mKey = driverKey.toUpperCase();
-        if (driverSortState[mKey]) {
-            delete driverSortState[mKey];
+        if (driverSortState[mKey]) delete driverSortState[mKey];
+    }
+}
+
+window.agruparTodoPendiente = async function (driverKey) {
+    const dUpper = (driverKey || "").trim().toUpperCase();
+    if (!dUpper || typeof orders === 'undefined') return;
+
+    // Solo agrupar pedidos que NO tengan viaje_id asignado (los de la caja superior)
+    const pendingOrders = orders.filter(o =>
+        (o.envio || "").trim().toUpperCase() === dUpper &&
+        (!o.viaje_id || String(o.viaje_id).trim() === "" || String(o.viaje_id).trim() === "null" || String(o.viaje_id).trim() === "undefined")
+    );
+
+    if (pendingOrders.length === 0) {
+        Swal.fire('Atención', 'No hay pedidos nuevos para agrupar en esta sección.', 'info');
+        return;
+    }
+
+    Swal.fire({
+        title: 'Agrupando pedidos...',
+        text: 'Generando grupo de entrega temporal',
+        didOpen: () => Swal.showLoading(),
+        allowOutsideClick: false
+    });
+
+    try {
+        const response = await fetchAPI('crearViajeAutomatico', { nro: pendingOrders[0].nro });
+        if (response.success) {
+            Swal.fire({ icon: 'success', title: 'Agrupado con éxito', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+            if (typeof loadOrders === 'function') await loadOrders();
+            renderMapaMotorizados();
+        } else {
+            Swal.fire('Error', response.message, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+window.checkAutoGroup12Min = async function () {
+    if (typeof orders === 'undefined' || !orders.length) return;
+
+    // Solo candidatos en "Warehouse" (Pendiente y sin viaje_id)
+    const candidates = orders.filter(o =>
+        o.estado === 'Pendiente' &&
+        (!o.viaje_id || String(o.viaje_id).trim() === "" || String(o.viaje_id).trim() === "null" || String(o.viaje_id).trim() === "undefined")
+    );
+
+    if (candidates.length === 0) return;
+
+    // Identificar repartidores con al menos un pedido obsoletos (>= 12 min)
+    const driversToAutoGroup = new Set();
+    candidates.forEach(o => {
+        const timeInfo = calculateElapsedTimeForMap(o.fecha, o.hora_tada);
+        if (timeInfo.minsValue >= 12 && o.envio && o.envio.trim() !== "") {
+            driversToAutoGroup.add(o.envio.trim().toUpperCase());
+        }
+    });
+
+    if (driversToAutoGroup.size === 0) return;
+
+    console.log(`[AutoGroup] Procesando ${driversToAutoGroup.size} repartidores con pedidos obsoletos(> 12 min)`);
+
+    for (const dKey of driversToAutoGroup) {
+        // Encontrar el primer pedido de ese repartidor para disparar la agrupación automática
+        const firstOrder = candidates.find(o => (o.envio || "").trim().toUpperCase() === dKey);
+        if (firstOrder) {
+            console.log(`[AutoGroup] Generando ID para ${dKey} (Iniciado por #${firstOrder.nro})`);
+            try {
+                // Ejecución silenciosa sin Swal.fire para no molestar al usuario
+                const res = await fetchAPI('crearViajeAutomatico', { nro: firstOrder.nro });
+                if (res.success && typeof loadOrdersSilent === 'function') {
+                    // Refrescar datos locales tras cambios en el servidor
+                    loadOrdersSilent();
+                }
+            } catch (e) { console.error(`[AutoGroup] Error agrupando ${dKey}: `, e); }
         }
     }
+}
+
+window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = null, targetTripId = null) {
+    const dUpper = (driverKey || "").trim().toUpperCase();
+    if (!dUpper || typeof orders === 'undefined') return;
+
+    // ... Detectar Fecha del Monitor (Igual que en renderMapa) ...
+    const filterEl = document.getElementById('mapa-date-filter');
+    let targetDate = filterEl ? filterEl.value : "";
+    if (!targetDate) {
+        const now = new Date();
+        targetDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    }
+
+    const getOrderDateLima = (dateStr) => {
+        try {
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(dateStr));
+        } catch (e) { return ""; }
+    };
+
+    // --- Lógica de Selección Inteligente ---
+    // Liquidar SOLO lo que ya está terminado (Verde/Validado) en la caja de este repartidor para hoy
+    let targetOrders = orders.filter(o => {
+        const isSameDate = getOrderDateLima(o.fecha) === targetDate;
+        const matchDriver = (o.envio || "").trim().toUpperCase() === dUpper;
+        const vId = String(o.viaje_id || "").trim();
+
+        // Si se especificó un viaje, los pedidos deben pertenecer a ese viaje
+        const matchTrip = targetTripId ? (vId === String(targetTripId).trim()) : true;
+
+        const isDefinitive = vId !== "" && vId !== "null" && vId !== "undefined" && !vId.includes("AUTO_") && !targetTripId;
+
+        // "Está Terminado" (Verde): Robot detectó entrega o Administrador ya validó/canceló
+        const isFinished = (o.tiempo_entrega && o.tiempo_entrega !== "" && o.tiempo_entrega !== "---") ||
+            ['Validado', 'Cancelado', 'Rechazado'].includes(o.estado);
+
+        return isSameDate && matchDriver && matchTrip && !isDefinitive && isFinished;
+    });
+
+    if (targetOrders.length === 0) {
+        Swal.fire('Atención', 'No hay pedidos pendientes para liquidar para este repartidor.', 'info');
+        return;
+    }
+
+    const result = await Swal.fire({
+        title: '¿Confirmar Liquidación?',
+        text: `Se liquidarán ${targetOrders.length} pedido(s) de ${driverKey}.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Sí, Liquidar y Archivar',
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (result.isConfirmed) {
+        Swal.fire({
+            title: 'Procesando Liquidación...',
+            text: 'Generando ID definitivo y archivando en el historial',
+            didOpen: () => Swal.showLoading(),
+            allowOutsideClick: false
+        });
+
+        try {
+            const nros = targetOrders.map(o => Number(o.nro));
+            console.log("[Liquidación] Nros a procesar:", nros);
+
+            // Generar ID DEFINITIVO (177 + timestamp)
+            const definitiveId = "177" + Date.now().toString().substring(3);
+            console.log("[Liquidación] Generando ID Definitivo:", definitiveId);
+
+            // Usamos asignarViajePedido para forzar nuestro propio ID
+            const response = await fetchAPI('asignarViajePedido', {
+                nros: nros,
+                viajeId: definitiveId
+            });
+
+            if (response.success) {
+                console.log("[Liquidación] Éxito en Backend. ID:", definitiveId);
+
+                // 1. Forzar actualización local INMEDIATA
+                targetOrders.forEach(to => {
+                    to.viaje_id = definitiveId;
+                });
+
+                // 2. Renderizar AL INSTANTE
+                renderMapaMotorizados();
+
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Liquidación Definitiva',
+                    text: `Se han movido ${targetOrders.length} pedido(s) al historial con ID ${definitiveId.slice(-6)}.`,
+                    timer: 2000
+                });
+
+                // 3. Recarga real DIFERIDA (para dejar que Sheets termine de escribir)
+                setTimeout(async () => {
+                    console.log("[Liquidación] Ejecutando recarga de seguridad de datos...");
+                    if (typeof loadOrders === 'function') await loadOrders();
+                    renderMapaMotorizados();
+                }, 4000);
+
+            } else {
+                Swal.fire('Error', response.message || 'No se pudo liquidar', 'error');
+            }
+        } catch (e) {
+            console.error("[Liquidación] Error fatal:", e);
+            Swal.fire('Error', 'Error de red al liquidar: ' + e.message, 'error');
+        }
+    }
+}
+
+async function autoCerrarViajeSilent(driverKey) {
+    const listContainer = Array.from(document.querySelectorAll('.driver-order-list'))
+        .find(el => el.getAttribute('data-driver-name') === driverKey);
+    if (!listContainer) return;
+
+    const cards = Array.from(listContainer.querySelectorAll('.motorizado-order-card'));
+    const nros = cards.map(c => Number(c.getAttribute('data-nro')));
+    if (nros.length === 0) return;
+
+    try {
+        await fetchAPI('crearViajeAutomatico', { nro: nros[0] });
+    } catch (e) {
+        console.error("Error silent close:", e);
+    }
+}
+
+function getDriverStatusDetailed(driverOrders) {
+    if (!driverOrders || !Array.isArray(driverOrders) || driverOrders.length === 0) return { enRuta: false, llegaron: false };
+
+    // Un repartidor está "LLEGÓ" SOLO si TODOS sus pedidos del viaje actual tienen Hora Real (Columna Y)
+    const allFinished = driverOrders.every(o =>
+        (o.fechaHoraReal && String(o.fechaHoraReal).trim() !== "" && String(o.fechaHoraReal).trim() !== "---")
+    );
+
+    return { enRuta: !allFinished, llegaron: allFinished };
+}
+
+// Handler for manual reordering of the Boxes themselves
+function initBoxDragAndDrop() {
+    const containers = document.querySelectorAll('.custom-scrollbar[style*="flex"]');
+    // Capturamos el contenedor principal de las columnas (el que tiene display: flex y gap: 20px)
+
+    containers.forEach(container => {
+        const columns = container.querySelectorAll('.motorizado-columna');
+
+        columns.forEach(col => {
+            col.addEventListener('dragstart', (e) => {
+                if (e.target.classList.contains('motorizado-order-card')) return; // Prioridad al drag de pedidos
+                e.target.classList.add('dragging-box');
+                e.dataTransfer.setData('text/plain', e.target.getAttribute('data-driver-key'));
+            });
+
+            col.addEventListener('dragend', (e) => {
+                e.target.classList.remove('dragging-box');
+            });
+        });
+
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const draggingBox = document.querySelector('.dragging-box');
+            if (!draggingBox) return;
+
+            const afterElement = getDragAfterElementHorizontal(container, e.clientX);
+            if (afterElement == null) {
+                container.appendChild(draggingBox);
+            } else {
+                container.insertBefore(draggingBox, afterElement);
+            }
+        });
+
+        container.addEventListener('drop', (e) => {
+            e.preventDefault();
+            // Al soltar, guardamos el nuevo orden de las llaves
+            const allBoxes = Array.from(container.querySelectorAll('.motorizado-columna'));
+            const newOrder = allBoxes.map(b => b.getAttribute('data-driver-key')).filter(k => k);
+
+            if (newOrder.length > 0) {
+                // Actualizamos el estado global de orden de cajas
+                // Nota: Esto mezclará llaves de diferentes grupos, pero el sort lo manejará
+                newOrder.forEach(key => {
+                    if (!boxSortState.includes(key)) boxSortState.push(key);
+                });
+
+                // Refinamos: Solo guardamos el orden relativo actual que vemos en pantalla
+                boxSortState = [...new Set([...newOrder, ...boxSortState])];
+                localStorage.setItem(BOX_SORT_STATE_KEY, JSON.stringify(boxSortState));
+                console.log("Nuevo orden de cajas guardado:", boxSortState);
+                renderMapaMotorizados();
+            }
+        });
+    });
+}
+
+// Helper to find position during drag (Horizontal support)
+function getDragAfterElementHorizontal(container, x) {
+    const draggableElements = [...container.querySelectorAll('.motorizado-columna:not(.dragging-box)')];
+
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = x - box.left - box.width / 2;
+
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 // Handler for manual up/down arrows
 window.moveMotorizadoOrder = function (driverKey, orderNro, direction) {
     if (!driverSortState[driverKey]) {
         // Initialize state based on current DOM order if not set
-        const listContainer = document.querySelector(`.driver-order-list[data-driver="${driverKey}"]`);
+        const listContainer = document.querySelector(`.driver - order - list[data - driver="${driverKey}"]`);
         if (!listContainer) return;
         const items = Array.from(listContainer.querySelectorAll('.motorizado-order-card'));
         driverSortState[driverKey] = items.map(el => el.getAttribute('data-nro'));
@@ -914,10 +1503,16 @@ function initDragAndDrop() {
     draggables.forEach(draggable => {
         draggable.addEventListener('dragstart', () => {
             draggable.classList.add('dragging');
+            window.isDraggingOrder = true; // Bloquear actualizaciones del monitor
         });
 
         draggable.addEventListener('dragend', async () => {
             draggable.classList.remove('dragging');
+            window.isDraggingOrder = false; // Liberar bloqueo
+            if (draggable._preventDragEnd) {
+                delete draggable._preventDragEnd;
+                return;
+            }
 
             const nro = draggable.getAttribute('data-nro');
             const targetList = draggable.closest('.driver-order-list');
@@ -925,52 +1520,144 @@ function initDragAndDrop() {
 
             const newDriverKey = targetList.getAttribute('data-driver-name'); // uppercase key
             const newDriverName = targetList.getAttribute('data-driver-display-name') || targetList.getAttribute('data-driver-name'); // original casing
+            const targetTripId = targetList.getAttribute('data-trip-id');
 
-            // 1. Si cambió de repartidor, primero sincronizar asignación
+            const isUnassignedTarget = newDriverKey === '___SIN_ASIGNAR___';
+            const finalEnvioName = isUnassignedTarget ? "" : newDriverName;
+
+            // --- REACCIÃ“N OPTIMISTA + PERSISTENCIA (v5.0) ---
             const oldDriverKey = draggable.getAttribute('data-driver');
-            if (oldDriverKey !== newDriverKey) {
-                // Actualizar repartidor en la base de datos
-                try {
-                    await fetchAPI('asignarMotorizado', { nro: nro, envio: newDriverName });
-                    // Actualizar estado local de orders
-                    const o = orders.find(x => x.nro == nro);
-                    if (o) o.envio = newDriverName;
-                } catch (e) { console.error("Error reasignando:", e); }
-            }
+            const orderObj = orders.find(x => x.nro == nro);
+            const oldDriverName = orderObj ? orderObj.envio : "";
+            const oldViajeId = orderObj ? orderObj.viaje_id : "";
 
-            // 2. Obtener nuevo orden de la lista destino
+            // 1. Registrar en Memoria de Persistencia (Para evitar el "regreso")
+            window.pendingAssignments[nro] = {
+                envio: finalEnvioName,
+                viaje_id: (targetTripId && targetTripId !== "") ? targetTripId : (orderObj ? orderObj.viaje_id : ""),
+                timestamp: Date.now()
+            };
+
+            // 2. Actualizar estado local INSTANTÃ NEO (para este renderizado)
+            if (orderObj) orderObj.envio = finalEnvioName;
+
+            // 3. Obtener nuevo orden de la lista destino para el sort
             const items = Array.from(targetList.querySelectorAll('.motorizado-order-card'));
             const newArr = items.map(el => el.getAttribute('data-nro'));
-
-            // Actualizar estado local de ordenamiento
             driverSortState[newDriverKey] = newArr;
 
-            // Refrescar UI (esto unificará el data-driver del elemento movido)
+            // 4. Renderizado inmediato
             renderMapaMotorizados();
 
-            // Sincronizar secuencia al Excel
-            syncRutaBackend(newDriverKey, newArr);
+            // 5. Sincronización en segundo plano (v5.0 Fix Persistencia)
+            if (targetTripId && targetTripId !== "") {
+                try {
+                    // Si el repartidor cambió, sincronizar nombre primero
+                    if (finalEnvioName !== oldDriverName) {
+                        await fetchAPI('asignarMotorizado', { nro: Number(nro), envio: finalEnvioName });
+                    }
+                    await crearViajeConPedidos([nro], targetTripId);
+
+                    // Una vez confirmado, se puede limpiar después de unos segundos
+                    setTimeout(() => {
+                        delete window.pendingAssignments[nro];
+                        renderMapaMotorizados();
+                    }, 12000);
+                } catch (e) {
+                    console.error("Error fusionando viaje:", e);
+                    delete window.pendingAssignments[nro];
+                    if (orderObj) orderObj.envio = oldDriverName;
+                    renderMapaMotorizados();
+                }
+            }
+            else if (oldDriverKey !== newDriverKey) {
+                try {
+                    const response = await fetchAPI('asignarMotorizado', { nro: nro, envio: finalEnvioName });
+                    if (!response.success) throw new Error(response.message);
+                    syncRutaBackend(newDriverKey, newArr);
+                    setTimeout(() => {
+                        delete window.pendingAssignments[nro];
+                        renderMapaMotorizados();
+                    }, 12000);
+                } catch (e) {
+                    console.error("Error reasignando:", e);
+                    delete window.pendingAssignments[nro];
+                    if (orderObj) orderObj.envio = oldDriverName;
+                    renderMapaMotorizados();
+                    Swal.fire('Error', 'No se pudo sincronizar el cambio', 'error');
+                }
+            } else {
+                syncRutaBackend(newDriverKey, newArr);
+                setTimeout(() => {
+                    delete window.pendingAssignments[nro];
+                    renderMapaMotorizados();
+                }, 12000);
+            }
         });
     });
 
     containers.forEach(container => {
         container.addEventListener('dragover', e => {
             e.preventDefault();
-            const draggingEl = document.querySelector('.dragging');
+            const draggingEl = document.querySelector('.motorizado-order-card.dragging');
             if (!draggingEl) return;
 
-            // ELIMINADO: Restricción de mismo repartidor
-            // Ahora permitimos reasignar arrastrando de un panel a otro
-
             const afterElement = getDragAfterElement(container, e.clientY);
-
             if (afterElement == null) {
                 container.appendChild(draggingEl);
             } else {
                 container.insertBefore(draggingEl, afterElement);
             }
         });
+
+        container.addEventListener('dragenter', e => {
+            e.preventDefault();
+            container.classList.add('dragover');
+        });
+
+        container.addEventListener('dragleave', () => {
+            container.classList.remove('dragover');
+        });
+
+        container.addEventListener('drop', () => {
+            container.classList.remove('dragover');
+        });
     });
+
+    // UNASSIGN VIA DROP: SOLTAR FUERA DE LAS LISTAS (EN EL FONDO DEL MONITOR)
+    const grid = document.getElementById('mapa-grid');
+    if (grid) {
+        grid.addEventListener('dragover', e => e.preventDefault());
+
+        grid.addEventListener('dragenter', (e) => {
+            if (!e.target.closest('.motorizado-dropzone')) {
+                grid.classList.add('dragover-unassign');
+            }
+        });
+
+        grid.addEventListener('dragleave', (e) => {
+            if (!e.relatedTarget || !e.relatedTarget.closest('#mapa-grid')) {
+                grid.classList.remove('dragover-unassign');
+            }
+        });
+
+        grid.addEventListener('drop', async (e) => {
+            grid.classList.remove('dragover-unassign');
+            if (e.target.closest('.motorizado-dropzone')) return;
+
+            const draggingEl = document.querySelector('.motorizado-order-card.dragging');
+            if (!draggingEl) return;
+
+            // PREVENIR QUE EL dragend DE initDragAndDrop ACTÃšE (No queremos que intente reasignar o fusionar viaje)
+            draggingEl._preventDragEnd = true;
+
+            const nro = draggingEl.getAttribute('data-nro');
+            if (nro) {
+                console.log("[Monitor] Pedido soltado fuera. Desasignando #", nro);
+                await desasignarMotorizadoDesdeMapa(nro);
+            }
+        });
+    }
 }
 
 // Function to send sort update to Backend
@@ -986,7 +1673,7 @@ async function syncRutaBackend(driverKey, orderedIds) {
         });
 
         if (response && response.success) {
-            console.log(`Ruta guardada para: ${driverKey}`, response);
+            console.log(`Ruta guardada para: ${driverKey} `, response);
             // Optionally, we could loadOrders() here to refresh the DB truth, but since
             // it refreshes every 60s anyway, avoiding it makes the UI faster.
         } else {
@@ -1012,31 +1699,61 @@ function getDragAfterElement(container, y) {
 }
 
 // Helper time formatting tool for the map
-function calculateElapsedTimeForMap(fechaStr) {
-    let result = { text: '-- min', color: 'rgba(255,255,255,0.5)', bg: 'transparent' };
+function calculateElapsedTimeForMap(fechaStr, horaTadaStr = null, endTimeStr = null) {
+    let result = { text: '-- min', color: 'rgba(255,255,255,0.5)', bg: 'transparent', minsValue: 0 };
 
-    if (!fechaStr) return result;
+    if (!fechaStr && !horaTadaStr) return result;
 
     try {
         let orderDate = null;
-        const dOrig = new Date(fechaStr);
-        if (!isNaN(dOrig.getTime())) {
-            // Attempt to treat it as Lima zone, standard logic repeated from app.js
-            const formatter = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/Lima',
-                year: 'numeric', month: 'numeric', day: 'numeric',
-                hour: 'numeric', minute: 'numeric', second: 'numeric',
-                hour12: false
-            });
-            const parts = formatter.formatToParts(dOrig);
-            const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
 
-            let rH = getP('hour'); if (rH === 24) rH = 0;
-            orderDate = new Date(Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0));
+        // Si tenemos Hora TADA (ej: "10:20 p. m."), asumimos que es de HOY
+        if (horaTadaStr && horaTadaStr !== "---") {
+            try {
+                const now = new Date();
+                let [time, modifier] = horaTadaStr.split(' ');
+                let [hours, minutes] = time.split(':').map(Number);
+
+                if (modifier) {
+                    modifier = modifier.replace(/\./g, "").toLowerCase(); // "a. m." -> "am"
+                    if (modifier.includes('p') && hours < 12) hours += 12;
+                    if (modifier.includes('a') && hours === 12) hours = 0;
+                }
+
+                // Crear objeto fecha para hoy con esa hora en Lima
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Lima',
+                    year: 'numeric', month: 'numeric', day: 'numeric'
+                });
+                const parts = formatter.formatToParts(now);
+                const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+                orderDate = new Date(Date.UTC(getP('year'), getP('month') - 1, getP('day'), hours, minutes, 0));
+            } catch (e) { console.error("Error parseando Hora TADA:", e); }
+        }
+
+        // Si no se pudo por Hora TADA o no habia, usar fechaStr original
+        if (!orderDate && fechaStr) {
+            const dOrig = new Date(fechaStr);
+            if (!isNaN(dOrig.getTime())) {
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Lima',
+                    year: 'numeric', month: 'numeric', day: 'numeric',
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hour12: false
+                });
+                const parts = formatter.formatToParts(dOrig);
+                const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+                let rH = getP('hour'); if (rH === 24) rH = 0;
+                orderDate = new Date(Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0));
+            }
         }
 
         if (orderDate && !isNaN(orderDate.getTime())) {
-            const now = new Date();
+            const end = endTimeStr ? new Date(endTimeStr) : new Date();
+            const now = isNaN(end.getTime()) ? new Date() : end;
+
             const formatterNow = new Intl.DateTimeFormat('en-US', {
                 timeZone: 'America/Lima',
                 year: 'numeric', month: 'numeric', day: 'numeric',
@@ -1053,16 +1770,18 @@ function calculateElapsedTimeForMap(fechaStr) {
             if (diffMs < 0) diffMs = 0;
 
             const mins = Math.floor(diffMs / 60000);
-            result.text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
+            result.minsValue = mins;
+            result.text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60} m` : `${mins} min`;
 
-            if (mins >= 35) {
-                result.color = '#F87171'; // Red
-                result.bg = 'rgba(248, 113, 113, 0.15)';
-            } else if (mins >= 30) {
-                result.color = '#FB923C'; // Orange
-                result.bg = 'rgba(251, 146, 60, 0.15)';
+            // LÃ³gica PWA: Verde < 20, Naranja 20-29, Rojo >= 30
+            if (mins >= 30) {
+                result.color = '#ef4444'; // Rojo (PWA)
+                result.bg = 'rgba(239, 68, 68, 0.15)';
+            } else if (mins >= 20) {
+                result.color = '#f97316'; // Naranja (PWA)
+                result.bg = 'rgba(249, 115, 22, 0.15)';
             } else {
-                result.color = '#4ADE80'; // Green
+                result.color = '#4ade80'; // Verde (PWA)
                 result.bg = 'rgba(74, 222, 128, 0.1)';
             }
         }
@@ -1071,51 +1790,154 @@ function calculateElapsedTimeForMap(fechaStr) {
     return result;
 }
 
+/**
+ * LÃ³gica de AUTO-ARCHIVADO: 
+ * Si un repartidor tiene pedidos en el Monitor (sin viaje_id) 
+ * y el mÃ¡s antiguo ya cumpliÃ³ 20 min, se crea el viaje automÃ¡ticamente.
+ */
+async function checkAutoArchiveOrders() {
+    if (typeof orders === 'undefined' || !orders || orders.length === 0) return;
+
+    // 1. Agrupar pedidos activos por repartidor
+    const driverActiveOrders = {};
+    orders.forEach(o => {
+        const vId = String(o.viaje_id || "").trim();
+        const hasTrip = vId !== "" && vId !== "null" && vId !== "undefined";
+        if (!hasTrip && o.envio && o.envio.trim() !== '') {
+            const dKey = o.envio.trim().toUpperCase();
+            if (!driverActiveOrders[dKey]) driverActiveOrders[dKey] = [];
+            driverActiveOrders[dKey].push(o);
+        }
+    });
+
+    // 2. Revisar cada repartidor
+    for (const dKey in driverActiveOrders) {
+        const driverOrders = driverActiveOrders[dKey];
+        let oldestMins = 0;
+        let referenceNro = null;
+
+        driverOrders.forEach(o => {
+            const timeInfo = calculateElapsedTimeForMap(o.fecha, o.hora_tada);
+            if (timeInfo.minsValue > oldestMins) {
+                oldestMins = timeInfo.minsValue;
+                referenceNro = o.nro;
+            }
+        });
+
+        // 3. Si el mÃ¡s antiguo >= 15 mins, auto-agrupar silenciadamente
+        if (oldestMins >= 15 && referenceNro) {
+            console.warn(`[Auto - Agrupar] Repartidor ${dKey} superÃ³ lÃmite de 15min(${oldestMins}m).Agrupando...`);
+            try {
+                const response = await fetchAPI('crearViajeAutomatico', { nro: referenceNro });
+                if (response.success) {
+                    console.log(`[Auto - Agrupar] ${dKey} agrupado con Ã©xito.`);
+                    if (typeof loadOrdersSilent === 'function') await loadOrdersSilent();
+                }
+            } catch (e) {
+                console.error(`[Auto - Agrupar] Error: `, e);
+            }
+        }
+    }
+
+    /*
+        // 4. LÃ³gica de AUTO-LIQUIDACIÃ“N (AutomÃ¡tica si todo estÃ¡ validado/cancelado)
+        await checkAutoLiquidation();
+    */
+}
+
+/**
+ * Revisa viajes existentes. Si todos sus pedidos estÃ¡n Validados o Cancelados, 
+ * se liquida automÃ¡ticamente (archivado definitivo).
+ */
+async function checkAutoLiquidation() {
+    if (typeof orders === 'undefined' || !orders) return;
+
+    const trips = {};
+    orders.forEach(o => {
+        const vId = String(o.viaje_id || "").trim();
+        if (vId !== "" && vId !== "null" && vId !== "undefined") {
+            if (!trips[vId]) trips[vId] = { driver: o.envio, orders: [] };
+            trips[vId].orders.push(o);
+        }
+    });
+
+    for (const vId in trips) {
+        const t = trips[vId];
+        const allFinished = t.orders.every(o => ['Validado', 'Cancelado', 'Rechazado'].includes(o.estado));
+        if (allFinished && t.orders.length > 0) {
+            console.log(`[Auto - Liquidar] Viaje ${vId} de ${t.driver} completo.`);
+            try {
+                await fetchAPI('crearViajeAutomatico', { nro: t.orders[0].nro });
+            } catch (e) { }
+        }
+    }
+}
+
 // Make sure to add the timer auto-refresher once the view is opened
 setInterval(() => {
     const mapaGrid = document.getElementById('mapa-grid');
-    if (mapaGrid && mapaGrid.offsetParent !== null) {
-        renderMapaMotorizados(); // Tick the timers on screen dynamically
+    // SAFEGUARD: Don't re-render if we are in the middle of a modal or if user is interaction with a select
+    const isSwalOpen = document.body.classList.contains('swal2-shown');
+    const hasFocus = document.activeElement && (document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'INPUT');
+    const isDragging = !!document.querySelector('.dragging') || !!document.querySelector('.dragging-box') || window.isDraggingOrder;
+
+    if (mapaGrid && mapaGrid.offsetParent !== null && !isSwalOpen && !hasFocus && !isDragging) {
+        console.log("[Monitor] Refreshing grid...");
+        renderMapaMotorizados();
     }
 }, 60000); // 1 minute
 
 // Handler for the Assign button explicitly called from HTML
 window.asignarMotorizadoDesdeMapa = async function (nro) {
-    const selectEl = document.getElementById(`sel-assign-${nro}`);
+    const selectEl = document.getElementById(`sel - assign - ${nro} `);
     if (!selectEl) return;
 
     const newDriver = selectEl.value;
-    if (!newDriver || newDriver.trim() === '') {
-        return;
-    }
+    if (!newDriver || newDriver.trim() === '') return;
 
-    Swal.fire({
-        title: 'Asignando repartidor...',
-        allowEscapeKey: false,
-        allowOutsideClick: false,
-        didOpen: () => Swal.showLoading()
-    });
+    // --- REACCIÃ“N OPTIMISTA + PERSISTENCIA (v5.0) ---
+    // Guardamos estado anterior por si falla
+    const orderObj = orders.find(o => o.nro == nro);
+    if (!orderObj) return;
+    const oldDriver = orderObj.envio;
+
+    // 1. Registrar en Memoria de Persistencia (Bloqueo anti-refresco)
+    window.pendingAssignments[nro] = {
+        envio: newDriver,
+        viaje_id: orderObj.viaje_id,
+        timestamp: Date.now()
+    };
+
+    // 2. Actualizamos localmente E INSTANTÃ NEO
+    orderObj.envio = newDriver;
+    renderMapaMotorizados();
 
     try {
-        // Requires fetchAPI from app.js which is already loaded
         const response = await fetchAPI('asignarMotorizado', {
             nro: nro,
             envio: newDriver,
             usuario: (typeof currentUser !== 'undefined' && currentUser.usuario) ? currentUser.usuario : 'Admin'
         });
 
-        if (response.success) {
-            Swal.fire('Éxito', 'Repartidor asignado', 'success');
-            // Refresh main order list, which updates the view everywhere
-            if (typeof loadOrders === 'function') {
-                await loadOrders();
-                renderMapaMotorizados();
-            }
-        } else {
+        if (!response.success) {
+            delete window.pendingAssignments[nro];
+            orderObj.envio = oldDriver;
+            renderMapaMotorizados();
             Swal.fire('Error', response.message || 'Error al asignar motorizado', 'error');
+        } else {
+            // Dejar el bloqueo un par de segundos mÃ¡s para que Sheets procese
+            setTimeout(() => {
+                delete window.pendingAssignments[nro];
+                renderMapaMotorizados();
+            }, 12000);
+            if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
         }
     } catch (error) {
-        Swal.fire('Error', 'Error de red', 'error');
+        console.error(error);
+        delete window.pendingAssignments[nro];
+        orderObj.envio = oldDriver;
+        renderMapaMotorizados();
+        Swal.fire('Error', 'Error de red al asignar', 'error');
     }
 };
 
@@ -1125,42 +1947,130 @@ window.quitarPedidoDeViaje = async function (input) {
     const count = nros.length;
 
     const result = await Swal.fire({
-        title: count > 1 ? `¿Desvincular ${count} pedidos?` : '¿Remover pedido del viaje?',
-        text: count > 1 ? "Todos los pedidos volverán al monitor activo para ser re-asignados." : "El pedido volverá al monitor activo.",
+        title: count > 1 ? `¿Desvincular ${count} pedidos ? ` : '¿Remover pedido del viaje?',
+        text: count > 1 ? "Todos los pedidos volverán al monitor activo." : "El pedido volverá al monitor activo.",
         icon: 'question',
         showCancelButton: true,
-        confirmButtonText: count > 1 ? 'Sí, desvincular todos' : 'Sí, remover',
+        confirmButtonText: count > 1 ? 'Sí, desvincular' : 'Sí, remover',
         cancelButtonText: 'Cancelar'
     });
 
     if (result.isConfirmed) {
-        Swal.fire({
-            title: count > 1 ? 'Desvinculando...' : 'Removiendo...',
-            didOpen: () => Swal.showLoading(),
-            allowOutsideClick: false
+        // --- REACCIÃ“N OPTIMISTA + PERSISTENCIA (v5.0) ---
+        const history = []; // Para revertir si falla
+        nros.forEach(n => {
+            const o = orders.find(x => x.nro == n);
+            if (o) {
+                history.push({ nro: n, oldViaje: o.viaje_id });
+                window.pendingAssignments[n] = {
+                    envio: o.envio,
+                    viaje_id: "",
+                    timestamp: Date.now()
+                };
+                o.viaje_id = "";
+            }
         });
+        renderMapaMotorizados();
 
         try {
             const response = await fetchAPI('asignarViajePedido', {
                 nros: nros.map(n => Number(n)),
-                viajeId: "" // Enviar vacío para desvincular
+                viajeId: ""
             });
 
             if (response.success) {
-                if (typeof orders !== 'undefined') {
-                    nros.forEach(n => {
-                        const idx = orders.findIndex(x => x.nro == n);
-                        if (idx !== -1) orders[idx].viaje_id = "";
-                    });
-                }
-                Swal.fire({ icon: 'success', title: count > 1 ? 'Pedidos desvinculados' : 'Pedido removido', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
-                renderMapaMotorizados();
+                Swal.fire({ icon: 'success', title: 'Completado', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+                setTimeout(() => {
+                    nros.forEach(n => delete window.pendingAssignments[n]);
+                    renderMapaMotorizados();
+                }, 12000);
                 if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
             } else {
+                // Revertir
+                history.forEach(h => {
+                    delete window.pendingAssignments[h.nro];
+                    const o = orders.find(x => x.nro == h.nro);
+                    if (o) o.viaje_id = h.oldViaje;
+                });
+                renderMapaMotorizados();
                 Swal.fire('Error', response.message, 'error');
             }
         } catch (e) {
             console.error(e);
+            // Revertir
+            history.forEach(h => {
+                delete window.pendingAssignments[h.nro];
+                const o = orders.find(x => x.nro == h.nro);
+                if (o) o.viaje_id = h.oldViaje;
+            });
+            renderMapaMotorizados();
+            Swal.fire('Error', 'Error de red', 'error');
+        }
+    }
+};
+
+window.desasignarMotorizadoDesdeMapa = async function (nro) {
+    const { isConfirmed } = await Swal.fire({
+        title: '¿Quitar asignación?',
+        text: 'El pedido volverá a la lista de "Sin Asignar".',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Sí, desasignar',
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (isConfirmed) {
+        // --- REACCIÃ“N OPTIMISTA + PERSISTENCIA (v5.0) ---
+        const o = orders.find(x => x.nro == nro);
+        if (!o) return;
+        const oldEnvio = o.envio;
+
+        // 1. Registrar en Memoria de Persistencia
+        window.pendingAssignments[nro] = {
+            envio: "",
+            viaje_id: o.viaje_id,
+            timestamp: Date.now()
+        };
+
+        // 2. Actualizar localmente INSTANTÃ NEO
+        o.envio = "";
+        renderMapaMotorizados();
+
+        try {
+            const response = await fetchAPI('asignarMotorizado', {
+                nro: Number(nro),
+                envio: ""
+            });
+
+            if (response.success) {
+                // Si el pedido pertenecía a un viaje, también desvincularlo en el servidor (v5.0 Fix)
+                if (o.viaje_id && String(o.viaje_id).trim() !== "" && String(o.viaje_id).trim() !== "null") {
+                    await fetchAPI('asignarViajePedido', {
+                        nros: [Number(nro)],
+                        viajeId: ""
+                    });
+                }
+
+                Swal.fire({ icon: 'success', title: 'Desasignado', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+                setTimeout(() => {
+                    delete window.pendingAssignments[nro];
+                    renderMapaMotorizados();
+                }, 12000);
+                if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
+            } else {
+                // Revertir
+                delete window.pendingAssignments[nro];
+                o.envio = oldEnvio;
+                renderMapaMotorizados();
+                Swal.fire('Error', response.message, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            delete window.pendingAssignments[nro];
+            o.envio = oldEnvio;
+            renderMapaMotorizados();
             Swal.fire('Error', 'Error de red', 'error');
         }
     }

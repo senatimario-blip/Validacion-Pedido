@@ -225,7 +225,61 @@ body {
     overflow-x: hidden;
     z-index: 1000;
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(255, 255, 255, 0.02);
-    transition: var(--transition);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+    width: 80px;
+}
+
+.sidebar-toggle-btn {
+    position: absolute;
+    top: 20px;
+    right: -15px;
+    width: 30px;
+    height: 30px;
+    background: var(--primary);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    transition: transform 0.3s ease;
+}
+
+.sidebar.collapsed .sidebar-toggle-btn {
+    right: 25px;
+    transform: rotate(180deg);
+}
+
+.sidebar.collapsed .user-info,
+.sidebar.collapsed .nav-links li a span,
+.sidebar.collapsed .logout-link span {
+    display: none;
+}
+
+.sidebar.collapsed .nav-brand {
+    padding: 0;
+}
+
+.sidebar.collapsed .user-profile {
+    margin: 0 10px 30px;
+    padding: 10px;
+    justify-content: center;
+}
+
+.sidebar.collapsed .nav-links a {
+    justify-content: center;
+    padding: 12px;
+}
+
+.sidebar.collapsed .logout-link {
+    justify-content: center;
+    margin: 20px 10px 0;
 }
 
 .nav-brand {
@@ -366,7 +420,11 @@ body {
     margin-left: 290px;
     padding: 40px;
     min-height: 100vh;
-    transition: all 0.3s ease;
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed~.main-content {
+    margin-left: 110px;
 }
 
 
@@ -808,7 +866,12 @@ body {
 }
 
 .status-camino {
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
+.status-por-validar {
+    background: rgba(96, 165, 250, 0.2);
     color: #60a5fa;
 }
 
@@ -1258,6 +1321,40 @@ body {
     transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, background 0.2s ease !important;
 }
 
+/* --- Mejoras de Desplazamiento de Cajas --- */
+.motorizado-columna[draggable="true"] {
+    cursor: grab;
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, box-shadow 0.3s ease;
+}
+
+.motorizado-columna.dragging-box {
+    opacity: 0.3;
+    transform: scale(0.9) rotate(1deg);
+    border: 2px dashed rgba(99, 102, 241, 0.8) !important;
+    background: rgba(99, 102, 241, 0.1) !important;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6) !important;
+    z-index: 1000;
+}
+
+/* --- Zona de Desasignación (Fondo rojo suave) --- */
+#mapa-grid.dragover-unassign {
+    background: rgba(239, 68, 68, 0.05) !important;
+    border: 2px dashed rgba(239, 68, 68, 0.3) !important;
+    border-radius: 20px;
+    transition: all 0.3s ease;
+}
+
+.box-unassigned {
+    border: 2px dashed rgba(248, 113, 113, 0.3) !important;
+    background: rgba(248, 113, 113, 0.02) !important;
+}
+
+.box-unassigned:hover,
+.box-unassigned.dragover {
+    background: rgba(248, 113, 113, 0.08) !important;
+    border-color: rgba(248, 113, 113, 0.6) !important;
+}
+
 .motorizado-order-card.dragging {
     opacity: 0.5;
     background: rgba(99, 102, 241, 0.2) !important;
@@ -1351,4 +1448,95 @@ body {
     border: 1px dashed rgba(255, 255, 255, 0.3) !important;
     color: rgba(255, 255, 255, 0.5) !important;
     box-shadow: none;
+}
+
+/* --- Monitor Optimizations --- */
+.motorizado-dropzone.dragover {
+    background: rgba(99, 102, 241, 0.1) !important;
+    border: 2px dashed rgba(99, 102, 241, 0.3) !important;
+}
+
+.motorizado-order-card.dragging {
+    opacity: 0.2;
+    transform: scale(0.95);
+    border: 2px dashed rgba(255, 255, 255, 0.4) !important;
+    box-shadow: none !important;
+    filter: grayscale(1) blur(1px);
+}
+
+.driver-order-list.dragover {
+    background: rgba(99, 102, 241, 0.15) !important;
+    border: 2px dashed rgba(99, 102, 241, 0.4) !important;
+    border-radius: 8px;
+    transform: scale(1.01);
+}
+
+.motorizado-order-card select:focus {
+    border-color: var(--primary) !important;
+    background: rgba(0, 0, 0, 0.8) !important;
+}
+
+.sync-overlay {
+    backdrop-filter: blur(2px);
+    border-radius: 8px;
+    z-index: 10;
+}
+
+.motorizado-dropzone::-webkit-scrollbar {
+    width: 6px;
+}
+
+.motorizado-dropzone::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.motorizado-dropzone::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.motorizado-dropzone::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* --- Persistent Boxes Styles --- */
+.motorizado-columna {
+    min-height: 400px;
+}
+
+.box-unassigned {
+    border: 2px dashed rgba(239, 68, 68, 0.4) !important;
+    background: rgba(239, 68, 68, 0.05) !important;
+    transition: all 0.3s ease;
+}
+
+.box-unassigned:hover {
+    border-color: rgba(239, 68, 68, 0.7) !important;
+    background: rgba(239, 68, 68, 0.1) !important;
+}
+
+.motorizado-dropzone:empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+}
+
+.motorizado-dropzone:empty::after {
+    content: "Arrastra pedidos aquí para desasignar";
+    color: rgba(255, 255, 255, 0.15);
+    font-style: italic;
+    font-size: 0.85em;
+    text-align: center;
+    padding: 20px;
+}
+
+/* --- Animations --- */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spin {
+    animation: spin 1s linear infinite;
 }

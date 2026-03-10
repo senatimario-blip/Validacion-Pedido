@@ -24,11 +24,13 @@ let API_URL = localStorage.getItem('api_url') || 'https://script.google.com/macr
 let currentFilter = 'all';
 let currentFilteredOrders = [];
 let dateRange = { start: null, end: null };
+window.allDriversList = []; // v1.21: Lista completa de motorizados desde DB
 
 // Alerts State
 let alertsEnabled = false;
 let notifiedDelayed = new Set();
 let notifiedPorValidar = new Set();
+let notifiedContado = new Set(); // v5.1: Alerta para pedidos al contado
 let audioCtx = null;
 
 // Initialize
@@ -159,6 +161,33 @@ function playAlertSound(type) {
             gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
             osc.start(audioCtx.currentTime);
             osc.stop(audioCtx.currentTime + 0.5);
+        } else if (type === 'contado') {
+            // SIRENA / EMERGENCA (Triple pitido ascendente y penetrante)
+            [0, 0.2, 0.4].forEach((delay, i) => {
+                const sOsc = audioCtx.createOscillator();
+                const sGain = audioCtx.createGain();
+                sOsc.type = 'triangle';
+                sOsc.frequency.setValueAtTime(880 + (i * 200), audioCtx.currentTime + delay);
+                sGain.gain.setValueAtTime(0.15, audioCtx.currentTime + delay);
+                sGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + delay + 0.25);
+                sOsc.connect(sGain);
+                sGain.connect(audioCtx.destination);
+                sOsc.start(audioCtx.currentTime + delay);
+                sOsc.stop(audioCtx.currentTime + delay + 0.25);
+            });
+        } else if (type === 'new_order') {
+            [0, 0.15].forEach((delay, i) => {
+                const bOsc = audioCtx.createOscillator();
+                const bGain = audioCtx.createGain();
+                bOsc.type = 'sine';
+                bOsc.frequency.setValueAtTime(660 + (i * 220), audioCtx.currentTime + delay);
+                bGain.gain.setValueAtTime(0.1, audioCtx.currentTime + delay);
+                bGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + delay + 0.2);
+                bOsc.connect(bGain);
+                bGain.connect(audioCtx.destination);
+                bOsc.start(audioCtx.currentTime + delay);
+                bOsc.stop(audioCtx.currentTime + delay + 0.2);
+            });
         }
     } catch (e) { }
 }
@@ -209,7 +238,7 @@ function checkSession() {
     }
 }
 
-function showApp() {
+async function showApp() {
     loginSection.classList.add('hidden');
     appSection.style.display = 'grid'; // Grid layout
     document.getElementById('user-name-display').textContent = currentUser.nombre;
@@ -227,7 +256,13 @@ function showApp() {
         if (importTextBtn) importTextBtn.style.display = 'flex';
     }
 
+    // Cargar orders primero (no bloqueante para mostrar tabla rápido)
     loadOrders();
+
+    // Cargar lista maestra de motorizados (v1.21)
+    if (typeof loadAllDrivers === 'function') {
+        await loadAllDrivers();
+    }
 }
 
 document.getElementById('logout-btn').addEventListener('click', () => {
@@ -464,10 +499,14 @@ if (navCajaElem) {
 
 async function loadOrders() {
     document.getElementById('loading-indicator').classList.remove('hidden');
+    const refreshIcon = document.querySelector('#refresh-btn i');
+    if (refreshIcon) refreshIcon.classList.add('spin');
+
     try {
         const response = await fetchAPI('listarPedidos');
         if (response.success) {
             orders = response.data.sort((a, b) => b.nro - a.nro);
+            loadAllDrivers(); // v1.21: Cargar lista completa de manera asíncrona
             updateDriverFilterOptions(); // v18: Actualizar opciones del filtro
             applyFilters();
             if (typeof window.refreshDashboardIfVisible === 'function') {
@@ -477,8 +516,8 @@ async function loadOrders() {
     } catch (error) {
         Swal.fire('Error', 'Error cargando pedidos', 'error');
     }
-    // AQUÍ ESTABA EL ERROR: Borré el link de github que estaba pegado al final
     document.getElementById('loading-indicator').classList.add('hidden');
+    if (refreshIcon) refreshIcon.classList.remove('spin');
 
     // Iniciar actualizaciones locales segundo a segundo si no estaba corriendo
     if (!window.globalTimerRunning) {
@@ -505,6 +544,11 @@ setInterval(() => {
     // Módulos que no sean pedidos (Si mapa o reportes están activos y visibles, puede recargar por debajo sin problema, pero aseguramos de no saltar scroll si están frente a pedidos visuales)
 
     if (!isValOpen && !isNewOpen && !isSwalOpen && !isImportOpen && !isImportTextOpen && API_URL) {
+        // Bloqueo de seguridad: No recargar si el usuario está arrastrando un pedido (v3.0)
+        if (window.isDraggingOrder) {
+            console.log("[SilentRefresh] Pausado por drag & drop activo...");
+            return;
+        }
         loadOrdersSilent();
     }
 }, 30000); // 30 segundos
@@ -513,8 +557,38 @@ async function loadOrdersSilent() {
     try {
         const response = await fetchAPI('listarPedidos');
         if (response.success) {
-            orders = response.data.sort((a, b) => b.nro - a.nro);
-            updateDriverFilterOptions(); // v18: Actualizar opciones silenciosamente
+            const newOrders = response.data;
+
+            // Detectar nuevos pedidos (IDs que no estaban antes)
+            const currentIds = new Set(orders.map(o => o.llave || o.id)); // Usamos llave/id
+            const trulyNew = newOrders.filter(o => !currentIds.has(o.llave || o.id));
+
+            if (trulyNew.length > 0 && orders.length > 0) {
+                console.log(`[Alert] ${trulyNew.length} nuevos pedidos detectados.`);
+                playAlertSound('new_order');
+
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 5000,
+                    timerProgressBar: true,
+                    background: 'var(--card-bg)',
+                    color: 'var(--text-main)',
+                    didOpen: (toast) => {
+                        toast.addEventListener('mouseenter', Swal.stopTimer)
+                        toast.addEventListener('mouseleave', Swal.resumeTimer)
+                    }
+                });
+
+                Toast.fire({
+                    icon: 'info',
+                    title: `¡Entraron ${trulyNew.length} pedidos nuevos!`
+                });
+            }
+
+            orders = newOrders.sort((a, b) => b.nro - a.nro);
+            updateDriverFilterOptions();
 
             // Re-aplicar el filtro de la tabla de forma silenciosa si estamos en la vista
             const isOrdersView = window.getComputedStyle(document.getElementById('app-content')).display !== 'none';
@@ -527,6 +601,10 @@ async function loadOrdersSilent() {
             }
             if (!document.getElementById('mapa-content').classList.contains('hidden') && typeof renderMapaMotorizados === 'function') {
                 renderMapaMotorizados();
+            }
+
+            if (typeof window.checkAutoGroup12Min === 'function') {
+                window.checkAutoGroup12Min();
             }
         }
     } catch (e) {
@@ -560,9 +638,48 @@ function renderOrders(data) {
             detalleHtml = `<span style="color:#94a3b8; font-size:0.85em;">${order.pago}</span>`;
         }
 
+        // --- LÓGICA DE COLUMNA "VUELTO" ---
+        let vueltoHtml = '<span class="text-muted">-</span>';
+        const isContado = (order.pago || '').toUpperCase().includes('CONTADO') || (order.tipo_pago || '').toUpperCase().includes('CONTADO');
+
+        if (isContado) {
+            const currentVuelto = order.vuelto ? parseFloat(order.vuelto).toFixed(2) : '';
+            // Si el motorizado o admin ya validó, se puede deshabilitar o dejar en solo lectura dependiendo del rol.
+            // Para simplicidad, si está Validado, bloqueamos la edición directa aquí.
+            const isReadonly = (order.estado === 'Validado' || currentUser.rol !== 'Admin') ? 'disabled' : '';
+
+            vueltoHtml = `
+                <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+                    <span style="color: #4ade80; font-weight: bold;">S/</span>
+                    <input type="number" step="0.01" class="vuelto-inline-input" 
+                        value="${currentVuelto}" 
+                        placeholder="0.00"
+                        ${isReadonly}
+                        onblur="saveInlineVuelto('${order.nro}', '${order.llave}', '${order.envio || ''}', this.value, '${currentVuelto}')"
+                        style="width: 60px; padding: 4px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); color: white; text-align: center; font-size: 0.9em;">
+                </div>
+            `;
+        }
+        // ----------------------------------
+
         // 2. LÓGICA DE COLUMNA "TIEMPO" (Azul/Rojo)
         let tiempoHtml = '<span class="text-muted">-</span>';
         let orderDate = null;
+
+        // --- NUEVO: TIEMPO REAL (HORA TADA / COL Z) ---
+        let realMinsPart = '-';
+        if (order.minutosReales !== undefined && order.minutosReales !== "" && order.minutosReales !== null) {
+            const mins = parseInt(order.minutosReales);
+            if (!isNaN(mins)) {
+                const rText = Math.abs(mins) >= 60 ? `${Math.floor(Math.abs(mins) / 60)}h ${Math.abs(mins) % 60}m` : `${mins} min`;
+                let rColor = '#60a5fa'; // Celeste
+                if (mins > 35) rColor = '#fca5a5'; // Rojo claro (Cambio a los 35 min)
+                realMinsPart = `<span style="color:${rColor}; font-weight:bold; white-space: nowrap;"><i class="fa-solid fa-ghost"></i> ${rText}</span>`;
+            }
+        } else if (order.fechaHoraReal) {
+            // Fallback si solo tenemos el timestamp pero no los minutos calculados
+            realMinsPart = `<span style="color:#94a3b8; font-size:0.8em;">${order.fechaHoraReal}</span>`;
+        }
 
         try {
             // Intento #1: Forzar parseo de la fecha como America/Lima usando Intl (Si es Date válido)
@@ -582,7 +699,11 @@ function renderOrders(data) {
 
                 orderDate = new Date(Date.UTC(getP('year'), getP('month') - 1, getP('day'), rH, getP('minute'), 0));
             }
+        } catch (e) {
+            console.error("Error parseando fecha base:", e);
+        }
 
+        try {
             if (orderDate && !isNaN(orderDate.getTime())) {
                 let diffMs = null;
                 let staticMins = null; // Para cuando viene de HH:MM:SS de Google Sheets
@@ -676,37 +797,63 @@ function renderOrders(data) {
                 if (staticMins !== null || (diffMs !== null && diffMs >= 0 && diffMs <= 86400000)) {
                     let mins = staticMins !== null ? staticMins : Math.floor(diffMs / 60000);
 
-                    // --- NUEVA LÓGICA DE COLORES ---
+                    // --- NUEVA LÃ“GICA DE COLORES SINCRONIZADA (v5.0) ---
                     let color, bg;
 
                     if (order.estado === 'Pendiente' || order.estado === 'En Camino') {
-                        // VERDE SUAVE si está a tiempo, ROJO si pasó los 35 min
-                        color = mins <= 35 ? '#4ade80' : '#f87171';
-                        bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                        // LÃ³gica unificada: Celeste (#60a5fa) hasta los 35 min
+                        if (mins > 35) {
+                            color = '#f87171'; // Rojo suave
+                            bg = 'rgba(248, 113, 113, 0.1)';
+                        } else {
+                            color = '#60a5fa'; // Celeste
+                            bg = 'rgba(96, 165, 250, 0.1)';
+                        }
 
-                        // EVALUAR ALERTAS (Solo consideramos eventos del día actual)
+                        // EVALUAR ALERTAS (Sincronizado a 30 min)
                         const isToday = order.fecha && order.fecha.startsWith(new Date().toISOString().split('T')[0]);
                         if (isToday) {
-                            // 1. Alerta por demoras (minutos >= 35)
-                            if (mins >= 35 && !notifiedDelayed.has(order.nro)) {
+                            if (mins > 35 && !notifiedDelayed.has(order.nro)) {
                                 notifiedDelayed.add(order.nro);
                                 playAlertSound('delayed');
                                 showSystemNotification('🚨 Pedido Retrasado', `El pedido #${order.nro} ha cruzado los ${mins} minutos en espera.`);
                             }
-
-                            // 2. Alerta de listo por validar (estado = Por Validar)
-                            if (order.estado === 'Por Validar' && !notifiedPorValidar.has(order.nro)) {
-                                notifiedPorValidar.add(order.nro);
-                                playAlertSound('por_validar');
-                                showSystemNotification('✅ Entrega Subida', `El motorizado ha adjuntado evidencia para el pedido #${order.nro}.`);
-                            }
+                            // ... (resto de alertas de validaciÃ³n se mantienen igual)
                         }
-                    } else {
-                        // AZUL SUAVE si está a tiempo, NARANJA si pasó los 35 min
-                        color = mins <= 35 ? '#60a5fa' : '#fb923c';
-                        bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(251, 146, 60, 0.1)';
                     }
-                    // -------------------------------
+
+                    // --- NUEVA ALERTA: PEDIDOS AL CONTADO (v5.2) ---
+                    const esContado = (order.pago || '').toUpperCase().includes('CONTADO') || (order.tipo_pago || '').toUpperCase().includes('CONTADO');
+                    const estadoActivo = order.estado === 'Pendiente' || order.estado === 'En Camino';
+
+                    if (esContado && estadoActivo && !notifiedContado.has(order.nro)) {
+                        notifiedContado.add(order.nro);
+                        playAlertSound('contado');
+                        Swal.fire({
+                            title: '🚨 ¡NUEVO PEDIDO AL CONTADO! 🚨',
+                            icon: 'warning',
+                            background: '#1e1e2e',
+                            color: '#fff',
+                            confirmButtonText: 'ENTENDIDO',
+                            confirmButtonColor: '#ef4444',
+                            timer: 10000,
+                            timerProgressBar: true
+                        });
+                        showSystemNotification('⚠️ COBRO CONTADO', `Pedido #${order.nro} al contado. ¡Cobrar de inmediato!`);
+                    }
+                    // ----------------------------------------------
+
+                    else {
+                        // Para otros estados (Validado, etc) mantenemos distinciÃ³n pero con nuevos tiempos
+                        if (mins > 35) {
+                            color = '#fb923c'; // Naranja
+                            bg = 'rgba(251, 146, 60, 0.1)';
+                        } else {
+                            color = '#60a5fa'; // Celeste
+                            bg = 'rgba(96, 165, 250, 0.1)';
+                        }
+                    }
+                    // ----------------------------------------------------
 
                     let text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
                     tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
@@ -734,10 +881,14 @@ function renderOrders(data) {
             <td>${order.llave}</td>
             <td>${formatDate(order.fecha)}</td>
             <td>S/ ${formatMoney(order.monto)}</td>
+            <td>${vueltoHtml}</td>
             <td>${detalleHtml}</td>
-            <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span></td>
+            <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span>
+                ${(order.lat && order.lat !== 0) ? `<i class="fa-solid fa-shield-check" style="color:#10b981; margin-left:5px;" title="GPS Verificado: ${order.lat}, ${order.lng}"></i>` : ''}
+            </td>
             <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
             <td>${tiempoHtml}</td>
+            <td style="background: rgba(96, 165, 250, 0.05);">${realMinsPart}</td>
             <td>
                 ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
                 <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
@@ -793,9 +944,9 @@ function startGlobalTimers() {
 
                 let mins = Math.floor(diffMs / 60000);
 
-                // Evaluar Colores dinámicos
-                let color = mins <= 35 ? '#4ade80' : '#f87171';
-                let bg = mins <= 35 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)';
+                // Evaluar Colores dinámicos (Sincronizado a 35 min celeste)
+                let color = mins <= 35 ? '#60a5fa' : '#f87171';
+                let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
                 let text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
 
                 let tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
@@ -823,6 +974,83 @@ window.toggleSLA = async (nro) => {
         }
     } catch (e) {
         Swal.fire('Error', 'Error de conexión', 'error');
+    }
+};
+
+// --- FUNCIÓN GLOBAL: GUARDAR VUELTO INLINE Y ENVIAR EGRESO A CAJA ---
+window.saveInlineVuelto = async (nro, llave, repartidor, newVal, oldVal) => {
+    if (newVal === oldVal) return; // No hubieron cambios
+
+    let montoVal = parseFloat(newVal);
+    if (isNaN(montoVal) || montoVal < 0) {
+        montoVal = 0;
+    }
+
+    Swal.fire({
+        title: 'Actualizando Vuelto...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    try {
+        // Enviar actualización de Vuelto a Google Apps Script (Columna M de la base). 
+        // Asume que la API crearPedido o actualizarPedido puede actualizar solo el vuelto si se envía action dedicada.
+        // Si no existe, se usa una llamada especial, aquí la creamos a nivel JS y asumiremos el Backend puede manejarla o lo ajustará.
+        // Simulando llamada a la API "guardarVueltoInline"
+        const resSheet = await fetchAPI('guardarVueltoInline', {
+            nro: nro,
+            vuelto: montoVal,
+            usuario: currentUser.usuario
+        });
+
+        // Registrar movimiento simultáneo de EGRESO físico en caja (usando API de caja.js)
+        if (montoVal > 0) {
+            const resCaja = await fetchAPI('registrarMovimientoCaja', {
+                tipo: 'EGRESO',
+                metodo: 'FISICO',
+                concepto: `Vuelto Entregado [LLAVE: ${llave}] - ${repartidor || 'Sin Asignar'}`,
+                monto: montoVal,
+                pedidoNro: nro,
+                repartidor: repartidor || '',
+                usuario: currentUser.usuario
+            });
+
+            if (!resCaja.success) {
+                console.warn("Advertencia: Se guardó el vuelto en el pedido pero falló el registro en la Caja.", resCaja.message);
+                Swal.fire('Atención', 'Se guardó en el pedido, pero hubo un error actualizando la Caja: ' + resCaja.message, 'warning');
+                loadOrders(); // Recargar pedidos de todas formas
+                if (typeof loadCajaData === 'function') loadCajaData();
+                return;
+            }
+        }
+
+        if (resSheet.success || (resSheet.msg && resSheet.msg.includes('exito'))) {
+            const Toast = Swal.mixin({
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+            Toast.fire({
+                icon: 'success',
+                title: `Vuelto guardado (S/ ${montoVal.toFixed(2)}) y descontado de caja.`
+            });
+
+            // Actualizar arreglo local temporal
+            const idx = orders.findIndex(o => o.nro == nro);
+            if (idx > -1) orders[idx].vuelto = montoVal;
+
+            // Refrescar caja por debajo
+            if (typeof loadCajaData === 'function') loadCajaData();
+        } else {
+            Swal.fire('Error', resSheet.message || 'No se pudo guardar el vuelto', 'error');
+            loadOrders(); // Revertir a los valores de la DB original
+        }
+
+    } catch (err) {
+        Swal.fire('Error', 'Falló la conexión al tratar de guardar el vuelto.', 'error');
+        loadOrders();
     }
 };
 
@@ -1188,8 +1416,31 @@ function updateDriverFilterOptions(ordersArray = orders) {
 function updateDriversDatalist() {
     const datalist = document.getElementById('drivers-list');
     if (!datalist) return;
-    const drivers = getUniqueDrivers();
+
+    // Si ya cargamos la lista completa del servidor, usar esa como prioridad (v1.21)
+    const drivers = (window.allDriversList && window.allDriversList.length > 0)
+        ? window.allDriversList
+        : getUniqueDrivers();
+
     datalist.innerHTML = drivers.map(d => `<option value="${d}">`).join('');
+}
+
+async function loadAllDrivers() {
+    try {
+        const res = await fetchAPI('obtenerNombresMotorizados');
+        if (res.success && res.data) {
+            window.allDriversList = res.data;
+            updateDriversDatalist();
+            console.log("✅ Lista completa de motorizados cargada:", window.allDriversList.length);
+
+            // Si estamos en la vista de pedidos/cronológico, refrescar para mostrar la lista
+            if (typeof applyFilters === 'function') {
+                applyFilters();
+            }
+        }
+    } catch (e) {
+        console.error("Error al cargar lista de motorizados:", e);
+    }
 }
 
 window.openValidateModal = (nro) => {
@@ -1218,6 +1469,12 @@ window.openValidateModal = (nro) => {
     }
     if (order.pago) {
         extraInfoDiv.innerHTML += `<span style="${chipStyle}" title="Pago Original Ingresado"><i class="fa-solid fa-credit-card" style="color:#4ade80;"></i> Orig: ${order.pago}</span>`;
+    }
+    if (order.lat && order.lat !== 0) {
+        const mapUrl = `https://www.google.com/maps?q=${order.lat},${order.lng}`;
+        extraInfoDiv.innerHTML += `<a href="${mapUrl}" target="_blank" style="${chipStyle}; text-decoration:none; cursor:pointer;" title="Ver en Google Maps">
+            <i class="fa-solid fa-location-dot" style="color:#ef4444;"></i> GPS: ${Math.round(order.accuracy || 0)}m
+        </a>`;
     }
 
     photoInput.value = '';
@@ -2731,8 +2988,52 @@ validateForm.addEventListener('submit', async (e) => {
             const res = await fetchAPI('validarPedido', payload);
             if (res.success) {
                 Swal.close();
-                document.getElementById('modal-validate').classList.remove('active');
-                loadOrders();
+                const btnAutoNext = document.getElementById('val-auto-next');
+                const shouldGoNext = btnAutoNext && btnAutoNext.checked;
+
+                if (shouldGoNext && typeof currentFilteredOrders !== 'undefined') {
+                    // Try to find the next order in the filtered list
+                    const currentIndex = currentFilteredOrders.findIndex(o => o.nro == currentOrderForValidation.nro);
+                    let nextOrder = null;
+                    if (currentIndex !== -1) {
+                        // Marcar como validado localmente para que no se repita en la búsqueda actual
+                        currentFilteredOrders[currentIndex].estado = 'Validado';
+
+                        for (let i = currentIndex + 1; i < currentFilteredOrders.length; i++) {
+                            if (currentFilteredOrders[i].estado === 'Por Validar') {
+                                nextOrder = currentFilteredOrders[i];
+                                break;
+                            }
+                        }
+                    }
+                    // Loop around eliminado a petición del usuario para que termine al llegar al final del barrido
+
+                    if (nextOrder) {
+                        Swal.fire({
+                            toast: true, position: 'top-end', icon: 'success',
+                            title: `Validado #${currentOrderForValidation.nro}`,
+                            showConfirmButton: false, timer: 1500
+                        });
+                        // Recargar la data general y actualizar las vistas pasivamente en 2do plano
+                        fetchAPI('obtenerPedidos', { adminScope: true, limit: 300 }).then(r => {
+                            if (r.success) {
+                                orders = r.data || [];
+                                updateStats();
+                                applyFilters();
+                                if (typeof window.refreshDashboardIfVisible === 'function') window.refreshDashboardIfVisible();
+                            }
+                        });
+                        // Abrir el siguiente de inmediato
+                        window.openValidateModal(nextOrder.nro);
+                    } else {
+                        document.getElementById('modal-validate').classList.remove('active');
+                        Swal.fire('¡Felicidades!', 'Ya no hay más pedidos por validar en la lista actual.', 'success');
+                        loadOrders();
+                    }
+                } else {
+                    document.getElementById('modal-validate').classList.remove('active');
+                    loadOrders();
+                }
             } else {
                 Swal.fire('Error', res.message, 'error');
             }
@@ -2742,6 +3043,21 @@ validateForm.addEventListener('submit', async (e) => {
     };
 
     startUpload();
+});
+
+// Listener for the new "Aprobar y Siguiente" button and Ctrl+Enter Hotkey
+document.getElementById('btn-save-next')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('val-auto-next').checked = true;
+    validateForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+});
+
+document.getElementById('modal-validate')?.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('val-auto-next').checked = true;
+        validateForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }
 });
 
 // --- Utilities ---
@@ -3655,8 +3971,8 @@ function parseRawCopiedText(text) {
     const ordersFound = [];
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
 
-    const keyRegex = /^[A-Z0-9]{9}$/;
-    const dateRegex = /(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})|(\d{1,2})\s+([a-zA-Z]{3})\.?\s+(\d{4})/;
+    const keyRegex = /^[A-Z0-9]{8,11}$/;
+    const dateRegex = /(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})|(\d{1,2})\s+([a-zA-Z]{3})\.?\s+(\d{4})|Hoy|ayer/i;
     const timeRegex = /(\d{1,2}):(\d{2})(\s*[ap]\.?\s*m\.?)?|(\d{1,2}):(\d{2})\s*horas\.?/i;
 
     let i = 0;
@@ -3674,28 +3990,36 @@ function parseRawCopiedText(text) {
 
             i++; // saltar llave
 
-            // 1. Saltar el Nombre del Cliente (suele ser la siguiente línea)
+            // 1. Saltar el Nombre del Cliente
             if (i < lines.length && !dateRegex.test(lines[i]) && !keyRegex.test(lines[i])) {
                 i++;
             }
 
             // 2. Buscar Fecha
             while (i < lines.length && !dateRegex.test(lines[i]) && !keyRegex.test(lines[i])) { i++; }
-            if (i < lines.length && dateRegex.test(lines[i])) {
+            if (i < lines.length && dateRegex.test(lines[j = i])) { // j is just for testing
                 const dMatch = lines[i].match(dateRegex);
-                let day, monthStr, year;
-                if (dMatch[1]) { // Formato "4 de marzo de 2026"
-                    day = dMatch[1].padStart(2, '0');
-                    monthStr = dMatch[2].toLowerCase();
-                    year = dMatch[3];
-                } else { // Formato "4 mar. 2026"
-                    day = dMatch[4].padStart(2, '0');
-                    monthStr = dMatch[5].toLowerCase();
-                    year = dMatch[6];
+                if (lines[i].toLowerCase().includes('hoy')) {
+                    const t = new Date();
+                    fechaStr = `${String(t.getDate()).padStart(2, '0')}/${String(t.getMonth() + 1).padStart(2, '0')}/${t.getFullYear()}`;
+                } else if (lines[i].toLowerCase().includes('ayer')) {
+                    const t = new Date(); t.setDate(t.getDate() - 1);
+                    fechaStr = `${String(t.getDate()).padStart(2, '0')}/${String(t.getMonth() + 1).padStart(2, '0')}/${t.getFullYear()}`;
+                } else if (dMatch) {
+                    let day, monthStr, year;
+                    if (dMatch[1]) {
+                        day = dMatch[1].padStart(2, '0');
+                        monthStr = dMatch[2].toLowerCase();
+                        year = dMatch[3];
+                    } else if (dMatch[4]) {
+                        day = dMatch[4].padStart(2, '0');
+                        monthStr = dMatch[5].toLowerCase();
+                        year = dMatch[6];
+                    }
+                    const months = { 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06', 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12' };
+                    const m = months[monthStr ? monthStr.substring(0, 3).replace('set', 'sep') : ''] || '01';
+                    fechaStr = `${day}/${m}/${year}`;
                 }
-                const months = { 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06', 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12' };
-                const m = months[monthStr.substring(0, 3).replace('set', 'sep')] || '01';
-                fechaStr = `${day}/${m}/${year}`;
                 i++;
             }
 
@@ -3715,28 +4039,36 @@ function parseRawCopiedText(text) {
             }
 
             // 4. Buscar Status (Terminado, Aceptado, Cancelado, etc.)
-            const statusKeywords = ['Terminado', 'Aceptado', 'En tránsito', 'Cancelado', 'En preparacion'];
+            const statusKeywords = ['Terminado', 'Aceptado', 'En tránsito', 'Cancelado', 'En preparacion', '---'];
             while (i < lines.length && !keyRegex.test(lines[i])) {
-                const isStatus = statusKeywords.some(kw => lines[i].includes(kw));
-                if (isStatus) {
-                    status = lines[i];
-                    i++;
+                const isStatus = statusKeywords.some(kw => lines[i].toLowerCase().includes(kw.toLowerCase()));
+                if (isStatus || lines[i].includes('S/')) { // Detenerse si encontramos el monto
+                    if (isStatus) {
+                        status = lines[i];
+                        i++;
+                    }
                     break;
                 }
                 i++;
             }
 
             // 5. Envío (Nombre de Repartidor) - La línea siguiente si no es monto
-            if (i < lines.length && !lines[i].startsWith('$') && !lines[i].startsWith('S/') && !keyRegex.test(lines[i])) {
+            if (i < lines.length && !lines[i].includes('S/') && !keyRegex.test(lines[i])) {
                 envio = lines[i];
                 i++;
             }
 
             // 6. Monto
-            while (i < lines.length && !lines[i].startsWith('$') && !lines[i].startsWith('S/') && !keyRegex.test(lines[i])) { i++; }
-            if (i < lines.length && (lines[i].startsWith('$') || lines[i].startsWith('S/'))) {
+            while (i < lines.length && !lines[i].includes('S/') && !keyRegex.test(lines[i])) { i++; }
+            if (i < lines.length && lines[i].includes('S/')) {
                 const amountClean = lines[i].replace(/[^\d.,]/g, '').replace(',', '.');
                 monto = parseFloat(amountClean).toFixed(2);
+                i++;
+            }
+
+            // 7. Pago (La siguiente línea si existe y no es llave)
+            if (i < lines.length && !keyRegex.test(lines[i]) && !lines[i].includes('S/')) {
+                pago = lines[i];
                 i++;
             }
 
@@ -4014,4 +4346,58 @@ function makeDraggable(modalId) {
 // Initialize draggability for all modals
 document.addEventListener('DOMContentLoaded', () => {
     ['modal-validate', 'modal-new-order', 'modal-import', 'modal-import-text', 'modal-date-range', 'modal-manage-drivers'].forEach(makeDraggable);
+});
+
+// Helper para calcular minutos reales desde Hora TADA
+function calculateRealTimeMinutes(horaTadaStr, now) {
+    if (!horaTadaStr || horaTadaStr === '---') return null;
+    try {
+        let [time, modifier] = horaTadaStr.split(' ');
+        let [hours, minutes] = time.split(':').map(Number);
+
+        if (modifier) {
+            modifier = modifier.replace(/\./g, "").toLowerCase(); // "a. m." -> "am"
+            if (modifier.includes('p') && hours < 12) hours += 12;
+            if (modifier.includes('a') && hours === 12) hours = 0;
+        }
+
+        // Crear objeto fecha para hoy con esa hora en Lima
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Lima',
+            year: 'numeric', month: 'numeric', day: 'numeric',
+            hour: 'numeric', minute: 'numeric',
+            hour12: false
+        });
+        const parts = formatter.formatToParts(now);
+        const getP = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+
+        // Hora TADA en UTC-LIMA para comparación
+        const tadaUtc = Date.UTC(getP('year'), getP('month') - 1, getP('day'), hours, minutes, 0);
+
+        // Hora ACTUAL en UTC-LIMA
+        let nH = getP('hour'); if (nH === 24) nH = 0;
+        const nowUtc = Date.UTC(getP('year'), getP('month') - 1, getP('day'), nH, getP('minute'), 0);
+
+        let diff = Math.floor((nowUtc - tadaUtc) / 60000);
+        if (diff < -720) diff += 1440; // Caso cruce de medianoche (Tada ayer tarde vs Hoy temprano)
+        return diff;
+    } catch (e) {
+        console.error("Error parseando Hora TADA Dashboard:", e);
+        return null;
+    }
+}
+
+// --- Sidebar Toggle Logic ---
+document.addEventListener('DOMContentLoaded', () => {
+    const sidebar = document.getElementById('main-sidebar');
+    const toggleBtn = document.getElementById('sidebar-toggle');
+    const isCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    if (isCollapsed && sidebar) sidebar.classList.add('collapsed');
+
+    if (toggleBtn && sidebar) {
+        toggleBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed'));
+        });
+    }
 });

@@ -71,7 +71,10 @@
     <!-- App Dashboard Section -->
     <section id="app-section">
         <!-- Sidebar / Navigation -->
-        <nav class="sidebar glass-panel">
+        <nav class="sidebar glass-panel" id="main-sidebar">
+            <button id="sidebar-toggle" class="sidebar-toggle-btn">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
 
             <!-- LOGO CABIFY CENTRADO -->
             <div class="nav-brand" style="justify-content: center; padding: 10px 0;">
@@ -234,10 +237,12 @@
                                     <th>Llave</th>
                                     <th>Fecha</th>
                                     <th>Monto</th>
+                                    <th>Vuelto</th>
                                     <th>Detalle</th>
                                     <th>Estado</th>
                                     <th>Envío</th>
                                     <th>Tiempo</th>
+                                    <th title="SLA Real (Hora TADA)">Tiempo Real</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
@@ -534,12 +539,6 @@
                             <span id="caja-ingresos" style="font-weight: bold; color: #10b981;">S/ 0.00</span>
                         </div>
                         <div
-                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(252, 211, 77, 0.05); margin: 0 -10px; padding: 8px 10px; border-radius: 8px;">
-                            <span style="color: #fcd34d; font-size: 0.9em; font-weight: 500;">Recaudado
-                                (Pedidos):</span>
-                            <span id="caja-recaudado-pedidos" style="font-weight: bold; color: #fcd34d;">S/ 0.00</span>
-                        </div>
-                        <div
                             style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
                             <span style="color: rgba(255,255,255,0.7);">Egresos:</span>
                             <span id="caja-egresos" style="font-weight: bold; color: #ef4444;">S/ 0.00</span>
@@ -553,6 +552,24 @@
                         <div
                             style="margin-top: 15px; font-size: 0.8em; color: rgba(255,255,255,0.4); text-align: center;">
                             El resumen se actualiza automáticamente con los movimientos.
+                        </div>
+                    </div>
+
+                    <!-- Información Adicional Section -->
+                    <div class="glass-panel"
+                        style="flex: 1; padding: 20px; border-radius: 16px; display: flex; flex-direction: column; gap: 15px; background: rgba(252, 211, 77, 0.05); border: 1px solid rgba(252, 211, 77, 0.2);">
+                        <h3 style="margin: 0; font-size: 1.1em; color: #fcd34d;"><i class="fa-solid fa-circle-info"></i>
+                            Información Adicional</h3>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0;">
+                            <span style="color: #fcd34d; font-size: 1em; font-weight: 600;">Recaudado (Pedidos
+                                Contado):</span>
+                            <span id="caja-recaudado-pedidos"
+                                style="font-size: 1.25em; font-weight: bold; color: #fcd34d;">S/ 0.00</span>
+                        </div>
+                        <div style="font-size: 0.85em; color: rgba(255,255,255,0.5); line-height: 1.4;">
+                            Monto total acumulado de pedidos marcados como <strong>CONTADO</strong>. Este valor es
+                            informativo y no afecta directamente al saldo físico de caja hasta que se registre el cobro.
                         </div>
                     </div>
                 </div>
@@ -622,10 +639,25 @@
                             Monitor de Motorizados</span>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <span id="mapa-active-count"
-                            style="font-size: 0.9em; color: rgba(255,255,255,0.7); font-weight: bold; background: rgba(59, 130, 246, 0.2); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(59, 130, 246, 0.4);">
-                            <i class="fa-solid fa-motorcycle"></i> 0 Activos
-                        </span>
+                        <div style="display: flex; gap: 8px;">
+                            <span id="mapa-pending-count" class="status-badge"
+                                style="background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.85em; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+                                <i class="fa-solid fa-hourglass-start"></i> <span class="val">0</span> Almacén
+                            </span>
+                            <span id="mapa-route-count" class="status-badge"
+                                style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.85em; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+                                <i class="fa-solid fa-motorcycle"></i> <span class="val">0</span> En Ruta
+                            </span>
+                            <span id="mapa-arrived-count" class="status-badge"
+                                style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.85em; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+                                <i class="fa-solid fa-house-circle-check"></i> <span class="val">0</span> Llegaron
+                            </span>
+                        </div>
+                        <button onclick="cerrarTodosLosViajesGlobal()" class="btn-primary"
+                            style="padding: 6px 15px; background: #ef4444; border: none; font-size: 0.85em; display: flex; align-items: center; gap: 8px;"
+                            title="Cerrar todos los viajes activos">
+                            <i class="fa-solid fa-route"></i> Cerrar Todo
+                        </button>
                         <button id="btn-manage-drivers" class="btn-icon" title="Gestión de Repartidores"
                             style="background: rgba(139, 92, 246, 0.1); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3);">
                             <i class="fa-solid fa-user-plus"></i>
@@ -639,8 +671,7 @@
                 </header>
                 <div class="content-panel glass-panel"
                     style="flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 20px;">
-                    <div id="mapa-grid"
-                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+                    <div id="mapa-grid" style="display: flex; flex-direction: column; gap: 25px; width: 100%;">
                         <!-- Tarjetas de motorizados inyectadas por JS -->
                     </div>
 
@@ -1007,9 +1038,23 @@
                                 --</div>
                         </div>
 
-                        <div class="modal-actions">
-                            <button type="submit" class="btn-primary full-width" id="btn-save-validation">Confirmar
-                                Validación</button>
+                        <div class="modal-actions" style="flex-direction: column; gap: 10px;">
+                            <div style="display: flex; gap: 10px; width: 100%;">
+                                <button type="button" class="btn-secondary" id="btn-save-next"
+                                    title="Atajo: Presiona Ctrl + Enter"
+                                    style="flex: 1; background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); color: #60a5fa;">
+                                    <i class="fa-solid fa-forward-step"></i> Aprobar y Siguiente
+                                </button>
+                                <button type="submit" class="btn-primary" id="btn-save-validation"
+                                    style="flex: 1;">Confirmar Validación</button>
+                            </div>
+                            <div style="text-align: center; font-size: 0.8em; color: rgba(255,255,255,0.5);">
+                                <label
+                                    style="cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                                    <input type="checkbox" id="val-auto-next" style="width: auto;"> Seguir
+                                    automáticamente al guardar
+                                </label>
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -1127,7 +1172,7 @@
 
     <script src="app.js?v=22"></script>
     <script src="dashboard.js?v=22"></script>
-    <script src="mapa.js?v=22"></script>
+    <script src="mapa.js?v=23"></script>
     <script src="horarios.js"></script>
     <script src="caja.js"></script>
     <!-- Registro del Service Worker para PWA (Panel Admin) -->

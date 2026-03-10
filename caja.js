@@ -67,7 +67,12 @@ async function loadCajaData() {
             renderPedidosContadoPendientes(res.pedidosContado);
 
             // Calcular recaudado total de pedidos (monto de todos los pedidos contado de hoy)
-            const totalRecaudado = (res.pedidosContado || []).reduce((acc, p) => acc + (parseFloat(p.monto) || 0), 0);
+            // EXCLUIR CANCELADOS: No deben sumar al total recaudado
+            const totalRecaudado = (res.pedidosContado || []).reduce((acc, p) => {
+                if (p.sheetEstado === 'CANCELADO') return acc;
+                return acc + (parseFloat(p.monto) || 0);
+            }, 0);
+
             if (cajaRecaudadoPedidos) {
                 cajaRecaudadoPedidos.textContent = `S/ ${totalRecaudado.toFixed(2)}`;
             }
@@ -116,7 +121,62 @@ function renderPedidosContadoPendientes(pedidos) {
         // Colores y badges por estado
         let borderColor, badgeHtml, infoExtra, botonesHtml;
 
-        if (estado === 'PENDIENTE_VUELTO') {
+        const currentEstado = (p.estado || '').toUpperCase();
+        const currentSheetEstado = (p.sheetEstado || '').toUpperCase();
+
+        if (currentEstado === 'CANCELADO' || currentSheetEstado === 'CANCELADO') {
+            // 🔴 Rojo — Pedido Cancelado (Debe recuperar vuelto si existe o devolver cobro si se hizo)
+            borderColor = 'rgba(239,68,68,0.5)';
+            badgeHtml = `<span style="background:rgba(239,68,68,0.15); color:#f87171; padding:3px 10px; border-radius:20px; font-size:0.7em; font-weight:bold;">🚫 CANCELADO</span>`;
+
+            if (cobro > 0) {
+                // Si ya se había cobrado pero se canceló, hay que devolver el dinero (EGRESO)
+                infoExtra = `
+                    <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:8px; font-size:0.82em; margin-top:4px; color:#fca5a5;">
+                        ⚠️ El pedido se canceló pero ya figuraba como <b>COBRADO</b> (S/ ${cobro.toFixed(2)}). ¿Debes devolver el dinero?
+                    </div>`;
+                botonesHtml = `
+                    <button onclick="registrarReversionMovimiento('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'EGRESO', ${cobro}, 'Devolución Cobro (Cancelado)')" 
+                        style="width:100%; background:#f87171; color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:0.85em;">
+                        ↩️ REVERTIR COBRO (S/ ${cobro.toFixed(2)})
+                    </button>`;
+            } else if (vuelto > 0) {
+                // Si se entregó vuelto pero se canceló, el motorizado debe devolverlo (INGRESO)
+                infoExtra = `
+                    <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:8px; font-size:0.82em; margin-top:4px; color:#fca5a5;">
+                        ⚠️ Pedido cancelado. El repartidor debe devolver el vuelto entregado: <strong>S/ ${vuelto.toFixed(2)}</strong>
+                    </div>`;
+                botonesHtml = `
+                    <button onclick="registrarReversionMovimiento('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'INGRESO', ${vuelto}, 'Recuperación Vuelto (Cancelado)')" 
+                        style="width:100%; background:#ef4444; color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:0.85em;">
+                        💰 REVERTIR VUELTO (S/ ${vuelto.toFixed(2)})
+                    </button>`;
+            } else {
+                infoExtra = `<div style="font-size:0.82em; color:rgba(255,255,255,0.3); margin-top:4px;">No hubo movimientos de dinero en este pedido.</div>`;
+                botonesHtml = `<div style="font-size:0.75em; color:rgba(255,255,255,0.2); text-align:center; padding:4px;">Sin acciones pendientes</div>`;
+            }
+
+        } else if (estado === 'VALIDADO' || p.sheetEstado === 'VALIDADO') {
+            // 🟢 Verde — Ya Validado
+            borderColor = 'rgba(34,197,94,0.3)';
+            badgeHtml = `<span style="background:rgba(34,197,94,0.15); color:#4ade80; padding:3px 10px; border-radius:20px; font-size:0.75em; font-weight:bold;">✅ VALIDADO</span>`;
+            infoExtra = `
+                <div style="font-size:0.8em; color:rgba(255,255,255,0.35); padding:4px 0;">
+                    Vuelto: <strong>S/ ${vuelto.toFixed(2)}</strong> &nbsp;|&nbsp; Recibido: <strong>S/ ${cobro.toFixed(2)}</strong>
+                </div>`;
+            botonesHtml = `
+                <div style="display:flex; gap:6px; width:100%;">
+                    <button onclick="registrarVueltoRapido('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'FISICO')"
+                        style="flex:1; padding:6px; font-size:0.75em; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:rgba(255,255,255,0.4); cursor:pointer;" title="Corregir Vuelto">
+                        <i class="fa-solid fa-rotate"></i> Vuelto
+                    </button>
+                    <button onclick="registrarCobroContado('${p.nro}', '${p.llave}', '${p.repartidor || ''}', ${monto}, ${vuelto})"
+                        style="flex:2; padding:6px; font-size:0.75em; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:rgba(255,255,255,0.4); cursor:pointer;" title="Corregir Cobro">
+                        <i class="fa-solid fa-pen-to-square"></i> Regularizar Cobro
+                    </button>
+                </div>`;
+
+        } else if (estado === 'PENDIENTE_VUELTO') {
             // 🟠 Naranja — mismo color que badge "Pendiente" en pantalla principal
             borderColor = 'rgba(249,115,22,0.5)';
             badgeHtml = `<span style="background:rgba(249,115,22,0.15); color:#fb923c; padding:3px 10px; border-radius:20px; font-size:0.7em; font-weight:bold;">⏳ PENDIENTE</span>`;
@@ -147,16 +207,6 @@ function renderPedidosContadoPendientes(pedidos) {
                     <i class="fa-solid fa-hand-holding-dollar"></i> Registrar Cobro del Repartidor (S/ ${esperado.toFixed(2)})
                 </button>`;
 
-        } else if (estado === 'VALIDADO') {
-            // 🟢 Verde — mismo color que badge "Validado" en pantalla principal
-            borderColor = 'rgba(34,197,94,0.3)';
-            badgeHtml = `<span style="background:rgba(34,197,94,0.15); color:#4ade80; padding:3px 10px; border-radius:20px; font-size:0.7em; font-weight:bold;">✅ VALIDADO</span>`;
-            infoExtra = `
-                <div style="font-size:0.8em; color:rgba(255,255,255,0.35); padding:4px 0;">
-                    Vuelto: <strong>S/ ${vuelto.toFixed(2)}</strong> &nbsp;|&nbsp; Cobro reg.: <strong>S/ ${cobro.toFixed(2)}</strong>
-                </div>`;
-            botonesHtml = `<div style="font-size:0.78em; color:rgba(255,255,255,0.25); text-align:center; padding:2px;">Historial del día</div>`;
-
         } else { // COBRADO — aguardando validación
             borderColor = 'rgba(16,185,129,0.3)';
             const diferencia = cobro - esperado;
@@ -168,16 +218,23 @@ function renderPedidosContadoPendientes(pedidos) {
                     <div>Esperado: <strong>S/ ${esperado.toFixed(2)}</strong> &nbsp;|&nbsp; Recibido: <strong>S/ ${cobro.toFixed(2)}</strong></div>
                     <div style="color:${diffColor}; margin-top:2px;">${diffIcon} Diferencia: S/ ${diferencia.toFixed(2)}</div>
                 </div>`;
-            botonesHtml = `<div style="font-size:0.78em; color:rgba(255,255,255,0.3); text-align:center; padding:4px;">Pendiente de validación en pestaña Pedidos</div>`;
+            botonesHtml = `
+                <div style="display:flex; flex-direction:column; gap:6px; width:100%;">
+                    <button onclick="registrarCobroContado('${p.nro}', '${p.llave}', '${p.repartidor || ''}', ${monto}, ${vuelto})"
+                        style="width:100%; padding:8px; font-size:0.85em; background:rgba(16,185,129,0.05); border:1px solid rgba(16,185,129,0.2); border-radius:8px; color:#10b981; cursor:pointer;" title="Re-ajustar monto">
+                        <i class="fa-solid fa-rotate"></i> Regularizar Cobro
+                    </button>
+                    <div style="font-size:0.7em; color:rgba(255,255,255,0.3); text-align:center;">Pendiente de validación en pestaña Pedidos</div>
+                </div>`;
         }
 
         return `
         <div style="background:rgba(255,255,255,0.03); border:1px solid ${borderColor}; padding:15px; border-radius:14px; display:flex; flex-direction:column; gap:10px; transition:border-color 0.3s;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                 <div>
-                    <div style="font-size:0.75em; color:rgba(255,255,255,0.4);">${p.fecha} &nbsp;|&nbsp; Llave: <strong style="color:white;">${p.llave}</strong></div>
-                    <div style="font-size:1.1em; font-weight:bold; color:white; margin-top:3px;">Pedido #${p.nro}</div>
-                    <div style="font-size:0.85em; color:rgba(255,255,255,0.6); margin-top:2px;">
+                    <div style="font-size:0.75em; color:rgba(255,255,255,0.4);">${p.fecha}</div>
+                    <div style="font-size:1.3em; font-weight:800; color:white; margin-top:3px; letter-spacing:0.5px; text-transform:uppercase;">${p.llave}</div>
+                    <div style="font-size:0.85em; color:rgba(255,255,255,0.6); margin-top:4px;">
                         <i class="fa-solid fa-motorcycle"></i> ${p.repartidor || 'Sin repartidor'}
                     </div>
                 </div>
@@ -221,6 +278,58 @@ async function registrarVueltoRapido(nro, llave, repartidor, metodo) {
 
             if (res.success) {
                 Swal.fire('¡Registrado!', 'El egreso por vuelto ha sido cargado a la caja.', 'success');
+                loadCajaData();
+            } else {
+                Swal.fire('Error', res.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('Error', 'Falló la conexión', 'error');
+        }
+    }
+}
+
+/**
+ * Registra una reversión de dinero (Ingreso o Egreso) específica para pedidos cancelados.
+ */
+async function registrarReversionMovimiento(nro, llave, repartidor, tipo, monto, conceptoBase) {
+    const titulo = tipo === 'INGRESO' ? 'Recuperar Vuelto' : 'Devolver Cobro';
+    const color = tipo === 'INGRESO' ? '#ef4444' : '#f87171';
+
+    const { isConfirmed } = await Swal.fire({
+        title: `${titulo} - Pedido #${nro}`,
+        html: `
+            <div style="text-align:left; font-size:0.9em;">
+                <p>Pedido: <b>${llave}</b> | Repartidor: <b>${repartidor || '--'}</b></p>
+                <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; border:1px solid ${color};">
+                    Monto a procesar: <b style="font-size:1.2em; color:${color};">S/ ${monto.toFixed(2)}</b>
+                </div>
+                <p style="margin-top:10px; font-size:0.85em; color:rgba(255,255,255,0.5);">
+                    Esto registrará un <b>${tipo}</b> en la caja para balancear el pedido cancelado.
+                </p>
+            </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: `Confirmar ${tipo}`,
+        confirmButtonColor: color,
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (isConfirmed) {
+        Swal.fire({ title: 'Procesando...', didOpen: () => Swal.showLoading() });
+        try {
+            const res = await fetchAPI('registrarMovimientoCaja', {
+                tipo: tipo,
+                metodo: 'FISICO',
+                concepto: `${conceptoBase} [LLAVE: ${llave}] - ${repartidor}`,
+                monto: monto,
+                pedidoNro: nro,
+                repartidor: repartidor,
+                usuario: currentUser.usuario
+            });
+
+            if (res.success) {
+                Swal.fire('¡Éxito!', `Reversión registrada correctamente.`, 'success');
                 loadCajaData();
             } else {
                 Swal.fire('Error', res.message, 'error');

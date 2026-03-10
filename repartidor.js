@@ -1,5 +1,20 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
 
+// SweetAlert2 Toast configuration (Lazy initialization)
+let Toast = null;
+function getToast() {
+    if (!Toast && typeof Swal !== 'undefined') {
+        Toast = Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 4000,
+            timerProgressBar: true,
+        });
+    }
+    return Toast;
+}
+
 // Helper para obtener YYYY-MM-DD en Zona Horaria Lima (Consistente con Admin/Monitor)
 function getYMDLima(rawDate) {
     if (!rawDate) return "";
@@ -60,10 +75,23 @@ let quickShareOrder = null;
 let quickShareMode = 'salida'; // 'salida' o 'devolucion'
 let selectedDriverForAdmin = null; // null = ver todos los repartidores (resumen), "Nombre" = ver solo ese
 let selectedDriverForHistoryAdmin = null; // null = resumen historial, "Nombre" = detalle historial
+let currentLocation = { lat: null, lng: null, accuracy: null, timestamp: null };
+
+
+// Helper local para obtener drivers de pedidos actuales (v1.21)
+function getUniqueDriversLocal() {
+    if (!window.orders) return [];
+    const set = new Set();
+    window.orders.forEach(o => {
+        if (o.envio) set.add(String(o.envio).trim());
+    });
+    return [...set].sort();
+}
 
 // Admin Global Features
 let adminSubView = 'summary'; // 'summary' or 'global'
 let adminSelectedDate = getYMDLima(new Date());
+window.allDriversList = []; // v1.21: Lista completa de motorizados desde DB
 
 // DOM Elements
 const pantallaLogin = document.getElementById('pantalla-login');
@@ -121,13 +149,101 @@ const btnUiCancelFachada = document.getElementById('btn-ui-cancel-fachada');
 const iconCancelFachada = document.getElementById('icon-cancel-fachada');
 const previewCancelFachada = document.getElementById('preview-cancel-fachada');
 
-// Cancel Data
 let photoCancelEvidenciaFile = null;
 let photoCancelFachadaFile = null;
 let selectedOrderForCancel = null;
 
+// Admin Validation Elements & State
+// Admin Validation Elements & State
+let modalValidarAdmin, valAdminNro, valAdminLlave, valAdminMontoOrig, valAdminChips, valAdminPhotoInput, valAdminPreview, valAdminPlaceholder, valAdminOcrOverlay, valAdminPhotoAmount, valAdminDriver, valAdminDate, valAdminTime, valAdminOcrTrigger;
+
+let currentOrderForAdminValidation = null;
+let valAdminPhotoFileData = null;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    // Admin Validation Init
+    modalValidarAdmin = document.getElementById('modal-validar-admin');
+    valAdminNro = document.getElementById('val-admin-nro');
+    valAdminLlave = document.getElementById('val-admin-llave');
+    valAdminMontoOrig = document.getElementById('val-admin-monto-orig');
+    valAdminChips = document.getElementById('val-admin-chips');
+    valAdminPhotoInput = document.getElementById('val-admin-photo-input');
+    valAdminPreview = document.getElementById('val-admin-preview');
+    valAdminPlaceholder = document.getElementById('val-admin-placeholder');
+    valAdminOcrOverlay = document.getElementById('val-admin-ocr-overlay');
+    valAdminPhotoAmount = document.getElementById('val-admin-photo-amount');
+    valAdminDriver = document.getElementById('val-admin-driver');
+    valAdminDate = document.getElementById('val-admin-date');
+    valAdminTime = document.getElementById('val-admin-time');
+    valAdminOcrTrigger = document.getElementById('btn-val-admin-ocr-trigger');
+
+    if (valAdminOcrTrigger) {
+        valAdminOcrTrigger.addEventListener('click', async () => {
+            const file = valAdminPhotoInput.files[0];
+            if (file) {
+                runAdminOCR(file, 0);
+            } else if (valAdminPreview.src && !valAdminPreview.classList.contains('hidden')) {
+                // Si la foto ya está previsualizada (viene del servidor)
+                try {
+                    Swal.fire({ title: 'Descargando imagen...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+                    const res = await window.fetchAPI('getPhotoBase64', { nro: currentOrderForAdminValidation.nro });
+                    Swal.close();
+
+                    if (res.success) {
+                        const byteString = atob(res.base64);
+                        const ab = new ArrayBuffer(byteString.length);
+                        const ia = new Uint8Array(ab);
+                        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+                        const blob = new Blob([ab], { type: res.mimeType });
+                        const virtualFile = new File([blob], "voucher.jpg", { type: res.mimeType });
+
+                        runAdminOCR(virtualFile, 0);
+                    } else {
+                        Swal.fire('Error', 'No se pudo obtener la imagen del servidor: ' + res.message, 'error');
+                    }
+                } catch (err) {
+                    Swal.fire('Error', 'Error al conectar con el servidor.', 'error');
+                }
+            } else {
+                Swal.fire('Info', 'Sube o pega una foto primero para poder escanearla.', 'info');
+            }
+        });
+    }
+
+    window.addEventListener('paste', async (e) => {
+        if (!modalValidarAdmin || modalValidarAdmin.classList.contains('hidden')) return;
+
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        let imageFile = null;
+        for (let index in items) {
+            const item = items[index];
+            if (item.kind === 'file' && item.type.indexOf('image/') === 0) {
+                imageFile = item.getAsFile();
+                break;
+            }
+        }
+
+        if (imageFile) {
+            e.preventDefault();
+            const dt = new DataTransfer();
+            dt.items.add(imageFile);
+            valAdminPhotoInput.files = dt.files;
+
+            // Simular el handleValAdminPhoto
+            valAdminPlaceholder.classList.add('hidden');
+            valAdminPreview.classList.remove('hidden');
+            valAdminPreview.src = URL.createObjectURL(imageFile);
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                valAdminPhotoFileData = event.target.result.split(',')[1];
+                runAdminOCR(imageFile, 0);
+            };
+            reader.readAsDataURL(imageFile);
+        }
+    });
+
     window.loadOrders = fetchDriverOrders; // For mapa.js compatibility
     // Compatibility for mapa.js which relies on fetchAPI from app.js
     window.fetchAPI = async function (action, data = {}) {
@@ -329,30 +445,44 @@ document.addEventListener('DOMContentLoaded', () => {
 function switchTab(tab) {
     const pantallaRuta = document.getElementById('pantalla-ruta');
     const pantallaHistorial = document.getElementById('pantalla-historial');
+    const pantallaValidar = document.getElementById('pantalla-validar');
+
     const btnRuta = document.getElementById('nav-btn-ruta');
     const btnHistorial = document.getElementById('nav-btn-historial');
+    const btnValidar = document.getElementById('nav-btn-validar');
+
+    // Reset all
+    [pantallaRuta, pantallaHistorial, pantallaValidar].forEach(p => {
+        if (p) {
+            p.classList.add('hidden');
+            p.classList.remove('flex');
+        }
+    });
+    [btnRuta, btnHistorial, btnValidar].forEach(b => {
+        if (b) {
+            b.classList.remove('text-primary');
+            b.classList.add('text-slate-500');
+        }
+    });
 
     if (tab === 'ruta') {
         pantallaRuta.classList.remove('hidden');
         pantallaRuta.classList.add('flex');
-        pantallaHistorial.classList.add('hidden');
-        pantallaHistorial.classList.remove('flex');
         btnRuta.classList.add('text-primary');
         btnRuta.classList.remove('text-slate-500');
-        btnHistorial.classList.add('text-slate-500');
-        btnHistorial.classList.remove('text-primary');
         renderOrders();
-        renderHistory(); // Also update history for admin if needed
-    } else {
-        pantallaRuta.classList.add('hidden');
-        pantallaRuta.classList.remove('flex');
+    } else if (tab === 'historial') {
         pantallaHistorial.classList.remove('hidden');
         pantallaHistorial.classList.add('flex');
-        btnRuta.classList.add('text-slate-500');
-        btnRuta.classList.remove('text-primary');
         btnHistorial.classList.add('text-primary');
         btnHistorial.classList.remove('text-slate-500');
         renderHistory();
+    } else if (tab === 'validar') {
+        pantallaValidar.classList.remove('hidden');
+        pantallaValidar.classList.add('flex');
+        btnValidar.classList.add('text-primary');
+        btnValidar.classList.remove('text-slate-500');
+        renderValidationTab();
     }
 }
 
@@ -477,12 +607,14 @@ function autoLoginData(name) {
 
     // Admin Controls Check
     const adminControls = document.getElementById('admin-ruta-controls');
-    if (adminControls) {
-        if (name.toLowerCase() === 'admin') {
-            adminControls.classList.remove('hidden');
-        } else {
-            adminControls.classList.add('hidden');
-        }
+    const navBtnValidar = document.getElementById('nav-btn-validar');
+
+    if (name.toLowerCase() === 'admin') {
+        if (adminControls) adminControls.classList.remove('hidden');
+        if (navBtnValidar) navBtnValidar.classList.remove('hidden');
+    } else {
+        if (adminControls) adminControls.classList.add('hidden');
+        if (navBtnValidar) navBtnValidar.classList.add('hidden');
     }
 
     fetchDriverOrders();
@@ -544,6 +676,13 @@ async function fetchDriverOrders() {
         containerPedidos.appendChild(loadingPedidos);
         loadingPedidos.classList.remove('hidden');
     }
+
+    // v1.21: Si es Admin, cargar lista completa de motorizados
+    if (isUserAdmin && (!window.allDriversList || window.allDriversList.length === 0)) {
+        console.log("🔍 Detectado Admin sin lista de motorizados. Iniciando loadAllDrivers...");
+        loadAllDrivers();
+    }
+
     stopAllTimers();
 
     try {
@@ -808,9 +947,6 @@ function renderSingleOrderCard(order, index) {
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
                     <div class="flex items-center gap-2">
                         <span class="text-2xl font-bold tracking-tight text-white">${order.llave || 'PED-' + order.nro}</span>
-                        <button onclick="event.stopPropagation(); copyToClipboard('${order.llave || 'PED-' + order.nro}', this)" class="btn-copy" title="Copiar Llave">
-                            <i class="fa-solid fa-copy"></i>
-                        </button>
                         ${order.direccion ? `
                         <button onclick="event.stopPropagation(); window.open('https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.direccion)}', '_blank')" class="btn-copy text-primary" title="Ver en Mapa">
                             <i class="fa-solid fa-location-dot"></i>
@@ -836,10 +972,22 @@ function renderSingleOrderCard(order, index) {
             </span>
 
             ${(currentUser && currentUser.toLowerCase() === 'admin' && adminSubView === 'global') ? `
-                <span class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                    <i class="fa-solid fa-motorcycle text-primary"></i>
-                    ${order.envio || 'ADMIN'}
-                </span>
+                <div class="flex flex-col gap-1" onclick="event.stopPropagation()">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                        <i class="fa-solid fa-user-gear text-primary text-[10px]"></i>
+                        Driver:
+                    </span>
+                    <select class="text-[11px] bg-slate-900/80 text-white border border-slate-700/50 rounded-lg px-2 py-1.5 outline-none focus:border-primary/50 transition-all font-medium min-w-[120px]"
+                            onchange="asignarMotorizadoDirecto(${order.nro}, this.value)">
+                        <option value="">-- Sin Asignar --</option>
+                        ${(() => {
+                const dbDrivers = window.allDriversList || [];
+                const activeDrivers = getUniqueDriversLocal();
+                const combined = [...new Set([...dbDrivers, ...activeDrivers])].sort();
+                return combined.map(d => `<option value="${d}" ${d === order.envio ? 'selected' : ''}>${d}</option>`).join('');
+            })()}
+                    </select>
+                </div>
             ` : ''}
             
             <div class="flex items-center gap-3">
@@ -1077,6 +1225,30 @@ function openCaptureModal(order) {
     resetModalState();
     modalCaptura.classList.remove('hidden');
     modalCaptura.classList.add('flex');
+
+    // Iniciar captura de GPS en paralelo (v4.0 Anti-Cheat)
+    startLocationCapture();
+}
+
+function startLocationCapture() {
+    currentLocation = { lat: null, lng: null, accuracy: null, timestamp: null };
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                currentLocation = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    timestamp: new Date().toISOString()
+                };
+                console.log("📍 Ubicación capturada:", currentLocation);
+            },
+            (err) => {
+                console.warn("⚠️ No se pudo obtener GPS:", err.message);
+            },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+    }
 }
 
 function resetModalState() {
@@ -1117,6 +1289,29 @@ function handlePhotoCapture(e, type) {
 
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // --- MARCA DE AGUA (MODO SOMBRA: DESACTIVADO PARA PRUEBAS) ---
+            /*
+            const now = new Date();
+            const timeStr = now.toLocaleString('es-PE', { hour12: false });
+            const locStr = currentLocation.lat ? `${currentLocation.lat.toFixed(5)}, ${currentLocation.lng.toFixed(5)} (±${Math.round(currentLocation.accuracy)}m)` : 'GPS no disponible';
+            const watermarkText = `VALIDADO: ${timeStr} | ${locStr}`;
+
+            ctx.font = 'bold 24px Arial';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.shadowColor = 'black';
+            ctx.shadowBlur = 4;
+            const textWidth = ctx.measureText(watermarkText).width;
+
+            // Recuadro semi-transparente de fondo
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(10, canvas.height - 40, textWidth + 20, 30);
+
+            ctx.fillStyle = '#4ade80'; // Verde brillante para la marca
+            ctx.fillText(watermarkText, 20, canvas.height - 18);
+            */
+            // -------------------------------------------------------------
+            // ----------------------------------------------
 
             // Get compressed image
             canvas.toBlob((blob) => {
@@ -1179,7 +1374,11 @@ async function uploadPosSilently(file, orderKey) {
                 const jsonPayload = JSON.stringify({
                     action: 'guardarFotoOcr',
                     llave: orderKey,
-                    fotoBase64: base64Str
+                    fotoBase64: base64Str,
+                    lat: currentLocation.lat,
+                    lng: currentLocation.lng,
+                    accuracy: currentLocation.accuracy,
+                    phoneTimestamp: currentLocation.timestamp
                 });
 
                 // Wait for the response to see if there's an error
@@ -1190,24 +1389,13 @@ async function uploadPosSilently(file, orderKey) {
                 const result = await response.json();
                 console.log("Resultado de Google Drive subida silenciosa:", result);
                 if (!result.success) {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error de Google Drive',
-                        text: 'TÓMALE CAPTURA A ESTO: ' + (result.msg || 'Desconocido'),
-                        confirmButtonText: 'Entendido'
-                    });
-                    resolve(false); // Indicates failure
+                    console.error("❌ Error de Google Drive (Sombra):", result.msg || 'Desconocido');
+                    resolve(false);
                     return;
                 }
-                resolve(true); // Indicates success
+                resolve(true);
             } catch (e) {
-                console.error("Error catched en uploadPosSilently:", e);
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Error de Red Silencioso',
-                    text: 'TÓMALE CAPTURA A ESTO: ' + e.toString(),
-                    confirmButtonText: 'Entendido'
-                });
+                console.error("❌ Error catched en uploadPosSilently (Sombra):", e);
                 resolve(false);
             }
         };
@@ -1238,6 +1426,13 @@ async function handleSendToWhatsApp() {
     const limaDate = new Date(nowLima);
     payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
     payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    // Incluir GPS en el registro (Anti-Cheat)
+    payloadValidar.lat = currentLocation.lat;
+    payloadValidar.lng = currentLocation.lng;
+    payloadValidar.accuracy = currentLocation.accuracy;
+    payloadValidar.phoneTimestamp = currentLocation.timestamp;
+
     fetch(API_URL, {
         method: 'POST',
         body: JSON.stringify(payloadValidar)
@@ -2181,5 +2376,634 @@ async function saveManualDelivery() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
+    }
+}
+// --- Driver Assignment for Admin ---
+window.asignarMotorizadoDirecto = async (nro, driver) => {
+    if (!driver) return;
+
+    const confirm = await Swal.fire({
+        title: '¿Confirmar asignación?',
+        text: `Se asignará el pedido #${nro} a ${driver}`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, asignar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#3b82f6'
+    });
+
+    if (!confirm.isConfirmed) {
+        // Recargar para resetear el select si canceló
+        renderOrders();
+        return;
+    }
+
+    Swal.fire({
+        title: 'Procesando...',
+        didOpen: () => Swal.showLoading(),
+        allowOutsideClick: false
+    });
+
+    try {
+        const res = await fetchAPI('asignarMotorizado', { nro: nro, envio: driver });
+        if (res.success) {
+            Swal.fire({
+                icon: 'success',
+                title: '¡Asignado!',
+                text: `El pedido #${nro} ahora pertenece a ${driver}`,
+                timer: 1500,
+                showConfirmButton: false
+            });
+
+            // Recargar datos y refrescar vista
+            if (typeof loadOrders === 'function') {
+                await loadOrders();
+            } else if (typeof renderOrders === 'function') {
+                renderOrders();
+            }
+        } else {
+            Swal.fire('Error', res.message || 'No se pudo completar la asignación', 'error');
+            renderOrders();
+        }
+    } catch (e) {
+        console.error("Error en asignarMotorizadoDirecto:", e);
+        Swal.fire('Error', 'Error de red o servidor', 'error');
+        renderOrders();
+    }
+};
+
+async function loadAllDrivers() {
+    try {
+        console.log("🛠️ Intentando obtener lista de motorizados desde el servidor...");
+        const res = await window.fetchAPI('obtenerNombresMotorizados');
+        console.log("📡 [DEBUG] Respuesta raw de motorizados:", JSON.stringify(res));
+
+        if (res.success && res.data) {
+            window.allDriversList = res.data;
+            console.log("✅ [REPARTIDOR] Lista completa de motorizados cargada:", window.allDriversList.length, window.allDriversList);
+
+            // Refrescar si estamos en modo Admin para ver la lista en los selects
+            if (currentUser && currentUser.toLowerCase() === 'admin') {
+                console.log("🔄 [REPARTIDOR] Refrescando vista para mostrar motorizados...");
+                if (typeof renderOrders === 'function') {
+                    renderOrders();
+                }
+            }
+        } else {
+            console.error("❌ [REPARTIDOR] Fallo al cargar motorizados:", res.message || "Sin mensaje de error");
+        }
+    } catch (e) {
+        console.error("💥 [REPARTIDOR] Error crítico en loadAllDrivers:", e);
+    }
+}
+
+// --- Admin Validation Functions ---
+
+window.openValidateModalAdmin = (nro) => {
+    const order = (window.orders || []).find(o => o.nro == nro);
+    if (!order) return;
+
+    currentOrderForAdminValidation = order;
+    valAdminNro.textContent = order.nro;
+    valAdminLlave.textContent = `Llave: ${order.llave || '---'}`;
+    valAdminMontoOrig.textContent = parseFloat(order.monto || 0).toFixed(2);
+
+    // Reset fields
+    valAdminPhotoAmount.value = '';
+    valAdminDriver.value = order.envio || '';
+    valAdminPhotoFileData = null;
+
+    // --- PHOTO LOADING (PRE-CARGA) ---
+    const cleanUrl = extractPhotoUrl(order.foto);
+    if (cleanUrl && (order.estado === 'Validado' || order.estado === 'Por Validar')) {
+        valAdminPreview.setAttribute('data-nro', order.nro);
+        valAdminPreview.src = getDirectPhotoUrl(order.foto);
+        valAdminPreview.classList.remove('hidden');
+        valAdminPlaceholder.classList.add('hidden');
+        valAdminPreview.onerror = () => handleImageError(valAdminPreview);
+    } else {
+        valAdminPreview.src = '';
+        valAdminPreview.classList.add('hidden');
+        valAdminPlaceholder.classList.remove('hidden');
+    }
+
+    valAdminOcrOverlay.classList.add('hidden');
+
+    // Chips
+    valAdminChips.innerHTML = '';
+    if (order.pago) {
+        valAdminChips.innerHTML += `<span class="px-2 py-0.5 rounded-md bg-slate-700/50 text-[10px] font-bold text-slate-300 border border-slate-600/30 uppercase">${order.pago}</span>`;
+    }
+    if (order.canal) {
+        valAdminChips.innerHTML += `<span class="px-2 py-0.5 rounded-md bg-primary/10 text-[10px] font-bold text-primary border border-primary/20 uppercase">${order.canal}</span>`;
+    }
+
+    // Date/Time defaults
+    const now = new Date();
+    valAdminTime.value = now.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' });
+    valAdminDate.value = getYMDLima(now).split('-').reverse().join('/'); // DD/MM/YYYY
+
+    // Show modal
+    modalValidarAdmin.classList.remove('hidden');
+    modalValidarAdmin.classList.add('flex', 'slide-up');
+    document.body.style.overflow = 'hidden';
+
+    // Initial toggle
+    toggleValAdminOptions();
+};
+
+window.closeValidateModalAdmin = () => {
+    modalValidarAdmin.classList.add('hidden');
+    modalValidarAdmin.classList.remove('flex', 'slide-up');
+    document.body.style.overflow = '';
+    currentOrderForAdminValidation = null;
+};
+
+window.toggleValAdminOptions = () => {
+    const type = document.querySelector('input[name="valAdminType"]:checked').value;
+    const posOpts = document.getElementById('val-admin-pos-options');
+    const cashOpts = document.getElementById('val-admin-efectivo-options');
+
+    posOpts.classList.add('hidden');
+    cashOpts.classList.add('hidden');
+
+    if (type === 'pos') posOpts.classList.remove('hidden');
+    if (type === 'efectivo') cashOpts.classList.remove('hidden');
+};
+
+window.setValAdminPosType = (tipo) => {
+    document.getElementById('val-admin-pos-sub-type').value = tipo;
+    const btnTarjeta = document.getElementById('btn-val-admin-tarjeta');
+    const btnQR = document.getElementById('btn-val-admin-qr');
+
+    if (tipo === 'TARJETA') {
+        btnTarjeta.className = 'p-3 rounded-lg border border-primary bg-primary/10 text-primary font-bold text-xs flex items-center justify-center gap-2';
+        btnQR.className = 'p-3 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 font-bold text-xs flex items-center justify-center gap-2';
+    } else {
+        btnQR.className = 'p-3 rounded-lg border border-primary bg-primary/10 text-primary font-bold text-xs flex items-center justify-center gap-2';
+        btnTarjeta.className = 'p-3 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 font-bold text-xs flex items-center justify-center gap-2';
+    }
+};
+
+window.handleValAdminPhoto = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    valAdminPlaceholder.classList.add('hidden');
+    valAdminPreview.classList.remove('hidden');
+    valAdminPreview.src = URL.createObjectURL(file);
+
+    // Convert to base64 for upload
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        valAdminPhotoFileData = event.target.result.split(',')[1];
+        // Trigger OCR
+        runAdminOCR(file);
+    };
+    reader.readAsDataURL(file);
+};
+
+async function runAdminOCR(file, rotation = 0) {
+    valAdminOcrOverlay.classList.remove('hidden');
+    valAdminPhotoAmount.value = '';
+    valAdminPhotoAmount.placeholder = 'Escaneando...';
+
+    let bestData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', esOnlineValido: false };
+    let engine = '';
+    const valType = document.querySelector('input[name="valAdminType"]:checked')?.value;
+
+    try {
+        if (valType === 'pos' || valType === 'online') {
+            let apiKey = localStorage.getItem('gcp_api_key');
+            if (!apiKey) {
+                const { value: key } = await Swal.fire({
+                    title: 'Api Key Requerida',
+                    input: 'password',
+                    inputLabel: 'Ingresa tu API Key de Google Cloud Vision',
+                    inputPlaceholder: 'AIzaSy...',
+                    showCancelButton: true
+                });
+                if (key) {
+                    localStorage.setItem('gcp_api_key', key);
+                    apiKey = key;
+                } else {
+                    valAdminOcrOverlay.classList.add('hidden');
+                    return;
+                }
+            }
+
+            try {
+                engine = 'Google Cloud Vision';
+                const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
+
+                const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requests: [{
+                            image: { content: base64 },
+                            features: [
+                                { type: 'TEXT_DETECTION' },
+                                { type: 'DOCUMENT_TEXT_DETECTION' }
+                            ]
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error.message);
+
+                const textAnnotations = data.responses[0]?.textAnnotations;
+                if (!textAnnotations || textAnnotations.length === 0) throw new Error('No se detectó texto en la imagen');
+
+                const fullText = textAnnotations[0].description.toLowerCase();
+                const parsed = parseIziPayVoucherData(textAnnotations[0].description);
+                bestData = {
+                    amount: parsed.amount || 0,
+                    fecha: parsed.fecha || '',
+                    hora: parsed.hora || '',
+                    tipoPago: parsed.tipoPago || 'TARJETA',
+                    esOnlineValido: fullText.includes('débito en línea') || fullText.includes('debito en linea')
+                };
+            } catch (err) {
+                console.error('[OCR] Google Cloud Vision error:', err);
+                if (err.message && err.message.includes('API key not valid')) {
+                    localStorage.removeItem('gcp_api_key');
+                    Swal.fire('API Key Inválida', 'La clave ingresada no es válida. Intente nuevamente.', 'error');
+                }
+                throw err;
+            }
+        } else {
+            // Backup Gemini OCR
+            try {
+                const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
+                const response = await window.fetchAPI('processVoucherOCR', {
+                    imageBase64: base64,
+                    mimeType: file.type || 'image/jpeg'
+                });
+
+                if (response.success && response.data) {
+                    const d = response.data;
+                    bestData = {
+                        amount: parseFloat(d.total) || 0,
+                        fecha: d.fecha || '',
+                        hora: d.hora || '',
+                        tipoPago: d.tipoPago || 'TARJETA',
+                        esOnlineValido: !!d.esOnlineValido
+                    };
+                    engine = `Gemini (${d.model || 'AI'})`;
+                }
+            } catch (geminiErr) {
+                console.warn('[OCR] Gemini backend error:', geminiErr.message);
+            }
+
+            if (bestData.amount <= 0 && window.Tesseract) {
+                engine = 'Tesseract';
+                function mergeData(passData) {
+                    if (passData.amount > 0 && bestData.amount === 0) bestData.amount = passData.amount;
+                    if (passData.fecha && !bestData.fecha) bestData.fecha = passData.fecha;
+                    if (passData.hora && !bestData.hora) bestData.hora = passData.hora;
+                    if (passData.tipoPago === 'QR') bestData.tipoPago = 'QR';
+                }
+
+                const processedImage = await preprocessImage(file);
+                mergeData(await ocrPass(processedImage, { tessedit_char_whitelist: '0123456789SsTtOoAaLl/., :', tessedit_pageseg_mode: '6' }, 'Pass 1'));
+                if (bestData.amount <= 0 || !bestData.fecha || !bestData.hora) {
+                    mergeData(await ocrPass(processedImage, { tessedit_pageseg_mode: '3' }, 'Pass 2'));
+                }
+            }
+        }
+
+        if (bestData.amount > 0) {
+            valAdminPhotoAmount.value = bestData.amount.toFixed(2);
+            processAdminVoucherTimes(bestData.fecha, bestData.hora);
+
+            if (valType === 'pos') {
+                setValAdminPosType(bestData.tipoPago);
+            }
+
+            if (valType === 'online' && !bestData.esOnlineValido) {
+                Swal.fire({
+                    title: 'Verificación ONLINE Fallida',
+                    html: `El comprobante no contiene el texto exacto <b>"Tarjeta de crédito o débito en línea"</b>.<br>Por favor, compruebe que sea el comprobante correcto.`,
+                    icon: 'warning'
+                });
+            } else {
+                getToast().fire({
+                    icon: 'success',
+                    title: `${engine}: S/ ${bestData.amount.toFixed(2)}`
+                });
+            }
+        } else {
+            getToast().fire({
+                icon: 'info',
+                title: 'No se detectó el monto. Ingrese manual.'
+            });
+            valAdminPhotoAmount.placeholder = '0.00';
+            valAdminPhotoAmount.focus();
+        }
+    } catch (err) {
+        console.error('OCR Error:', err);
+        Swal.fire('Error OCR', 'No se pudo leer la imagen.', 'error');
+    }
+
+    valAdminOcrOverlay.classList.add('hidden');
+}
+
+window.confirmarValidacionAdmin = async () => {
+    if (!currentOrderForAdminValidation) return;
+
+    const type = document.querySelector('input[name="valAdminType"]:checked').value;
+    let tipoFinal = 'FOTO';
+    if (type === 'pos') tipoFinal = document.getElementById('val-admin-pos-sub-type').value;
+    else if (type === 'online') tipoFinal = 'ONLINE';
+    else if (type === 'efectivo') tipoFinal = 'EFECTIVO';
+
+    const driver = valAdminDriver.value.trim();
+    const amount = valAdminPhotoAmount.value.trim();
+    if (!amount) {
+        Swal.fire('Atención', 'Debes ingresar el monto validado', 'warning');
+        return;
+    }
+
+    Swal.fire({ title: 'Confirmando...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+    // Payload exactly like app.js
+    const payload = {
+        nro: currentOrderForAdminValidation.nro,
+        montoFoto: parseFloat(amount),
+        usuario: currentUser,
+        tipo: tipoFinal,
+        vuelto: (type === 'efectivo') ? document.getElementById('val-admin-vuelto').value : '',
+        montoRecibido: (type === 'efectivo') ? document.getElementById('val-admin-monto-recibido').value : '',
+        envio: driver,
+        fechaEntrega: valAdminDate.value,
+        horaEntrega: valAdminTime.value,
+        tiempoTranscurrido: '',
+        archivo: valAdminPhotoFileData ? {
+            name: `admin_val_${currentOrderForAdminValidation.nro}_${Date.now()}.jpg`,
+            type: 'image/jpeg',
+            data: valAdminPhotoFileData
+        } : null
+    };
+
+    try {
+        const res = await window.fetchAPI('validarPedido', payload);
+        if (res.success) {
+            Swal.fire({ icon: 'success', title: '¡Validado!', text: 'Pedido actualizado correctamente', timer: 1500, showConfirmButton: false });
+            closeValidateModalAdmin();
+            fetchDriverOrders();
+        } else {
+            Swal.fire('Error', res.message || 'Error al validar', 'error');
+        }
+    } catch (err) {
+        Swal.fire('Error', 'Error de conexión', 'error');
+    }
+};
+function playBeepSoft() {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.12);
+    } catch (e) { }
+}
+
+function renderValidationTab() {
+    const container = document.getElementById('lista-validar-container');
+    const lblSummary = document.getElementById('lbl-validar-summary');
+    const allOrders = window.orders || [];
+
+    // Filtrar pedidos con estado "Por Validar" (Columna G)
+    const pendingValidation = allOrders.filter(o => o.estado && o.estado.toLowerCase() === 'por validar');
+
+    lblSummary.textContent = `${pendingValidation.length} pedidos por procesar`;
+    container.innerHTML = '';
+
+    if (pendingValidation.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-12 px-4 border border-dashed border-slate-700 rounded-2xl">
+                <i class="fa-solid fa-circle-check text-4xl text-emerald-500/50 mb-4"></i>
+                <h3 class="text-xl font-bold text-slate-300">¡Todo al día!</h3>
+                <p class="text-slate-500 mt-2">No hay pedidos pendientes de validación en este momento.</p>
+            </div>
+        `;
+        return;
+    }
+
+    pendingValidation.forEach(order => {
+        const card = document.createElement('div');
+        card.className = 'bg-cardDark border border-slate-700/50 rounded-2xl p-4 shadow-lg active:scale-[0.98] transition-all cursor-pointer';
+        card.onclick = () => openValidateModalAdmin(order.nro);
+
+        const monto = parseFloat(order.monto || 0);
+
+        card.innerHTML = `
+            <div class="flex justify-between items-start mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                        ${order.nro}
+                    </span>
+                    <div>
+                        <h4 class="font-bold text-white leading-none">${order.llave || 'Sin Llave'}</h4>
+                        <p class="text-[10px] text-slate-500 uppercase mt-1">Driver: ${order.envio || '---'}</p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-lg font-black text-amber-400">S/ ${monto.toFixed(2)}</span>
+                </div>
+            </div>
+            
+            <div class="flex items-center justify-between pt-3 border-t border-slate-800/50">
+                <div class="flex gap-1.5">
+                    <span class="px-2 py-0.5 rounded-md bg-slate-800 text-[9px] font-bold text-slate-400 border border-slate-700 uppercase">
+                        ${order.pago || '---'}
+                    </span>
+                    <span class="px-2 py-0.5 rounded-md bg-primary/10 text-[9px] font-bold text-primary border border-primary/20 uppercase">
+                        ${order.canal || 'PWA'}
+                    </span>
+                </div>
+                <button class="bg-primary/20 text-primary px-3 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center gap-1">
+                    <i class="fa-solid fa-check-double"></i>
+                    Validar Ahora
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+// --- Photo Utilities (Ported from app.js) ---
+
+function extractPhotoUrl(fotoStr) {
+    if (!fotoStr || typeof fotoStr !== 'string') return '';
+    let s = fotoStr.trim();
+    if (s.startsWith('PAGO-') || s === '') return '';
+    let url = s.split(/\s+/)[0];
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch) return `https://drive.google.com/uc?id=${idMatch[1]}&export=view`;
+    if (url.length >= 20 && url.length <= 60 && !url.includes('/') && !url.includes('.')) {
+        return `https://drive.google.com/uc?id=${url}&export=view`;
+    }
+    return url;
+}
+
+function getDirectPhotoUrl(fotoStr) {
+    if (!fotoStr || typeof fotoStr !== 'string') return '';
+    let s = fotoStr.trim();
+    let url = s.split(/\s+/)[0];
+    let id = '';
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch) id = idMatch[1];
+    else if (url.length >= 20 && url.length <= 60 && !url.includes('/') && !url.includes('.')) id = url;
+    if (id) return `https://lh3.googleusercontent.com/d/${id}`;
+    return url;
+}
+
+async function handleImageError(img) {
+    const src = img.src;
+    const nro = img.getAttribute('data-nro');
+    if (src.includes('lh3.googleusercontent.com')) {
+        const id = src.split('/').pop();
+        console.warn("lh3 falló. Probando fallback uc?id...");
+        img.src = `https://drive.google.com/uc?id=${id}`;
+    } else if (src.includes('drive.google.com/uc') && nro) {
+        console.warn("uc?id falló. Iniciando descarga desde servidor...");
+        try {
+            const res = await window.fetchAPI('getPhotoBase64', { nro: nro });
+            if (res.success) {
+                img.src = `data:${res.mimeType};base64,${res.base64}`;
+            }
+        } catch (e) { console.error(e); }
+    }
+}
+
+// --- OCR Helpers ---
+
+function parseIziPayVoucherData(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+    let fecha = '', hora = '', monto = 0, tipoPago = 'TARJETA';
+
+    const fechaPatterns = [/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/, /([a-zA-Z]+)\s+(\d{1,2})[\/\-\.](\d{4})/i];
+    for (let line of lines) {
+        for (let p of fechaPatterns) {
+            const m = line.match(p);
+            if (m) { fecha = m[0]; break; }
+        }
+        if (fecha) break;
+    }
+
+    const horaPattern = /(\d{1,2}):(\d{2})(?::(\d{2}))?/;
+    for (let line of lines) {
+        const m = line.match(horaPattern);
+        if (m) { hora = m[0]; break; }
+    }
+
+    const montoPatterns = [/S\/?\s*[.\s]*([\d,]+\.?\d{0,2})/i, /Total\s*:?\s*S\/?\s*[.\s]*([\d,]+\.?\d{0,2})/i];
+    for (let line of lines) {
+        for (let p of montoPatterns) {
+            const m = line.match(p);
+            if (m) {
+                let v = (m[1] || m[0]).replace(/[^\d.,]/g, '').replace(',', '.');
+                if (parseFloat(v) > 0) monto = parseFloat(v);
+            }
+        }
+    }
+    if (text.toLowerCase().includes('qr')) tipoPago = 'QR';
+    return { amount: monto, fecha, hora, tipoPago };
+}
+
+function processAdminVoucherTimes(extractedFecha, extractedHora) {
+    if (extractedFecha) {
+        let f = extractedFecha.replace(/[\-\.]/g, '/');
+        const parts = f.split('/');
+        if (parts.length >= 3) {
+            let dia = parts[0].padStart(2, '0');
+            let mes = parts[1].padStart(2, '0');
+            let anio = parts[2];
+            if (anio.length === 2) anio = '20' + anio;
+            valAdminDate.value = `${dia}/${mes}/${anio}`;
+        }
+    }
+    if (extractedHora) {
+        const hm = extractedHora.split(':');
+        if (hm.length >= 2) valAdminTime.value = `${hm[0].padStart(2, '0')}:${hm[1].padStart(2, '0')}`;
+    }
+}
+
+function preprocessImage(file) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const sY = Math.floor(img.height * 0.40);
+            const sH = Math.floor(img.height * 0.45);
+            canvas.width = img.width * 2; canvas.height = sH * 2;
+            ctx.drawImage(img, 0, sY, img.width, sH, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/png'));
+        };
+    });
+}
+
+async function ocrPass(image, params, label) {
+    try {
+        const worker = await Tesseract.createWorker();
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+        await worker.setParameters(params);
+        const ret = await worker.recognize(image);
+        await worker.terminate();
+        return parseIziPayVoucherData(ret.data.text);
+    } catch (err) { return { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA' }; }
+}
+
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function getRotatedBase64(file, rotation) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                if (rotation % 180 === 0) { canvas.width = img.width; canvas.height = img.height; }
+                else { canvas.width = img.height; canvas.height = img.width; }
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate((rotation * Math.PI) / 180);
+                ctx.drawImage(img, -img.width / 2, -img.height / 2);
+                resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+async function loadAllDrivers() {
+    try {
+        const res = await window.fetchAPI('obtenerNombresMotorizados');
+        if (res.success && res.data) {
+            window.allDriversList = res.data;
+            console.log("✅ Lista completa de motorizados cargada:", window.allDriversList.length);
+            if (typeof renderOrders === 'function') renderOrders();
+        }
+    } catch (e) {
+        console.error("Error al cargar lista de motorizados:", e);
     }
 }
