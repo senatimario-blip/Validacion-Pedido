@@ -1,4 +1,4 @@
-﻿// --- CÃ“DIGO GOOGLE APPS SCRIPT FINAL v3.0 ---
+// --- CÃ“DIGO GOOGLE APPS SCRIPT FINAL v3.0 ---
 // Hoja: "Pedidos" con 14 columnas (A-N)
 // A: Nro  B: Fecha  C: Llave  D: Monto  E: Foto(URL)  F: Monto Foto
 // G: Estado  H: Validado Por  I: Fecha ValidaciÃ³n  J: Resp. EnvÃ­o
@@ -29,7 +29,7 @@ function doPost(e) {
       case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
       case 'setGeminiKey':        result = setGeminiKey(payload); break;
       case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
-      case 'marcarPorValidar':    result = marcarPorValidar(payload.nro, payload.fechaEntrega, payload.horaEntrega, payload.lat, payload.lng, payload.accuracy, payload.phoneTimestamp); break;
+      case 'marcarPorValidar':    result = marcarPorValidar(payload.nro, payload.fechaEntrega, payload.horaEntrega, payload.lat, payload.lng, payload.accuracy, payload.phoneTimestamp, payload.isAutoValidated); break;
       case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
       case 'marcarEnCamino':      result = marcarEnCamino(payload.nro); break;
       case 'crearViajeAutomatico': result = crearViajeAutomatico(payload); break;
@@ -147,23 +147,67 @@ function marcarSLAFuera(nro, fuera_sla) {
   return { success: false, msg: 'Pedido no encontrado para validar.' };
 }
 
-function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, phoneTimestamp) {
+function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, phoneTimestamp, isAutoValidated = false) {
   const sheet = getSheet();
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] == nro) {
       if (rows[i][6] === 'Pendiente' || rows[i][6] === 'En Camino' || rows[i][6] === 'Reservado') {
-        sheet.getRange(i + 1, 7).setValue('Por Validar'); // G: Estado = Por Validar
-        
-        // Si vienen datos de fecha/hora
-        if (fechaEntrega) sheet.getRange(i + 1, 16).setValue(fechaEntrega); // P
-        if (horaEntrega) sheet.getRange(i + 1, 17).setValue(horaEntrega); // Q
         
         // --- GUARDAR METADATOS ANTI-CHEAT (v4.0) ---
         if (lat) sheet.getRange(i + 1, 21).setValue(lat); // U
         if (lng) sheet.getRange(i + 1, 22).setValue(lng); // V
         if (accuracy) sheet.getRange(i + 1, 23).setValue(accuracy); // W
         if (phoneTimestamp) sheet.getRange(i + 1, 24).setValue(phoneTimestamp); // X
+        
+        let finalStatus = 'Por Validar';
+        let validatorUser = '';
+
+        // --- VALIDACIÓN AUTOMÁTICA OCR (Fase 1) ---
+        if (isAutoValidated) {
+          try {
+            const montoEsperado = parseFloat(rows[i][3]) || 0; // Col D: Monto Pedido
+            
+            // Pausa breve para asegurar que Google Drive procesó el archivo guardado por guardarFotoOcrSilent instantes antes
+            Utilities.sleep(1500); 
+            
+            const photoData = getPhotoBase64(nro);
+            if (photoData.success) {
+              const ocrResult = processVoucherOCR({
+                imageBase64: photoData.base64,
+                mimeType: photoData.mimeType
+              });
+
+              if (ocrResult.success && ocrResult.data && ocrResult.data.total) {
+                const montoOCR = parseFloat(ocrResult.data.total);
+                
+                // Si el monto extraído coincide exactamente con el del sistema
+                if (montoOCR === montoEsperado) {
+                  finalStatus = 'Validado';
+                  validatorUser = 'Robot (Auto)'; // Esto actuará como flag para la UI
+                  
+                  // Guardamos el monto foto
+                  sheet.getRange(i + 1, 6).setValue(montoOCR); // F: Monto Foto
+                  sheet.getRange(i + 1, 9).setValue(new Date()); // I: Fecha validación
+                  // El tipo de pago se asume del original
+                  sheet.getRange(i + 1, 12).setValue(rows[i][10] || ""); // L: Tipo Pago Val = Pago Original (K)
+                  
+                  // Retrasamos el envío a WhatsApp si es necesario? No, la PWA ya lo envió.
+                }
+              }
+            }
+          } catch(e) {
+            console.error("Error en Auto-Validación OCR:", e);
+            // Cae de nuevo a 'Por Validar' ante cualquier error
+          }
+        }
+
+        sheet.getRange(i + 1, 7).setValue(finalStatus); // G: Estado
+        if (validatorUser) sheet.getRange(i + 1, 8).setValue(validatorUser); // H: Validado por
+
+        // Si vienen datos de fecha/hora
+        if (fechaEntrega) sheet.getRange(i + 1, 16).setValue(fechaEntrega); // P
+        if (horaEntrega) sheet.getRange(i + 1, 17).setValue(horaEntrega); // Q
         
         // Calcular tiempo transcurrido y ponerlo en la columna 18 (R)
         const fechaRegistro = rows[i][1];
@@ -187,7 +231,7 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
           } catch(e) {}
         }
         
-        return { success: true };
+        return { success: true, status: finalStatus };
       } else {
          // Si por alguna razÃ³n la oficina ya lo validÃ³ mientras el patita manejaba
          return { success: true, msg: 'El pedido ya habÃ­a cambiado de estado' };

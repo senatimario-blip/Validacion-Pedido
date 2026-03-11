@@ -906,7 +906,11 @@
         <div class="modal-card glass-panel wide-modal">
             <div class="modal-header">
                 <h3>Validar Pedido #<span id="val-nro-display"></span></h3>
-                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-icon-small" id="btn-val-prev" title="Pedido Anterior (Flecha Izquierda)"><i class="fa-solid fa-chevron-left"></i></button>
+                    <button type="button" class="btn-icon-small" id="btn-val-next" title="Siguiente Pedido (Flecha Derecha)"><i class="fa-solid fa-chevron-right"></i></button>
+                    <button class="close-modal" style="margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
+                </div>
             </div>
             <div class="modal-body-grid">
                 <!-- Left: Details -->

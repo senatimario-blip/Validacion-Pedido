@@ -547,8 +547,14 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                                 (o.estado === 'Pendiente' ? 'rgba(251, 191, 36, 0.5)' : 'rgba(255,255,255,0.1)')))));
                 let bgColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.1)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.1)' : (o.estado === 'Por Validar' ? 'rgba(96, 165, 250, 0.1)' : 'rgba(0,0,0,0.4)'));
 
-                let sColor = '#94a3b8'; let sBg = 'rgba(148, 163, 184, 0.1)'; let sIcon = 'fa-clock';
-                if (o.estado === 'Validado') { sColor = '#4ADE80'; sBg = 'rgba(74, 222, 128, 0.2)'; sIcon = 'fa-check-circle'; }
+                let sColor = '#94a3b8'; let sBg = 'rgba(148, 163, 184, 0.1)'; let sIcon = 'fa-clock'; let sText = o.estado;
+                if (o.estado === 'Validado') { 
+                    if (o.validado_por === 'Robot (Auto)') {
+                        sColor = '#34d399'; sBg = 'rgba(52, 211, 153, 0.2)'; sIcon = 'fa-robot'; sText = 'Val. Auto';
+                    } else {
+                        sColor = '#4ADE80'; sBg = 'rgba(74, 222, 128, 0.2)'; sIcon = 'fa-check-circle'; 
+                    }
+                }
                 else if (o.estado === 'Cancelado' || o.estado === 'Rechazado') { sColor = '#F87171'; sBg = 'rgba(248, 113, 113, 0.2)'; sIcon = 'fa-ban'; }
                 else if (o.estado === 'En Camino') { sColor = '#FFFFFF'; sBg = 'rgba(255, 255, 255, 0.2)'; sIcon = 'fa-motorcycle'; }
                 else if (o.estado === 'Por Validar') { sColor = '#3B82F6'; sBg = 'rgba(59, 130, 246, 0.2)'; sIcon = 'fa-eye'; }
@@ -559,7 +565,7 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                     <button onclick="desasignarMotorizadoDesdeMapa(${o.nro})" title="Quitar repartidor" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.8em; cursor: pointer; margin-left: 5px;"><i class="fa-solid fa-user-slash"></i></button>` : '';
 
                 let statusBadge = `<div style="display:flex; align-items:center; margin-left: auto;">
-                    <span style="font-size: 0.7em; background: ${sBg}; color: ${sColor}; padding: 2px 6px; border-radius: 4px; font-weight: 800; border: 1px solid ${sColor}88; text-transform: uppercase;"><i class="fa-solid ${sIcon}"></i> ${o.estado}</span>
+                    <span style="font-size: 0.7em; background: ${sBg}; color: ${sColor}; padding: 2px 6px; border-radius: 4px; font-weight: 800; border: 1px solid ${sColor}88; text-transform: uppercase;"><i class="fa-solid ${sIcon}"></i> ${sText}</span>
                     ${unassignBtn}
                 </div>`;
 

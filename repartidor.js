@@ -1417,8 +1417,18 @@ async function handleSendToWhatsApp() {
         else console.log("✅ Foto guardada en Drive exitosamente (background)");
     });
 
-    // Tarea B: Marcar como "Por Validar" en el Excel
+    const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
+    const strPagoOrig = String(orderRef.pago || '').toUpperCase();
+
+    // Tarea B: Marcar como "Por Validar" en el Excel (o disparar OCR automático)
     const payloadValidar = { action: 'marcarPorValidar', nro: orderRef.nro };
+    
+    // Si el pago es POS (Tarjeta) o QR, solicitamos validación automática por OCR en el backend
+    if (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN') || 
+        strPagoOrig.includes('CRÉDITO / DÉBITO') || strPagoOrig.includes('CREDITO / DEBITO')) {
+        payloadValidar.isAutoValidated = true;
+    }
+
     // Siempre enviar fecha y hora de entrega (hora Lima) para todos los modos
     const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
     const limaDate = new Date(nowLima);
@@ -1434,11 +1444,8 @@ async function handleSendToWhatsApp() {
     fetch(API_URL, {
         method: 'POST',
         body: JSON.stringify(payloadValidar)
-    }).catch(e => console.warn('⚠️ Error background marcando Por Validar', e));
+    }).catch(e => console.warn('⚠️ Error background marcando Por Validar / AutoValidando', e));
 
-    const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
-    const strPagoOrig = String(orderRef.pago || '').toUpperCase();
-    
     let posIcon = '💳'; // Default (e.g. Tarjeta física)
     if (strPagoOrig.includes('CONTADO') || strPagoOrig.includes('EFECTIVO')) {
         posIcon = '💵'; // Dólar

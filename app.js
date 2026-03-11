@@ -887,7 +887,7 @@ function renderOrders(data) {
             <td>S/ ${formatMoney(order.monto)}</td>
             <td>${vueltoHtml}</td>
             <td>${detalleHtml}</td>
-            <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span>
+            <td><span class="badge ${order.estado === 'Validado' && order.validado_por === 'Robot (Auto)' ? 'Validado-Auto' : order.estado.replace(' ', '-')}">${order.estado === 'Validado' && order.validado_por === 'Robot (Auto)' ? 'Validado Auto' : order.estado}</span>
                 ${(order.lat && order.lat !== 0) ? `
                     <a href="https://www.google.com/maps/search/?api=1&query=${order.lat},${order.lng}" target="_blank" class="gps-link" title="Abrir en Google Maps: ${order.lat}, ${order.lng}">
                         <i class="fa-solid fa-location-dot" style="margin-left:8px;"></i>
@@ -1724,6 +1724,65 @@ window.openValidateModal = (nro) => {
 
     document.getElementById('modal-validate').classList.add('active');
 };
+
+// --- NAVEGACIÓN SECUENCIAL EN MODAL DE VALIDACIÓN ---
+function navigateValidationModal(direction) {
+    if (!currentOrderForValidation) return;
+    const currentNro = currentOrderForValidation.nro;
+    
+    // Obtener todas las filas actualmente visibles en la tabla principal respectando los filtros
+    const visibleRows = Array.from(document.getElementById('orders-table-body').querySelectorAll('tr'));
+    if (visibleRows.length === 0) return;
+
+    let currentIndex = visibleRows.findIndex(tr => tr.getAttribute('data-nro') == currentNro);
+    
+    if (currentIndex === -1) {
+        // Fallback si no está en la tabla (ej. abierto desde mapa), navegar el arreglo global
+        currentIndex = orders.findIndex(o => o.nro == currentNro);
+        if (currentIndex === -1) return;
+        
+        let nextIndex = currentIndex + direction;
+        if (nextIndex >= 0 && nextIndex < orders.length) {
+            window.openValidateModal(orders[nextIndex].nro);
+        }
+        return;
+    }
+
+    let nextIndex = currentIndex + direction;
+    // Evitar desbordamiento
+    if (nextIndex < 0) nextIndex = visibleRows.length - 1; // Ciclar al final (opcional) o bloquear
+    if (nextIndex >= visibleRows.length) nextIndex = 0;    // Ciclar al inicio (opcional) o bloquear
+    
+    // Si prefieres bloquear en los extremos en lugar de ciclar, descomenta estas dos:
+    if (nextIndex < 0 || nextIndex >= visibleRows.length) return; 
+
+    const nextNro = visibleRows[nextIndex].getAttribute('data-nro');
+    if (nextNro) {
+        window.openValidateModal(nextNro);
+    }
+}
+
+const btnValPrev = document.getElementById('btn-val-prev');
+const btnValNext = document.getElementById('btn-val-next');
+if(btnValPrev) btnValPrev.addEventListener('click', () => navigateValidationModal(-1));
+if(btnValNext) btnValNext.addEventListener('click', () => navigateValidationModal(1));
+
+// Atajos de teclado para la navegación
+document.addEventListener('keydown', (e) => {
+    const modalValidate = document.getElementById('modal-validate');
+    if (!modalValidate || !modalValidate.classList.contains('active')) return;
+    
+    // Evitar si está escribiendo en un input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateValidationModal(1);
+    } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateValidationModal(-1);
+    }
+});
 
 const valVueltoAmount = document.getElementById('val-vuelto-amount');
 const valMontoRecibido = document.getElementById('val-monto-recibido');
