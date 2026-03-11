@@ -1436,13 +1436,19 @@ async function handleSendToWhatsApp() {
         body: JSON.stringify(payloadValidar)
     }).catch(e => console.warn('⚠️ Error background marcando Por Validar', e));
 
-    // 2. FLUJO INMEDIATO DE WHATSAPP (SIN ESPERAR AL SERVIDOR)
     const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
-    const isEfectivo = String(orderRef.pago || '').toUpperCase().includes('EFECTIVO');
-    let paymentText = isEfectivo
-        ? `S/ ${numMoney.toFixed(2)}`
-        : `S/ ${numMoney.toFixed(2)}`;
-    let posIcon = isEfectivo ? '💵' : (String(orderRef.pago || '').toUpperCase().includes('ONLINE') ? '🌐' : '💳');
+    const strPagoOrig = String(orderRef.pago || '').toUpperCase();
+    
+    let posIcon = '💳'; // Default (e.g. Tarjeta física)
+    if (strPagoOrig.includes('CONTADO') || strPagoOrig.includes('EFECTIVO')) {
+        posIcon = '💵'; // Dólar
+    } else if (strPagoOrig.includes('LÍNEA') || strPagoOrig.includes('LINEA') || strPagoOrig.includes('ONLINE')) {
+        posIcon = '🌐'; // Mundo
+    } else if (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN')) {
+        posIcon = '🔳'; // Código QR
+    } else if (strPagoOrig.includes('CRÉDITO / DÉBITO') || strPagoOrig.includes('CREDITO / DEBITO')) {
+        posIcon = '💳'; // Tarjeta
+    }
 
     const llave = orderRef.llave || `PED-${orderRef.nro}`;
     const msgText = `PEDIDO ENTREGADO\n📦 ${llave}\n${posIcon} S/ ${numMoney.toFixed(2)}\n🏍️ ${userRef}`;
