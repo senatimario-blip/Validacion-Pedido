@@ -603,9 +603,7 @@ async function loadOrdersSilent() {
                 renderMapaMotorizados();
             }
 
-            if (typeof window.checkAutoGroup12Min === 'function') {
-                window.checkAutoGroup12Min();
-            }
+            // Se elimina el autogrupado por tiempo para respetar la condición de entrega real
         }
     } catch (e) {
         // Ignorar fallas de red en background
@@ -668,12 +666,12 @@ function renderOrders(data) {
 
         // --- NUEVO: TIEMPO REAL (HORA TADA / COL Z) ---
         let realMinsPart = '-';
-        if (order.minutosReales !== undefined && order.minutosReales !== "" && order.minutosReales !== null) {
-            const mins = parseInt(order.minutosReales);
+        if (order.minutosReales !== undefined && order.minutosReales !== "" && order.minutosReales !== null && order.minutosReales !== "---") {
+            const mins = Math.floor(parseFloat(order.minutosReales));
             if (!isNaN(mins)) {
                 const rText = Math.abs(mins) >= 60 ? `${Math.floor(Math.abs(mins) / 60)}h ${Math.abs(mins) % 60}m` : `${mins} min`;
                 let rColor = '#60a5fa'; // Celeste
-                if (mins > 35) rColor = '#fca5a5'; // Rojo claro (Cambio a los 35 min)
+                if (mins > 35) rColor = '#fca5a5'; // Rojo claro
                 realMinsPart = `<span style="color:${rColor}; font-weight:bold; white-space: nowrap;"><i class="fa-solid fa-ghost"></i> ${rText}</span>`;
             }
         } else if (order.fechaHoraReal) {
@@ -796,6 +794,12 @@ function renderOrders(data) {
 
                 if (staticMins !== null || (diffMs !== null && diffMs >= 0 && diffMs <= 86400000)) {
                     let mins = staticMins !== null ? staticMins : Math.floor(diffMs / 60000);
+
+                    // --- PRIORIDAD: USAR COLUMNA Z SI ESTÁ DISPONIBLE ---
+                    if (order.minutosReales !== undefined && order.minutosReales !== "" && order.minutosReales !== null && order.minutosReales !== "---") {
+                        const mz = Math.floor(parseFloat(order.minutosReales));
+                        if (!isNaN(mz)) mins = mz;
+                    }
 
                     // --- NUEVA LÃ“GICA DE COLORES SINCRONIZADA (v5.0) ---
                     let color, bg;
@@ -947,6 +951,13 @@ function startGlobalTimers() {
 
                 let mins = Math.floor(diffMs / 60000);
 
+                // --- NUEVO: Intentar buscar minutos reales actualizados en el arreglo global orders ---
+                const oData = orders.find(x => x.nro == tr.getAttribute('data-nro'));
+                if (oData && oData.minutosReales !== undefined && oData.minutosReales !== "" && oData.minutosReales !== null && oData.minutosReales !== "---") {
+                    const mz = Math.floor(parseFloat(oData.minutosReales));
+                    if (!isNaN(mz)) mins = mz;
+                }
+
                 // Evaluar Colores dinámicos (Sincronizado a 35 min celeste)
                 let color = mins <= 35 ? '#60a5fa' : '#f87171';
                 let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
@@ -1006,7 +1017,8 @@ window.saveInlineVuelto = async (nro, llave, repartidor, newVal, oldVal) => {
             usuario: currentUser.usuario
         });
 
-        // Registrar movimiento simultáneo de EGRESO físico en caja (usando API de caja.js)
+        // Registrar movimiento simultáneo de EGRESO físico en caja (COMENTADO v6.0: Se confirma manualmente en pestaña Caja con el botón inteligente)
+        /*
         if (montoVal > 0) {
             const resCaja = await fetchAPI('registrarMovimientoCaja', {
                 tipo: 'EGRESO',
@@ -1026,6 +1038,7 @@ window.saveInlineVuelto = async (nro, llave, repartidor, newVal, oldVal) => {
                 return;
             }
         }
+        */
 
         if (resSheet.success || (resSheet.msg && resSheet.msg.includes('exito'))) {
             const Toast = Swal.mixin({
@@ -3321,6 +3334,17 @@ document.getElementById('date-filter').addEventListener('change', (e) => {
     if (mapaDateFilter) {
         mapaDateFilter.value = newDate;
         if (typeof renderMapaMotorizados === 'function') renderMapaMotorizados();
+    }
+
+    // Sincronizar con Caja
+    const cajaDateInput = document.getElementById('caja-date-picker');
+    if (cajaDateInput) {
+        cajaDateInput.value = newDate;
+        // Si la pestaña Caja está visible, recargar datos inmediatamente
+        const contentCaja = document.getElementById('caja-content');
+        if (contentCaja && !contentCaja.classList.contains('hidden')) {
+            if (typeof window.loadCajaData === 'function') window.loadCajaData();
+        }
     }
 
     applyFilters();

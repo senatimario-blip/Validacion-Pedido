@@ -156,9 +156,10 @@ function renderMapaMotorizados() {
             // Solo aplicamos si el cambio es reciente (menos de 15 seg)
             // o si el servidor aún no refleja el cambio solicitado
             const now = Date.now();
-            if (now - pending.timestamp < 15000) {
+            if (now - pending.timestamp < 25000) {
                 o.envio = pending.envio;
                 o.viaje_id = pending.viaje_id;
+                o.isPendingAssignment = true;
             } else {
                 // Si ya pasó mucho tiempo, asumimos que el servidor ya sincronizó o falló
                 delete window.pendingAssignments[o.nro];
@@ -168,9 +169,18 @@ function renderMapaMotorizados() {
 
     const motorizadosMap = {};
     // 1. Obtener todos los motorizados únicos (Prioridad: Lista maestra del Excel v1.21)
-    const officialDrivers = (window.allDriversList && window.allDriversList.length > 0)
+    let officialDrivers = (window.allDriversList && window.allDriversList.length > 0)
         ? window.allDriversList
         : [];
+
+    // --- FALLBACK (v5.11): Si la lista oficial falla, extraer de los pedidos actuales ---
+    if (officialDrivers.length === 0 && typeof orders !== 'undefined') {
+        const fallbackSet = new Set();
+        orders.forEach(o => {
+            if (o.envio && o.envio.trim() !== "") fallbackSet.add(o.envio.trim());
+        });
+        officialDrivers = Array.from(fallbackSet).sort();
+    }
 
     // Inicializar el mapa con los nombres oficiales siempre para que aparezcan sus cajas
     officialDrivers.forEach(dName => {
@@ -306,35 +316,21 @@ function renderMapaMotorizados() {
 }
 
 function calculateGlobalCounts(motorizadosMap, tripOrders) {
-    let pendingOrders = 0;
     let enRuta = 0;
-    let llegaron = 0;
+    let entregaron = 0;
 
     // 1. Solo contamos lo que está en el MONITOR ACTIVO (Lo que el usuario ve arriba)
     Object.keys(motorizadosMap).forEach(mKey => {
         const m = motorizadosMap[mKey];
-        if (m.isCanceledBox) return;
-
-        // Contar pedidos en almacén (aún sin viaje)
-        m.orders.forEach(o => {
-            const vId = String(o.viaje_id || "").trim();
-            if (vId === "" || vId === "null" || vId === "undefined") {
-                pendingOrders++;
-            }
-        });
+        if (m.isCanceledBox || m.isUnassigned) return;
 
         // Ver si esta caja ya es un viaje activo (Temporal) en el Monitor
         const stats = getDriverStatusDetailed(m.orders);
-        if (m.tripId) {
-            if (stats.enRuta) enRuta++;
-            else if (stats.llegaron) llegaron++;
-        }
+        if (stats.enRuta) enRuta++;
+        else if (stats.llegaron) entregaron++;
     });
 
-    // NOTA: Ignoramos tripOrders del historial para los contadores superiores, 
-    // ya que el usuario solo quiere ver el estado de su operación actual de 5 motorizados.
-
-    return { pendingOrders, enRuta, llegaron };
+    return { enRuta, entregaron };
 }
 
 function renderActiveMonitor(motorizadosMap, container, counts) {
@@ -418,13 +414,11 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
     let activeDriversKeys = motorizadosKeys.filter(k => k !== '___SIN_ASIGNAR___' && k !== '___CANCELADOS___');
 
     if (counts) {
-        const elPending = document.getElementById('mapa-pending-count');
         const elRoute = document.getElementById('mapa-route-count');
         const elArrived = document.getElementById('mapa-arrived-count');
 
-        if (elPending) elPending.querySelector('.val').textContent = counts.pendingOrders;
         if (elRoute) elRoute.querySelector('.val').textContent = counts.enRuta;
-        if (elArrived) elArrived.querySelector('.val').textContent = counts.llegaron;
+        if (elArrived) elArrived.querySelector('.val').textContent = counts.entregaron;
     }
 
     if (motorizadosKeys.length === 0) {
@@ -433,13 +427,21 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
     }
 
     const enRutaKeys = motorizadosKeys.filter(k => {
-        if (k === '___SIN_ASIGNAR___' || k === '___CANCELADOS___') return true;
-        return getDriverStatusDetailed(motorizadosMap[k].orders).enRuta;
+        const data = motorizadosMap[k];
+        if (k === '___SIN_ASIGNAR___') return data.orders.length > 0;
+        if (k === '___CANCELADOS___') return data.orders.length > 0;
+
+        const stats = getDriverStatusDetailed(data.orders);
+        // Si tiene pedidos pero no ha terminado (independientemente de si tiene ID o no)
+        return stats.enRuta;
     });
 
     const llegaronKeys = motorizadosKeys.filter(k => {
         if (k === '___SIN_ASIGNAR___' || k === '___CANCELADOS___') return false;
-        return getDriverStatusDetailed(motorizadosMap[k].orders).llegaron;
+        const data = motorizadosMap[k];
+        const stats = getDriverStatusDetailed(data.orders);
+        // Solo agrupamos en "llegaron" si tiene pedidos y todos estan terminados
+        return data.orders.length > 0 && stats.llegaron;
     });
 
     const renderGroup = (keys, title, icon, color) => {
@@ -491,48 +493,58 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                 customBgStr = 'rgba(248, 113, 113, 0.05)';
             } else if (data.orders.length > 0) {
                 const stats = getDriverStatusDetailed(data.orders);
-                const hasTrip = !!data.tripId;
-                if (hasTrip) {
-                    if (stats.llegaron) {
-                        boxTitleColor = '#4ADE80';
-                        customBorderStr = '2px solid rgba(74, 222, 128, 0.6)';
-                        customBgStr = 'rgba(74, 222, 128, 0.07)';
-                    } else {
-                        boxTitleColor = '#F87171';
-                        customBorderStr = '2px solid rgba(248, 113, 113, 0.6)';
-                        customBgStr = 'rgba(248, 113, 113, 0.07)';
-                    }
+                // --- REGLA DE COLORES (v5.0) ---
+                if (stats.llegaron) {
+                    // Si todos tienen hora de entrega -> VERDE
+                    boxTitleColor = '#4ADE80';
+                    customBorderStr = '2px solid rgba(74, 222, 128, 0.6)';
+                    customBgStr = 'rgba(74, 222, 128, 0.07)';
+                } else {
+                    // Si falta alguna hora de entrega -> ROJO (En Ruta)
+                    boxTitleColor = '#F87171';
+                    customBorderStr = '2px solid rgba(248, 113, 113, 0.6)';
+                    customBgStr = 'rgba(248, 113, 113, 0.07)';
                 }
             }
 
             let headerExtra = '';
             if (isCanceledBox) {
                 const idsToDelete = data.orders.map(o => o.nro).join(',');
-                headerExtra = `<button onclick="limpiarCancelados([${idsToDelete}])" title="Ocultar" style="background: rgba(248, 113, 113, 0.2); color: #F87171; border: none; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; cursor: pointer; margin-left: auto;"><i class="fa-solid fa-broom"></i> Limpiar</button>`;
+                headerExtra = `<button onclick="limpiarCancelados([${idsToDelete}])" title="Archivar cancelados" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer; margin-left: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s;">Limpiar</button>`;
             }
 
             const ordersHtml = data.orders.map((o, index) => {
                 let tipoPagoDisplay = (o.pago || 'POS/DESC...').toUpperCase();
                 let pColor = tipoPagoDisplay.includes('EFECTIVO') ? '#4ADE80' : (tipoPagoDisplay.includes('QR') ? '#22D3EE' : (tipoPagoDisplay.includes('TARJETA') ? '#A78BFA' : '#60A5FA'));
                 const isVal = (o.estado === 'Validado');
-                const timeTadaInfo = calculateElapsedTimeForMap(null, o.hora_tada, isVal ? o.fecha_validacion : null);
-                const timeInfo = calculateElapsedTimeForMap(o.fecha, null, isVal ? o.fecha_validacion : null);
+                const timeTadaInfo = calculateElapsedTimeForMap(null, o.hora_tada, isVal ? o.fecha_validacion : null, o.minutosReales);
+                const timeInfo = calculateElapsedTimeForMap(o.fecha, null, isVal ? o.fecha_validacion : null, o.minutosReales);
                 const isManualSort = driverSortState[mKey] ? true : false;
                 const seqNum = index + 1;
 
                 let assignmentHtml = data.isUnassigned ? `
-                    <div style="margin-top: 8px; display:flex; gap:6px;">
-                        <select id="sel-assign-${o.nro}" onchange="asignarMotorizadoDesdeMapa(${o.nro})" style="flex:1; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
-                            <option value="">-- Asignar --</option>
+                    <div style="margin-top: 8px; display:flex; flex-direction:column; gap:6px;">
+                        <select id="sel-assign-${o.nro}" onchange="asignarMotorizadoDesdeMapa(${o.nro})" style="width:100%; background:rgba(0,0,0,0.5); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:4px; font-size:0.85em;">
+                            <option value="">-- Seleccionar --</option>
                             ${activeDriversKeys.map(k => `<option value="${motorizadosMap[k].name}">${motorizadosMap[k].name}</option>`).join('')}
                         </select>
+                        <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                            ${activeDriversKeys.slice(0, 4).map(k => `
+                                <button onclick="asignarMotorizadoDesdeMapa(${o.nro}, '${motorizadosMap[k].name.replace(/'/g, "\\'")}')" 
+                                    style="background: rgba(96, 165, 250, 0.1); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.3); border-radius: 4px; padding: 2px 6px; font-size: 0.7em; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                                    onmouseover="this.style.background='rgba(96, 165, 250, 0.2)'"
+                                    onmouseout="this.style.background='rgba(96, 165, 250, 0.1)'">
+                                    <i class="fa-solid fa-user-plus" style="font-size:0.8em;"></i> ${motorizadosMap[k].name.split(' ')[0]}
+                                </button>
+                            `).join('')}
+                        </div>
                     </div>` : '';
 
-                let borderColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.4)' :
+                let borderColor = o.isPendingAssignment ? 'rgba(96, 165, 250, 0.8)' : (o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.4)' :
                     (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.4)' :
                         (o.estado === 'Por Validar' ? 'rgba(96, 165, 250, 0.4)' :
                             (o.estado === 'En Camino' ? 'rgba(255, 255, 255, 0.5)' :
-                                (o.estado === 'Pendiente' ? 'rgba(251, 191, 36, 0.5)' : 'rgba(255,255,255,0.1)'))));
+                                (o.estado === 'Pendiente' ? 'rgba(251, 191, 36, 0.5)' : 'rgba(255,255,255,0.1)')))));
                 let bgColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.1)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.1)' : (o.estado === 'Por Validar' ? 'rgba(96, 165, 250, 0.1)' : 'rgba(0,0,0,0.4)'));
 
                 let sColor = '#94a3b8'; let sBg = 'rgba(148, 163, 184, 0.1)'; let sIcon = 'fa-clock';
@@ -551,14 +563,14 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                     ${unassignBtn}
                 </div>`;
 
-                let boxShadow = o.estado === 'Validado' ? '0 0 8px rgba(74, 222, 128, 0.2)' :
+                let boxShadow = o.isPendingAssignment ? '0 0 15px rgba(96, 165, 250, 0.4)' : (o.estado === 'Validado' ? '0 0 8px rgba(74, 222, 128, 0.2)' :
                     (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? '0 0 8px rgba(248, 113, 113, 0.2)' :
                         (o.estado === 'Por Validar' ? '0 0 8px rgba(96, 165, 250, 0.2)' :
                             (o.estado === 'En Camino' ? '0 0 8px rgba(255, 255, 255, 0.3)' :
-                                (o.estado === 'Pendiente' ? '0 0 8px rgba(251, 191, 36, 0.3)' : 'none'))));
+                                (o.estado === 'Pendiente' ? '0 0 8px rgba(251, 191, 36, 0.3)' : 'none')))));
 
                 return `
-                    <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" data-estado="${o.estado}" draggable="true" style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 0.82em; display: flex; gap: 8px; align-items: flex-start; cursor: grab; position: relative; box-shadow: ${boxShadow}; width: 100%; box-sizing: border-box; overflow: hidden;">
+                    <div class="motorizado-order-card" data-driver="${mKey}" data-nro="${o.nro}" data-estado="${o.estado}" draggable="true" style="background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 0.82em; display: flex; gap: 8px; align-items: flex-start; cursor: grab; position: relative; box-shadow: ${boxShadow}; width: 100%; box-sizing: border-box; overflow: hidden; transition: all 0.3s;">
                         <div style="display:flex; flex-direction:column; align-items:center; gap:2px; padding-top: 4px;">
                             <span style="font-weight: 800; color: ${isManualSort ? '#A78BFA' : 'rgba(255,255,255,0.2)'}; font-size: 0.9em;">[${seqNum}]</span>
                             <div style="color: rgba(255,255,255,0.3);"><i class="fa-solid fa-grip-vertical"></i></div>
@@ -598,7 +610,17 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                             if (isNaN(d.getTime())) return String(o.fechaHoraReal).split(' ').pop();
                             return new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
                         } catch (e) { return 'OK'; }
-                    })()}</div>` : ''}
+                    })()}
+                     <span style="font-size: 0.85em; margin-left:8px; opacity:0.9; font-weight: 700;">
+                        <i class="fa-solid fa-clock"></i> ${timeInfo.text}
+                     </span>
+                 </div>` : ''}
+                                ${((o.estado === 'Validado' || o.estado === 'Cancelado' || o.estado === 'Rechazado') && (!o.viaje_id || String(o.viaje_id).trim() === "" || String(o.viaje_id).trim() === "null" || String(o.viaje_id).trim() === "undefined")) ? `
+                                <div style="margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px;">
+                                    <button onclick="liquidarViajeDefinitivo('${mKey}', '${o.nro}')" style="width:100%; background: #10b981; color: white; border: none; padding: 6px; border-radius: 6px; font-size: 0.8em; font-weight: 800; cursor: pointer;">
+                                        <i class="fa-solid fa-dollar-sign"></i> Liquidar Individual
+                                    </button>
+                                </div>` : ''}
                             </div>
                             ${assignmentHtml}
                         </div>
@@ -622,15 +644,31 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                             </div>
                             <div>
                                 <h3 style="color: ${boxTitleColor}; margin: 0; font-size: 1.1em; font-weight: bold; line-height: 1.2;">${data.name} ${data.tripId ? `<span style="font-size:0.75em; opacity:0.5; font-weight:400;">(#${data.tripId.slice(-4)})</span>` : ''}</h3>
-                                <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); margin-top: 4px;"><strong>${data.orders.length}</strong> pedidos</div>
+                                 <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); margin-top: 4px;"><strong>${data.orders.length}</strong> pedidos</div>
                             </div>
                         </div>
+                        ${headerExtra}
                         ${(() => {
                     if (isCanceledBox || data.isUnassigned || data.orders.length === 0) return '';
                     const stats = getDriverStatusDetailed(data.orders);
-                    if (!data.tripId) return `<button onclick="agruparTodoPendiente('${data.name.replace(/'/g, "\\'")}')" style="background: var(--primary); color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer;"><i class="fa-solid fa-id-card"></i> ID</button>`;
-                    else if (stats.llegaron) return `<button onclick="liquidarViajeDefinitivo('${data.name.replace(/'/g, "\\'")}', null, '${data.tripId || ''}')" style="background: #10b981; color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer;"><i class="fa-solid fa-dollar-sign"></i> Liquidar</button>`;
-                    else return `<div style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-motorcycle"></i> RUTA</div>`;
+
+                    // --- AUTOMATIZACION DE ID (Basada solo en Horas) ---
+                    if (stats.llegaron && !data.tripId) {
+                        console.log(`[AutoID] Generando ID para ${data.name}...`);
+                        setTimeout(() => window.agruparTodoPendiente(mKey, true), 100);
+                        return `<div style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-spinner fa-spin"></i> GENERANDO ID...</div>`;
+                    }
+
+                    // --- DOBLE CANDADO: BOTON LIQUIDAR ---
+                    if (stats.llegaron) {
+                        if (stats.isLiquidable) {
+                            return `<button onclick="liquidarViajeDefinitivo('${data.name.replace(/'/g, "\\'")}', null, '${data.tripId || ''}')" style="background: #10b981; color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer;"><i class="fa-solid fa-dollar-sign"></i> Liquidar</button>`;
+                        } else {
+                            return `<div style="background: rgba(252, 211, 77, 0.2); color: #fcd34d; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-lock"></i> Por Validar</div>`;
+                        }
+                    } else {
+                        return `<div style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-motorcycle"></i> RUTA</div>`;
+                    }
                 })()}
                     </div>
                     <div class="motorizado-dropzone driver-order-list custom-scrollbar" style="flex: 1; overflow-y: auto; padding: 8px; min-height: 200px;" id="dropzone-${mKey}" data-driver-name="${mKey}" data-driver-display-name="${data.name.replace(/'/g, "\\'")}" data-trip-id="${data.tripId || ''}">
@@ -643,8 +681,8 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
         return groupHtml;
     };
 
-    let htmlBody = renderGroup(enRutaKeys, 'En Ruta / Pendientes', 'fa-motorcycle', '#ef4444');
-    htmlBody += renderGroup(llegaronKeys, 'Recién Llegados (Libres para Despacho)', 'fa-circle-check', '#10b981');
+    let htmlBody = renderGroup(enRutaKeys, 'En Ruta', 'fa-motorcycle', '#ef4444');
+    htmlBody += renderGroup(llegaronKeys, 'Entregaron (Listos para Liquidar)', 'fa-circle-check', '#10b981');
     container.innerHTML = htmlBody;
 }
 
@@ -718,28 +756,27 @@ function renderViajesSection(tripOrders, container) {
         let globalTrips = Object.values(tripsMap).filter(t => t.id !== 'CANCELADOS_ARCHIVADOS').length;
         let globalOrders = 0;
         let globalValidado = 0;
-        let globalPorValidar = 0;
-        let globalCanceladoConsumidor = 0;
-        let globalCanceladoRepartidor = 0;
+        let globalCancelado = 0; // Suma de todos los cancelados/rechazados
         let globalMoney = 0;
+        let globalSubtotal = 0;
 
         sortedDrivers.forEach(d => {
-            if (d.name !== '___CANCELADOS_ARCHIVADOS___') {
-                globalMoney += d.driverTotal;
-            }
-
-            const isTrashBin = (d.name === '___CANCELADOS_ARCHIVADOS___');
+            // El usuario quiere que TODOS (incluyendo archivados) sumen al resumen
             d.trips.forEach(t => {
-                globalOrders += t.orders.length;
                 t.orders.forEach(o => {
                     const st = (o.estado || "").toUpperCase();
-                    if (st === 'VALIDADO') globalValidado++;
-                    else if (st === 'POR VALIDAR' || st === 'EN CAMINO') globalPorValidar++;
-                    else if (st === 'PENDIENTE') globalPorValidar++; // También cuenta como activo
-                    else if (st.includes('CANCELADO') || st.includes('RECHAZADO')) {
-                        if (isTrashBin) globalCanceladoConsumidor++;
-                        else globalCanceladoRepartidor++;
+                    globalSubtotal += (parseFloat(o.monto) || 0);
+
+                    if (st === 'VALIDADO') {
+                        globalValidado++;
+                        globalOrders++;
+                    } else if (st.includes('CANCELADO') || st.includes('RECHAZADO')) {
+                        globalCancelado++;
+                        globalOrders++;
+                    } else if (st !== "") {
+                        globalOrders++;
                     }
+                    globalMoney += calculateOrderPayment(o, 1);
                 });
             });
         });
@@ -765,8 +802,12 @@ function renderViajesSection(tripOrders, container) {
                     <strong style="font-size: 1.25em; color: #4ade80;">${globalValidado}</strong>
                 </div>
                 <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
-                    <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Activos</span>
-                    <strong style="font-size: 1.25em; color: #3B82F6;">${globalPorValidar}</strong>
+                    <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Cancelados</span>
+                    <strong style="font-size: 1.25em; color: #f87171;">${globalCancelado}</strong>
+                </div>
+                <div style="text-align: center; padding: 0 15px; border-right: 1px solid rgba(255,255,255,0.1);">
+                    <span style="font-size: 0.7em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Subtotal (Ventas)</span>
+                    <strong style="font-size: 1.25em; color: #fcd34d;">S/ ${globalSubtotal.toFixed(2)}</strong>
                 </div>
                 <div style="text-align: right; margin-left:10px;">
                     <span style="font-size: 0.75em; color: rgba(255,255,255,0.4); display: block; text-transform: uppercase;">Total Liquidación</span>
@@ -775,33 +816,38 @@ function renderViajesSection(tripOrders, container) {
             </div>
         </div>`;
 
-        const normalDrivers = sortedDrivers.filter(d => d.name !== '___CANCELADOS_ARCHIVADOS___');
-        const canceledArchived = sortedDrivers.find(d => d.name === '___CANCELADOS_ARCHIVADOS___');
-
-        normalDrivers.forEach(driver => {
-            let totalOrders = 0;
+        sortedDrivers.forEach(driver => {
             let countValidado = 0;
             let countActivo = 0;
             let countCancelado = 0;
 
             driver.trips.forEach(t => {
-                totalOrders += t.orders.length;
                 t.orders.forEach(o => {
                     const st = (o.estado || "").toUpperCase();
-                    if (st === 'VALIDADO') countValidado++;
-                    else if (st === 'CANCELADO' || st === 'RECHAZADO') countCancelado++;
-                    else countActivo++;
+                    if (st === 'VALIDADO') {
+                        countValidado++;
+                    } else if (st === 'CANCELADO' || st === 'RECHAZADO') {
+                        countCancelado++;
+                    } else if (st !== "") {
+                        countActivo++;
+                    }
                 });
             });
 
-            const safeDriverName = String(driver.name || "Desconocido").replace(/'/g, "\\'");
+            // Estilo especial si es el grupo archivado
+            const isArchived = driver.name === '___CANCELADOS_ARCHIVADOS___';
+            const displayName = isArchived ? 'Historial de Cancelados Archivados' : driver.name;
+            const headerBg = isArchived ? '#ef444422' : '#1e293b';
+            const borderLeft = isArchived ? '4px solid #ef4444' : '4px solid #60a5fa';
+            const iconColor = isArchived ? '#ef4444' : '#60a5fa';
+            const iconClass = isArchived ? 'fa-box-archive' : 'fa-user-tag';
 
             html += `
             <div class="driver-trip-group" style="margin-bottom: 30px; grid-column: 1 / -1;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px; padding: 12px 20px; background: rgba(96, 165, 250, 0.1); border-left: 4px solid #60a5fa; border-radius: 8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px; padding: 12px 20px; background: ${headerBg}; border-left: ${borderLeft}; border-radius: 8px;">
                     <div style="display:flex; flex-direction:column; gap:4px;">
                         <h3 style="margin:0; font-size:1.25em; font-weight:700; color:#fff; display:flex; align-items:center; gap:10px;">
-                            <i class="fa-solid fa-user-tag" style="color:#60a5fa;"></i> ${driver.name}
+                            <i class="fa-solid ${iconClass}" style="color:${iconColor};"></i> ${displayName}
                         </h3>
                         <div style="display:flex; gap:12px; font-size:0.75em; color:rgba(255,255,255,0.5);">
                             ${countValidado > 0 ? `<span><i class="fa-solid fa-circle-check" style="color:#4ade80;"></i> ${countValidado} Validados</span>` : ''}
@@ -809,13 +855,26 @@ function renderViajesSection(tripOrders, container) {
                             ${countCancelado > 0 ? `<span><i class="fa-solid fa-circle-xmark" style="color:#f87171;"></i> ${countCancelado} Cancelados</span>` : ''}
                         </div>
                     </div>
+                    ${isArchived ? '' : `
                     <div style="text-align:right; display:flex; gap:12px; align-items:center;">
                          <div style="background: rgba(0,0,0,0.3); padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
                             <span style="font-size:0.7em; color:rgba(255,255,255,0.5); display:block; text-align:left; margin-bottom: -2px;">TOTAL COMISIÓN ACUMULADA</span>
                             <strong style="font-size:1.4em; color:#4ade80;">S/ ${driver.driverTotal.toFixed(2)}</strong>
                          </div>
-                    </div>
+                    </div>`}
                 </div>
+                ${isArchived ? `
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; padding: 15px; background: rgba(0,0,0,0.15); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.05);">
+                    ${driver.trips.flatMap(t => t.orders).map(o => {
+                const motivo = (o.motivo_cancelacion || 'S/E').toUpperCase();
+                return `
+                        <div class="archived-order-item" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.15); padding: 8px 14px; border-radius: 8px; display: flex; align-items: center; gap: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                            <strong style="color: #ef4444; font-size: 0.95em; font-family: monospace;">${o.llave || o.nro}</strong>
+                            <div style="width:1px; height:12px; background:rgba(255,255,255,0.1);"></div>
+                            <span style="color: rgba(255,255,255,0.4); font-size: 0.65em; font-weight: 800; letter-spacing: 0.5px;">CANCELADO POR ${motivo}</span>
+                        </div>`;
+            }).join('')}
+                </div>` : `
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
                     ${driver.trips.map(trip => {
                 let ordersHtml = trip.orders.map((o, index) => {
@@ -858,7 +917,7 @@ function renderViajesSection(tripOrders, container) {
                 );
 
                 const statusColor = isTripFinished ? '#10b981' : '#ef4444'; // Verde vs Rojo
-                const statusLabel = isTripFinished ? 'LLEGÓ' : 'EN RUTA';
+                const statusLabel = isTripFinished ? 'LIQUIDADO' : 'EN RUTA';
 
                 return `<div class="trip-card" style="border-top: 4px solid ${statusColor}; border-radius: 12px; background: rgba(30, 41, 59, 0.7); box-shadow: 0 4px 20px rgba(0,0,0,0.2); transition: all 0.3s; position: relative; overflow: hidden;">
                             <div class="trip-header" style="padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
@@ -875,8 +934,9 @@ function renderViajesSection(tripOrders, container) {
                             <div style="padding: 15px; display:flex; flex-direction:column; gap:8px;">
                                 ${ordersHtml}
                             </div>
-                        </div>`;
+                            </div>`;
             }).join('')}
+                </div>`}
             </div>`;
         });
 
@@ -889,6 +949,12 @@ function renderViajesSection(tripOrders, container) {
 
 function calculateOrderPayment(order, position) {
     if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
+        const motivo = (order.motivo_cancelacion || "").toLowerCase();
+        // Solo pagamos si es cancelación por REPARTIDOR (5.00). 
+        // Consumidor y Punto de Venta = 0.00
+        if (motivo.includes('consumidor') || motivo.includes('venta')) {
+            return 0.00;
+        }
         return 5.00;
     }
     // Reglas: 1ero 7.5, 2do 7.0, 3ro+ 6.5
@@ -1180,7 +1246,7 @@ window.crearViajeDesdeMonitor = async function (driverKey) {
     }
 }
 
-window.agruparTodoPendiente = async function (driverKey) {
+window.agruparTodoPendiente = async function (driverKey, isSilent = false) {
     const dUpper = (driverKey || "").trim().toUpperCase();
     if (!dUpper || typeof orders === 'undefined') return;
 
@@ -1191,16 +1257,18 @@ window.agruparTodoPendiente = async function (driverKey) {
     );
 
     if (pendingOrders.length === 0) {
-        Swal.fire('Atención', 'No hay pedidos nuevos para agrupar en esta sección.', 'info');
+        if (!isSilent) Swal.fire('Atención', 'No hay pedidos nuevos para agrupar en esta sección.', 'info');
         return;
     }
 
-    Swal.fire({
-        title: 'Agrupando pedidos...',
-        text: 'Generando grupo de entrega temporal',
-        didOpen: () => Swal.showLoading(),
-        allowOutsideClick: false
-    });
+    if (!isSilent) {
+        Swal.fire({
+            title: 'Agrupando pedidos...',
+            text: 'Generando grupo de entrega temporal',
+            didOpen: () => Swal.showLoading(),
+            allowOutsideClick: false
+        });
+    }
 
     try {
         const response = await fetchAPI('crearViajeAutomatico', { nro: pendingOrders[0].nro });
@@ -1216,46 +1284,7 @@ window.agruparTodoPendiente = async function (driverKey) {
     }
 }
 
-window.checkAutoGroup12Min = async function () {
-    if (typeof orders === 'undefined' || !orders.length) return;
-
-    // Solo candidatos en "Warehouse" (Pendiente y sin viaje_id)
-    const candidates = orders.filter(o =>
-        o.estado === 'Pendiente' &&
-        (!o.viaje_id || String(o.viaje_id).trim() === "" || String(o.viaje_id).trim() === "null" || String(o.viaje_id).trim() === "undefined")
-    );
-
-    if (candidates.length === 0) return;
-
-    // Identificar repartidores con al menos un pedido obsoletos (>= 12 min)
-    const driversToAutoGroup = new Set();
-    candidates.forEach(o => {
-        const timeInfo = calculateElapsedTimeForMap(o.fecha, o.hora_tada);
-        if (timeInfo.minsValue >= 12 && o.envio && o.envio.trim() !== "") {
-            driversToAutoGroup.add(o.envio.trim().toUpperCase());
-        }
-    });
-
-    if (driversToAutoGroup.size === 0) return;
-
-    console.log(`[AutoGroup] Procesando ${driversToAutoGroup.size} repartidores con pedidos obsoletos(> 12 min)`);
-
-    for (const dKey of driversToAutoGroup) {
-        // Encontrar el primer pedido de ese repartidor para disparar la agrupación automática
-        const firstOrder = candidates.find(o => (o.envio || "").trim().toUpperCase() === dKey);
-        if (firstOrder) {
-            console.log(`[AutoGroup] Generando ID para ${dKey} (Iniciado por #${firstOrder.nro})`);
-            try {
-                // Ejecución silenciosa sin Swal.fire para no molestar al usuario
-                const res = await fetchAPI('crearViajeAutomatico', { nro: firstOrder.nro });
-                if (res.success && typeof loadOrdersSilent === 'function') {
-                    // Refrescar datos locales tras cambios en el servidor
-                    loadOrdersSilent();
-                }
-            } catch (e) { console.error(`[AutoGroup] Error agrupando ${dKey}: `, e); }
-        }
-    }
-}
+// Función de autogrupado eliminada por requerimiento de v5.1
 
 window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = null, targetTripId = null) {
     const dUpper = (driverKey || "").trim().toUpperCase();
@@ -1276,7 +1305,7 @@ window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = n
     };
 
     // --- Lógica de Selección Inteligente ---
-    // Liquidar SOLO lo que ya está terminado (Verde/Validado) en la caja de este repartidor para hoy
+    // Liquidar SOLO lo que ya está terminado (Verde/Validado/Cancelado) en la caja de este repartidor para hoy
     let targetOrders = orders.filter(o => {
         const isSameDate = getOrderDateLima(o.fecha) === targetDate;
         const matchDriver = (o.envio || "").trim().toUpperCase() === dUpper;
@@ -1285,13 +1314,16 @@ window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = n
         // Si se especificó un viaje, los pedidos deben pertenecer a ese viaje
         const matchTrip = targetTripId ? (vId === String(targetTripId).trim()) : true;
 
-        const isDefinitive = vId !== "" && vId !== "null" && vId !== "undefined" && !vId.includes("AUTO_") && !targetTripId;
+        // Si se especificó un pedido ÚNICO, ignorar el resto
+        const matchSpecificOrder = specificOrderNro ? (String(o.nro) === String(specificOrderNro)) : true;
 
-        // "Está Terminado" (Verde): Robot detectó entrega o Administrador ya validó/canceló
+        const isDefinitive = vId !== "" && vId !== "null" && vId !== "undefined" && !vId.includes("AUTO_") && !targetTripId && !specificOrderNro;
+
+        // "Está Terminado" (Verde/Rojo Final): Robot detectó entrega o Administrador ya validó/canceló
         const isFinished = (o.tiempo_entrega && o.tiempo_entrega !== "" && o.tiempo_entrega !== "---") ||
             ['Validado', 'Cancelado', 'Rechazado'].includes(o.estado);
 
-        return isSameDate && matchDriver && matchTrip && !isDefinitive && isFinished;
+        return isSameDate && matchDriver && matchTrip && matchSpecificOrder && !isDefinitive && isFinished;
     });
 
     if (targetOrders.length === 0) {
@@ -1384,14 +1416,23 @@ async function autoCerrarViajeSilent(driverKey) {
 }
 
 function getDriverStatusDetailed(driverOrders) {
-    if (!driverOrders || !Array.isArray(driverOrders) || driverOrders.length === 0) return { enRuta: false, llegaron: false };
+    if (!driverOrders || !Array.isArray(driverOrders) || driverOrders.length === 0) return { enRuta: false, llegaron: false, isLiquidable: false };
 
-    // Un repartidor está "LLEGÓ" SOLO si TODOS sus pedidos del viaje actual tienen Hora Real (Columna Y)
-    const allFinished = driverOrders.every(o =>
+    // 1. Un repartidor está "ENTREGARON" (VERDE) SOLO si TODOS sus pedidos tienen Hora de Entrega (Columna Y)
+    const allHaveTime = driverOrders.every(o =>
         (o.fechaHoraReal && String(o.fechaHoraReal).trim() !== "" && String(o.fechaHoraReal).trim() !== "---")
     );
 
-    return { enRuta: !allFinished, llegaron: allFinished };
+    // 2. Se puede "LIQUIDAR" (BOTON) SOLO si está terminado Y TODO está Validado o Cancelado
+    const allValidatedOrCanceled = driverOrders.every(o =>
+        (o.estado === 'Validado' || o.estado === 'Cancelado' || o.estado === 'Rechazado')
+    );
+
+    return {
+        enRuta: !allHaveTime,
+        llegaron: allHaveTime,
+        isLiquidable: allHaveTime && allValidatedOrCanceled
+    };
 }
 
 // Handler for manual reordering of the Boxes themselves
@@ -1575,7 +1616,7 @@ function initDragAndDrop() {
                     setTimeout(() => {
                         delete window.pendingAssignments[nro];
                         renderMapaMotorizados();
-                    }, 12000);
+                    }, 25000);
                 } catch (e) {
                     console.error("Error fusionando viaje:", e);
                     delete window.pendingAssignments[nro];
@@ -1591,7 +1632,7 @@ function initDragAndDrop() {
                     setTimeout(() => {
                         delete window.pendingAssignments[nro];
                         renderMapaMotorizados();
-                    }, 12000);
+                    }, 25000);
                 } catch (e) {
                     console.error("Error reasignando:", e);
                     delete window.pendingAssignments[nro];
@@ -1604,7 +1645,7 @@ function initDragAndDrop() {
                 setTimeout(() => {
                     delete window.pendingAssignments[nro];
                     renderMapaMotorizados();
-                }, 12000);
+                }, 25000);
             }
         });
     });
@@ -1712,8 +1753,31 @@ function getDragAfterElement(container, y) {
 }
 
 // Helper time formatting tool for the map
-function calculateElapsedTimeForMap(fechaStr, horaTadaStr = null, endTimeStr = null) {
+function calculateElapsedTimeForMap(fechaStr, horaTadaStr = null, endTimeStr = null, minsReales = null) {
     let result = { text: '-- min', color: 'rgba(255,255,255,0.5)', bg: 'transparent', minsValue: 0 };
+
+    // SI HAY MINUTOS REALES (Columna Z), USARLOS DIRECTAMENTE (Prioridad Máxima según usuario)
+    if (minsReales !== null && minsReales !== undefined && minsReales !== "" && minsReales !== "---") {
+        const mins = Math.floor(parseFloat(minsReales));
+        if (!isNaN(mins)) {
+            result.minsValue = mins;
+            // Formato solicitado: Xh Ym o X min
+            result.text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60} m` : `${mins} min`;
+
+            // Mantener lógica de colores transaccional (v6.0)
+            if (mins >= 30) {
+                result.color = '#ef4444';
+                result.bg = 'rgba(239, 68, 68, 0.15)';
+            } else if (mins >= 20) {
+                result.color = '#f97316';
+                result.bg = 'rgba(249, 115, 22, 0.15)';
+            } else {
+                result.color = '#4ade80';
+                result.bg = 'rgba(74, 222, 128, 0.1)';
+            }
+            return result;
+        }
+    }
 
     if (!fechaStr && !horaTadaStr) return result;
 
@@ -1901,20 +1965,22 @@ setInterval(() => {
 }, 60000); // 1 minute
 
 // Handler for the Assign button explicitly called from HTML
-window.asignarMotorizadoDesdeMapa = async function (nro) {
-    const selectEl = document.getElementById(`sel-assign-${nro}`);
-    if (!selectEl) return;
+window.asignarMotorizadoDesdeMapa = async function (nro, forcedDriver = null) {
+    let newDriver = forcedDriver;
+    if (!newDriver) {
+        const selectEl = document.getElementById(`sel-assign-${nro}`);
+        if (!selectEl) return;
+        newDriver = selectEl.value;
+    }
 
-    const newDriver = selectEl.value;
     if (!newDriver || newDriver.trim() === '') return;
 
-    // --- REACCIÃ“N OPTIMISTA + PERSISTENCIA (v5.0) ---
-    // Guardamos estado anterior por si falla
-    const orderObj = orders.find(o => o.nro == nro);
+    // --- REACCIÃ“N OPTIMISTA + PERSISTENCIA (v6.0) ---
+    const orderObj = (typeof orders !== 'undefined' ? orders : []).find(o => o.nro == nro);
     if (!orderObj) return;
     const oldDriver = orderObj.envio;
 
-    // 1. Registrar en Memoria de Persistencia (Bloqueo anti-refresco)
+    // 1. Registrar en Memoria de Persistencia (Con tiempo extendido a 25s)
     window.pendingAssignments[nro] = {
         envio: newDriver,
         viaje_id: orderObj.viaje_id,
@@ -1938,11 +2004,14 @@ window.asignarMotorizadoDesdeMapa = async function (nro) {
             renderMapaMotorizados();
             Swal.fire('Error', response.message || 'Error al asignar motorizado', 'error');
         } else {
-            // Dejar el bloqueo un par de segundos mÃ¡s para que Sheets procese
+            // El bloqueo de 25 segundos da tiempo a que el servidor Google Sheets sincronice 
+            // y la siguiente carga silenciosa traiga la verdad del servidor corregida.
             setTimeout(() => {
-                delete window.pendingAssignments[nro];
-                renderMapaMotorizados();
-            }, 12000);
+                if (window.pendingAssignments[nro] && window.pendingAssignments[nro].timestamp < Date.now() - 24000) {
+                    delete window.pendingAssignments[nro];
+                    renderMapaMotorizados();
+                }
+            }, 25000);
             if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
         }
     } catch (error) {
@@ -1996,7 +2065,7 @@ window.quitarPedidoDeViaje = async function (input) {
                 setTimeout(() => {
                     nros.forEach(n => delete window.pendingAssignments[n]);
                     renderMapaMotorizados();
-                }, 12000);
+                }, 25000);
                 if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
             } else {
                 // Revertir
@@ -2070,7 +2139,7 @@ window.desasignarMotorizadoDesdeMapa = async function (nro) {
                 setTimeout(() => {
                     delete window.pendingAssignments[nro];
                     renderMapaMotorizados();
-                }, 12000);
+                }, 25000);
                 if (typeof loadOrdersSilent === 'function') loadOrdersSilent();
             } else {
                 // Revertir

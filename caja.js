@@ -106,6 +106,11 @@ function renderPedidosContadoPendientes(pedidos) {
     // Ordenar: los más nuevos (número mayor) primero, los validados al final
     const estadoOrder = { 'PENDIENTE_VUELTO': 0, 'PENDIENTE_COBRO': 1, 'COBRADO': 2, 'VALIDADO': 3 };
     const sorted = [...pedidos].sort((a, b) => {
+        const isLiqA = a.viajeId && String(a.viajeId).startsWith('177');
+        const isLiqB = b.viajeId && String(b.viajeId).startsWith('177');
+        if (isLiqA && !isLiqB) return 1;
+        if (!isLiqA && isLiqB) return -1;
+
         const ea = estadoOrder[a.estado || 'PENDIENTE_VUELTO'] ?? 0;
         const eb = estadoOrder[b.estado || 'PENDIENTE_VUELTO'] ?? 0;
         if (ea !== eb) return ea - eb;         // primero por estado
@@ -152,8 +157,18 @@ function renderPedidosContadoPendientes(pedidos) {
                         💰 REVERTIR VUELTO (S/ ${vuelto.toFixed(2)})
                     </button>`;
             } else {
-                infoExtra = `<div style="font-size:0.82em; color:rgba(255,255,255,0.3); margin-top:4px;">No hubo movimientos de dinero en este pedido.</div>`;
-                botonesHtml = `<div style="font-size:0.75em; color:rgba(255,255,255,0.2); text-align:center; padding:4px;">Sin acciones pendientes</div>`;
+                const isLiquidated = p.viajeId && String(p.viajeId).startsWith('177');
+                if (isLiquidated) {
+                    infoExtra = `<div style="font-size:0.82em; color:#4ade80; margin-top:4px;"><i class="fa-solid fa-check-double"></i> Este pedido ya fue liquidado y archivado.</div>`;
+                    botonesHtml = `<div style="font-size:0.75em; color:rgba(255,255,255,0.2); text-align:center; padding:4px;">No hay acciones pendientes</div>`;
+                } else {
+                    infoExtra = `<div style="font-size:0.82em; color:rgba(255,255,255,0.3); margin-top:4px;">No hubo movimientos de dinero. Puedes liquidarlo para cerrar el registro.</div>`;
+                    botonesHtml = `
+                    <button onclick="liquidarViajeDefinitivo('${p.repartidor}', '${p.nro}')" 
+                        style="width:100%; background:rgba(255,255,255,0.05); color:#fff; border:1px solid rgba(255,255,255,0.2); padding:10px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:0.85em;">
+                        <i class="fa-solid fa-file-invoice-dollar"></i> Liquidar para Contabilidad
+                    </button>`;
+                }
             }
 
         } else if (estado === 'VALIDADO' || p.sheetEstado === 'VALIDADO') {
@@ -164,7 +179,14 @@ function renderPedidosContadoPendientes(pedidos) {
                 <div style="font-size:0.8em; color:rgba(255,255,255,0.35); padding:4px 0;">
                     Vuelto: <strong>S/ ${vuelto.toFixed(2)}</strong> &nbsp;|&nbsp; Recibido: <strong>S/ ${cobro.toFixed(2)}</strong>
                 </div>`;
-            botonesHtml = `
+            const isLiquidated = p.viajeId && String(p.viajeId).startsWith('177');
+            if (isLiquidated) {
+                botonesHtml = `
+                    <div style="display:flex; align-items:center; justify-content:center; gap:8px; width:100%; color:#4ade80; font-size:0.85em; font-weight:bold; background:rgba(74,222,128,0.05); padding:6px; border-radius:8px;">
+                        <i class="fa-solid fa-check-double"></i> LIQUIDADO
+                    </div>`;
+            } else {
+                botonesHtml = `
                 <div style="display:flex; gap:6px; width:100%;">
                     <button onclick="registrarVueltoRapido('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'FISICO')"
                         style="flex:1; padding:6px; font-size:0.75em; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:rgba(255,255,255,0.4); cursor:pointer;" title="Corregir Vuelto">
@@ -175,20 +197,29 @@ function renderPedidosContadoPendientes(pedidos) {
                         <i class="fa-solid fa-pen-to-square"></i> Regularizar Cobro
                     </button>
                 </div>`;
+            }
 
         } else if (estado === 'PENDIENTE_VUELTO') {
             // 🟠 Naranja — mismo color que badge "Pendiente" en pantalla principal
             borderColor = 'rgba(249,115,22,0.5)';
             badgeHtml = `<span style="background:rgba(249,115,22,0.15); color:#fb923c; padding:3px 10px; border-radius:20px; font-size:0.7em; font-weight:bold;">⏳ PENDIENTE</span>`;
-            infoExtra = '';
+
+            const vSheet = parseFloat(p.vueltoSheet) || 0;
+            const textMonto = vSheet > 0 ? ` (S/ ${vSheet.toFixed(2)})` : '';
+
+            infoExtra = vSheet > 0 ? `
+                <div style="background:rgba(249,115,22,0.08); border:1px solid rgba(249,115,22,0.3); border-radius:8px; padding:8px; font-size:0.82em; margin-top:4px; color:#fb923c;">
+                    💡 Vuelto sugerido: <strong>S/ ${vSheet.toFixed(2)}</strong> (Ingresado en tabla)
+                </div>` : '';
+
             botonesHtml = `
-                <button onclick="registrarVueltoRapido('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'FISICO')"
+                <button onclick="registrarVueltoRapido('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'FISICO', ${vSheet})"
                     style="flex:1; padding:8px; font-size:0.8em; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:white; cursor:pointer;">
-                    <i class="fa-solid fa-hand-holding-dollar"></i> Vuelto Físico
+                    <i class="fa-solid fa-hand-holding-dollar"></i> Entregar Físico${textMonto}
                 </button>
-                <button onclick="registrarVueltoRapido('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'DIGITAL')"
+                <button onclick="registrarVueltoRapido('${p.nro}', '${p.llave}', '${p.repartidor || ''}', 'DIGITAL', ${vSheet})"
                     style="flex:1; padding:8px; font-size:0.8em; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3); border-radius:8px; color:#60a5fa; cursor:pointer;">
-                    <i class="fa-solid fa-mobile-screen"></i> Vuelto Yape
+                    <i class="fa-solid fa-mobile-screen"></i> Yape${textMonto}
                 </button>`;
 
         } else if (estado === 'PENDIENTE_COBRO') {
@@ -197,9 +228,10 @@ function renderPedidosContadoPendientes(pedidos) {
             const metodoIcon = p.metodoVuelto === 'DIGITAL' ? '📱 Yape' : '💵 Físico';
             badgeHtml = `<span style="background:rgba(6,182,212,0.15); color:#22d3ee; padding:3px 10px; border-radius:20px; font-size:0.7em; font-weight:bold;">🚴 EN RUTA</span>`;
             infoExtra = `
-                <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:8px; font-size:0.82em; margin-top:4px;">
-                    <div>Vuelto entregado: <strong style="color:#60a5fa;">S/ ${vuelto.toFixed(2)}</strong> (${metodoIcon})</div>
-                    <div style="color:rgba(255,255,255,0.5); margin-top:2px;">El repartidor debe traer: <strong style="color:#fcd34d;">S/ ${esperado.toFixed(2)}</strong></div>
+                <div style="background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:10px; padding:12px; font-size:0.85em; margin-top:6px; text-align:center;">
+                    <div style="color:rgba(255,255,255,0.6); margin-bottom:4px;">💰 EL REPARTIDOR DEBE TRAER:</div>
+                    <div style="font-size:1.4em; font-weight:900; color:#fcd34d;">S/ ${esperado.toFixed(2)}</div>
+                    <div style="font-size:0.75em; color:rgba(255,255,255,0.4); margin-top:4px;">(Monto Pedido + Vuelto S/ ${vuelto.toFixed(2)})</div>
                 </div>`;
             botonesHtml = `
                 <button onclick="registrarCobroContado('${p.nro}', '${p.llave}', '${p.repartidor || ''}', ${monto}, ${vuelto})"
@@ -249,19 +281,54 @@ function renderPedidosContadoPendientes(pedidos) {
     }).join('');
 }
 
-async function registrarVueltoRapido(nro, llave, repartidor, metodo) {
-    const { value: montoVuelto } = await Swal.fire({
-        title: 'Registrar Entrega de Vuelto',
-        text: `Pedido #${nro} [${llave}] - Repartidor: ${repartidor}`,
-        input: 'number',
-        inputLabel: `Monto del Vuelto (${metodo === 'FISICO' ? 'Efectivo' : 'Yape'})`,
-        inputPlaceholder: '0.00',
-        showCancelButton: true,
-        confirmButtonText: 'Registrar Egreso',
-        inputValidator: (value) => {
-            if (!value || isNaN(value) || value <= 0) return 'Ingresa un monto válido';
+async function registrarVueltoRapido(nro, llave, repartidor, metodo, montoPredefinido = 0) {
+    let montoVuelto = 0;
+
+    if (montoPredefinido > 0) {
+        // Si ya tenemos el monto de la tabla, solo confirmamos con el usuario
+        const { isConfirmed } = await Swal.fire({
+            title: 'Confirmar Entrega de Vuelto',
+            html: `¿Confirmas que entregaste <b>S/ ${montoPredefinido.toFixed(2)}</b> (${metodo === 'FISICO' ? 'Efectivo' : 'Yape'}) a <b>${repartidor}</b>?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, registrar movimiento',
+            cancelButtonText: 'No, cambiar monto',
+            confirmButtonColor: '#fb923c'
+        });
+
+        if (isConfirmed) {
+            montoVuelto = montoPredefinido;
+        } else {
+            // Si el usuario canceló la confirmación rápida, le permitimos ingresar manualmente
+            const { value: customMonto } = await Swal.fire({
+                title: 'Ingresar Monto Manual',
+                input: 'number',
+                inputLabel: `Monto del Vuelto (${metodo === 'FISICO' ? 'Efectivo' : 'Yape'})`,
+                inputValue: montoPredefinido.toFixed(2),
+                showCancelButton: true,
+                confirmButtonText: 'Registrar Egreso',
+                inputValidator: (v) => (!v || isNaN(v) || v <= 0) ? 'Ingresa un monto válido' : null
+            });
+            if (!customMonto) return;
+            montoVuelto = customMonto;
         }
-    });
+    } else {
+        // Flujo tradicional si no hay monto predefinido
+        const { value: customMonto } = await Swal.fire({
+            title: 'Registrar Entrega de Vuelto',
+            text: `Pedido #${nro} [${llave}] - Repartidor: ${repartidor}`,
+            input: 'number',
+            inputLabel: `Monto del Vuelto (${metodo === 'FISICO' ? 'Efectivo' : 'Yape'})`,
+            inputPlaceholder: '0.00',
+            showCancelButton: true,
+            confirmButtonText: 'Registrar Egreso',
+            inputValidator: (value) => {
+                if (!value || isNaN(value) || value <= 0) return 'Ingresa un monto válido';
+            }
+        });
+        if (!customMonto) return;
+        montoVuelto = customMonto;
+    }
 
     if (montoVuelto) {
         Swal.showLoading();

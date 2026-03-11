@@ -231,12 +231,7 @@ function crearViajeAutomatico(payload) {
 
     if (targetRowIndex === -1) return { success: false, message: "Pedido no encontrado" };
 
-    // 2. Cambiar estado a 'En Camino' del pedido base (si no lo estÃ¡)
-    if (rows[targetRowIndex - 1][6] === 'Pendiente') {
-      sheet.getRange(targetRowIndex, 7).setValue('En Camino');
-    }
-
-    // 3. AUTOMATIZACIÃ“N DE VIAJE (v5.1 - Solo vÃ­a Monitor)
+    // 2. AUTOMATIZACIÃ“N DE VIAJE (v5.1 - Solo vÃ­a Monitor)
     const newViajeId = "AUTO_" + Date.now().toString().substring(5);
     let autoGroupCount = 0;
 
@@ -1117,9 +1112,12 @@ function getCajaData(params) {
           repartidor:  pDisp[9],
           monto:       pRaw[3],
           pago:        pDisp[10],
+          vueltoSheet:     pRaw[12], 
           vueltoEgresado:  0,
           metodoVuelto:    "",
           cobroIngresado:  0,
+          viajeId:         (pDisp[19] || "").toString(), // Columna T
+          motivo_cancelacion: (pDisp[13] || "").toString(), // Columna N
           sheetEstado:     pEstado, // Estado real en la hoja Pedidos
           estado:          estadoInicial
         });
