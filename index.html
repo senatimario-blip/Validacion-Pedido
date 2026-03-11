@@ -905,7 +905,10 @@
     <div id="modal-validate" class="modal-backdrop">
         <div class="modal-card glass-panel wide-modal">
             <div class="modal-header">
-                <h3>Validar Pedido #<span id="val-nro-display"></span></h3>
+                <h3 style="display:flex; align-items:center; gap:10px;">
+                    Validar Pedido #<span id="val-nro-display"></span>
+                    <span id="val-status-badge" style="font-size: 0.6em; padding: 4px 8px; border-radius: 6px; font-weight: bold;"></span>
+                </h3>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <button type="button" class="btn-icon-small" id="btn-val-prev" title="Pedido Anterior (Flecha Izquierda)"><i class="fa-solid fa-chevron-left"></i></button>
                     <button type="button" class="btn-icon-small" id="btn-val-next" title="Siguiente Pedido (Flecha Derecha)"><i class="fa-solid fa-chevron-right"></i></button>

@@ -1469,6 +1469,48 @@ window.openValidateModal = (nro) => {
     document.getElementById('val-amount-display').textContent = formatMoney(order.monto);
     document.getElementById('val-id').value = order.nro;
 
+    const statusBadge = document.getElementById('val-status-badge');
+    if (statusBadge) {
+        let text = order.estado;
+        let bgStr = 'rgba(255,255,255,0.1)';
+        let colorStr = 'white';
+        let borderStr = 'rgba(255,255,255,0.2)';
+
+        if (order.estado === 'Validado') {
+            if (order.validado_por === 'Robot (Auto)') {
+                text = 'VAL. AUTO';
+                bgStr = 'rgba(52, 211, 153, 0.2)';
+                colorStr = '#34d399';
+                borderStr = 'rgba(52, 211, 153, 0.5)';
+            } else {
+                bgStr = 'rgba(74, 222, 128, 0.2)';
+                colorStr = '#4ADE80';
+                borderStr = 'rgba(74, 222, 128, 0.5)';
+            }
+        } else if (order.estado === 'Cancelado' || order.estado === 'Rechazado') {
+            bgStr = 'rgba(248, 113, 113, 0.2)';
+            colorStr = '#F87171';
+            borderStr = 'rgba(248, 113, 113, 0.5)';
+        } else if (order.estado === 'En Camino') {
+            bgStr = 'rgba(255, 255, 255, 0.2)';
+            colorStr = '#FFFFFF';
+            borderStr = 'rgba(255, 255, 255, 0.4)';
+        } else if (order.estado === 'Por Validar') {
+            bgStr = 'rgba(59, 130, 246, 0.2)';
+            colorStr = '#3B82F6';
+            borderStr = 'rgba(59, 130, 246, 0.5)';
+        } else if (order.estado === 'Pendiente') {
+            bgStr = 'rgba(251, 191, 36, 0.2)';
+            colorStr = '#FBBF24';
+            borderStr = 'rgba(251, 191, 36, 0.5)';
+        }
+
+        statusBadge.textContent = text.toUpperCase();
+        statusBadge.style.background = bgStr;
+        statusBadge.style.color = colorStr;
+        statusBadge.style.border = `1px solid ${borderStr}`;
+    }
+
     const extraInfoDiv = document.getElementById('val-extra-info');
     extraInfoDiv.innerHTML = '';
     const chipStyle = 'display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:0.78em; font-weight:600; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.85);';
