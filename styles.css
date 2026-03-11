@@ -647,6 +647,29 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
+.gps-link {
+    text-decoration: none;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+}
+
+.gps-link i {
+    cursor: pointer;
+    color: #ff00ff;
+    /* Fucsia */
+    filter: drop-shadow(0 0 3px rgba(255, 0, 255, 0.2));
+    transition: var(--transition);
+    font-size: 1.1em;
+}
+
+.gps-link:hover i {
+    transform: scale(1.3);
+    color: #ff77ff !important;
+    /* Brighter fucsia on hover */
+    filter: drop-shadow(0 0 8px rgba(255, 0, 255, 0.5));
+}
+
 .badge.Reservado {
     background: rgba(148, 163, 184, 0.2);
     color: var(--text-muted);
@@ -1533,8 +1556,13 @@ body {
 
 /* --- Animations --- */
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .spin {

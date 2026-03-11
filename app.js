@@ -884,7 +884,10 @@ function renderOrders(data) {
             <td>${vueltoHtml}</td>
             <td>${detalleHtml}</td>
             <td><span class="badge ${order.estado.replace(' ', '-')}">${order.estado}</span>
-                ${(order.lat && order.lat !== 0) ? `<i class="fa-solid fa-shield-check" style="color:#10b981; margin-left:5px;" title="GPS Verificado: ${order.lat}, ${order.lng}"></i>` : ''}
+                ${(order.lat && order.lat !== 0) ? `
+                    <a href="https://www.google.com/maps/search/?api=1&query=${order.lat},${order.lng}" target="_blank" class="gps-link" title="Abrir en Google Maps: ${order.lat}, ${order.lng}">
+                        <i class="fa-solid fa-location-dot" style="margin-left:8px;"></i>
+                    </a>` : ''}
             </td>
             <td style="font-size:0.9em;">${order.envio || '<span class="text-muted">-</span>'}</td>
             <td>${tiempoHtml}</td>
