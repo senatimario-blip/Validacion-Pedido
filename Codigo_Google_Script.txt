@@ -216,11 +216,9 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
                 if (ocr.idOperacion)  sheet.getRange(i + 1, 27).setValue(ocr.idOperacion); // AA: ID Transacción
                 if (ocr.fecha) {
                   sheet.getRange(i + 1, 28).setValue(ocr.fecha);      // AB: Fecha POS
-                  sheet.getRange(i + 1, 16).setValue(ocr.fecha);      // P: SOBREESCRIBIR FECHA OFICIAL
                 }
                 if (ocr.hora) {
                   sheet.getRange(i + 1, 29).setValue(ocr.hora);       // AC: Hora POS
-                  sheet.getRange(i + 1, 17).setValue(ocr.hora);       // Q: SOBREESCRIBIR HORA OFICIAL
                 }
                 // NUEVO: Guardar ID Compras (Columna AD = 30)
                 if (ocr.idCompras) {
@@ -324,9 +322,7 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
                   sheet.getRange(i + 1, 32).setValue(consolidated);
                 }
 
-                // SIEMPRE sincronizamos P y Q con lo que el Robot vio, incluso si no validó automático
-                if (ocr.fecha) sheet.getRange(i + 1, 16).setValue(ocr.fecha); // P
-                if (ocr.hora)  sheet.getRange(i + 1, 17).setValue(ocr.hora);  // Q
+                // Sincronización de P y Q eliminada para evitar sobreescritura
               } else {
                 const errMsg = 'Robot (Err: ' + (ocrResult.message || 'Sin monto') + ')';
                 validatorUser = errMsg;
@@ -557,11 +553,9 @@ function guardarFotoOcrSilent(llaveBusqueda, fotoB64, lat, lng, accuracy, phoneT
         if (ocr.total > 0) sheet.getRange(rowIndex, 6).setValue(ocr.total); // Col F: Monto Robot
         if (ocr.fecha) {
            sheet.getRange(rowIndex, 28).setValue(ocr.fecha); // AB: Fecha POS Robot
-           sheet.getRange(rowIndex, 16).setValue(ocr.fecha); // P: SOBREESCRIBIR FECHA OFICIAL
         }
         if (ocr.hora) {
            sheet.getRange(rowIndex, 29).setValue(ocr.hora);  // AC: Hora POS Robot
-           sheet.getRange(rowIndex, 17).setValue(ocr.hora);  // Q: SOBREESCRIBIR HORA OFICIAL
         }
         if (ocr.idCompras) sheet.getRange(rowIndex, 30).setValue(ocr.idCompras); // Col AD: ID Compras
         if (ocr.esDuplicado !== undefined) sheet.getRange(rowIndex, 31).setValue(ocr.esDuplicado); // Col AE: Duplicado
@@ -1469,5 +1463,18 @@ function obtenerLlavesExistentes() {
 
 
 
+<<<<<<< HEAD
 // La función actualizarLlaveGemini ha sido eliminada por seguridad para evitar filtraciones de API Keys.
 // Use Script Properties en el editor de Google Apps Script para configurar 'GEMINI_API_KEY'.
+=======
+function actualizarLlaveGemini() {
+  // Pega tu llave real aquí (la que empieza con AIza...)
+  const llaveBuena = 'AIzaSyAxzZlGfJ2EM5NdULpZpBQK-F0d1iyQmUk'; 
+  
+  // Guardamos la llave en las propiedades del script
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', llaveBuena);
+  
+  Logger.log("✅ ¡LLAVE ACTUALIZADA CORRECTAMENTE!");
+  Logger.log("Ahora ya puedes probar el robot manual en PruebaOCR.gs");
+}
+>>>>>>> 7b83b07 (Fix: evitar sobreescritura de columnas P y Q por parte del Robot Validador)
