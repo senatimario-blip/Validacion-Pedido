@@ -217,6 +217,22 @@ function renderMapaMotorizados() {
         return getOrderDateLima(o.fecha) === targetDate;
     });
 
+    // NUEVO v6.0: Añadir repartidores que aparecen en CUALQUIER pedido del día
+    // (incluso los ya liquidados con ID definitivo) para que sus cajas vacías
+    // estén disponibles como destinos de Drag & Drop desde Sin Asignar.
+    allOrders.forEach(o => {
+        if (o.envio && o.envio.trim() !== '') {
+            const key = o.envio.trim().toUpperCase();
+            if (!motorizadosMap[key]) {
+                motorizadosMap[key] = {
+                    name: o.envio.trim(),
+                    orders: [],
+                    totalMoney: 0
+                };
+            }
+        }
+    });
+
     // (REGLA ACTUALIZADA: Monitor Activo incluye SIN viaje Y viajes temporales "AUTO_...")
     // Esto mantiene el ciclo de vida en la caja superior.
     const activeOrders = allOrders.filter(o => {
@@ -345,15 +361,7 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
 
     const allKeys = Object.keys(motorizadosMap);
     const motorizadosKeys = allKeys.sort((a, b) => {
-        // PRIORIDAD 0: ORDEN MANUAL (Drag & Drop de Boxes)
-        if (boxSortState && boxSortState.length > 0) {
-            const indexA = boxSortState.indexOf(a);
-            const indexB = boxSortState.indexOf(b);
-            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-            if (indexA !== -1) return -1;
-            if (indexB !== -1) return 1;
-        }
-
+        // PRIORIDAD ESPECIAL: SIN ASIGNAR y CANCELADOS siempre fijos
         if (a === '___SIN_ASIGNAR___') return -1;
         if (b === '___SIN_ASIGNAR___') return 1;
         if (a === '___CANCELADOS___') return 1;
@@ -364,50 +372,38 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
         const statsA = getDriverStatusDetailed(dataA.orders);
         const statsB = getDriverStatusDetailed(dataB.orders);
 
-        // REGLA 1: EN RUTA (Rojo) a la IZQUIERDA vs LLEGÓ (Verde) a la DERECHA
+        // REGLA 1: EN RUTA (Rojo) siempre va antes que LLEGÓ (Verde)
         if (statsA.enRuta && !statsB.enRuta) return -1;
         if (!statsA.enRuta && statsB.enRuta) return 1;
 
-        // REGLA 2: Si ambos están EN RUTA -> Ordenar por el pedido más ANTIGUO (fecha)
-        if (statsA.enRuta && statsB.enRuta) {
-            const minA = Math.min(...dataA.orders.map(o => {
-                const d = new Date(o.fecha);
-                return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
-            }));
-            const minB = Math.min(...dataB.orders.map(o => {
-                const d = new Date(o.fecha);
-                return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
-            }));
-            return minA - minB;
-        }
+        // Función auxiliar para obtener el timestamp más reciente de una caja
+        const getLatestTimestamp = (orders, status) => {
+            if (!orders || orders.length === 0) return 0;
+            
+            if (status.llegaron) {
+                // Para los verdes, el timestamp es la hora de entrega más tarde
+                const times = orders.map(o => {
+                    if (!o.fechaHoraReal || o.fechaHoraReal === "---") return 0;
+                    const d = new Date(o.fechaHoraReal);
+                    return isNaN(d.getTime()) ? 0 : d.getTime();
+                });
+                return Math.max(...times);
+            } else {
+                // Para los rojos, el timestamp es la hora del pedido más reciente (el que lo "empuja" arriba)
+                const times = orders.map(o => {
+                    const d = new Date(o.fecha);
+                    return isNaN(d.getTime()) ? 0 : d.getTime();
+                });
+                return Math.max(...times);
+            }
+        };
 
-        // REGLA 3: Si ambos ya LLEGARON -> Ordenar por HORA DE ENTREGA (el primero que llegó va primero)
-        if (statsA.llegaron && statsB.llegaron) {
-            const getArrivedMinutes = (orders) => {
-                const minsList = orders.map(o => {
-                    const rawVal = [o.fechaHoraReal]
-                        .filter(v => v && String(v).trim() !== "" && String(v).trim() !== "---")
-                        .join(" ");
-                    const match = rawVal.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?/i);
-                    if (match) {
-                        let h = parseInt(match[1]);
-                        const m = parseInt(match[2]);
-                        const ampm = match[3] ? match[3].toLowerCase() : null;
-                        if (ampm) {
-                            if (ampm.includes('p') && h < 12) h += 12;
-                            if (ampm.includes('a') && h === 12) h = 0;
-                        }
-                        return h * 60 + m;
-                    }
-                    return null;
-                }).filter(v => v !== null);
-                return minsList.length > 0 ? Math.max(...minsList) : 999999;
-            };
+        const timeA = getLatestTimestamp(dataA.orders, statsA);
+        const timeB = getLatestTimestamp(dataB.orders, statsB);
 
-            const minA = getArrivedMinutes(dataA.orders);
-            const minB = getArrivedMinutes(dataB.orders);
-            if (minA !== minB) return minA - minB;
-        }
+        // REGLA 2: Ordenar por el evento más reciente (el más grande primero)
+        // Esto aplica tanto para Rojos (nueva asignación) como Verdes (nueva entrega)
+        if (timeA !== timeB) return timeB - timeA;
 
         return a.localeCompare(b);
     });
@@ -443,6 +439,17 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
         // Solo agrupamos en "llegaron" si tiene pedidos y todos estan terminados
         return data.orders.length > 0 && stats.llegaron;
     });
+
+    // NUEVO v6.0: Cajas vacias (repartidores sin pedidos activos) para D&D desde Sin Asignar
+    // Solo se muestran si hay pedidos sin asignar esperando ser asignados
+    const sinAsignarTieneOrdenes = motorizadosMap['___SIN_ASIGNAR___'] &&
+        motorizadosMap['___SIN_ASIGNAR___'].orders.length > 0;
+    const disponiblesKeys = sinAsignarTieneOrdenes ? motorizadosKeys.filter(k => {
+        if (k === '___SIN_ASIGNAR___' || k === '___CANCELADOS___') return false;
+        const data = motorizadosMap[k];
+        // Solo entradas base (sin tripId) y sin pedidos activos = disponible para recibir
+        return !data.tripId && data.orders.length === 0;
+    }) : [];
 
     const renderGroup = (keys, title, icon, color) => {
         if (keys.length === 0) return '';
@@ -548,9 +555,20 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                 let bgColor = o.estado === 'Validado' ? 'rgba(74, 222, 128, 0.1)' : (o.estado === 'Cancelado' || o.estado === 'Rechazado' ? 'rgba(248, 113, 113, 0.1)' : (o.estado === 'Por Validar' ? 'rgba(96, 165, 250, 0.1)' : 'rgba(0,0,0,0.4)'));
 
                 let sColor = '#94a3b8'; let sBg = 'rgba(148, 163, 184, 0.1)'; let sIcon = 'fa-clock'; let sText = o.estado;
-                if (o.estado === 'Validado') { 
-                    if (o.validado_por === 'Robot (Auto)') {
-                        sColor = '#34d399'; sBg = 'rgba(52, 211, 153, 0.2)'; sIcon = 'fa-robot'; sText = 'Val. Auto';
+                if (o.estado === 'Validado' || o.estado === 'Validado AG') { 
+                    const findings = (o.hallazgoRobot || '').toUpperCase();
+                    const isCritical = findings.includes('ALERTA') || findings.includes('DUPLICADO') || findings.includes('ERR:') || findings.includes('NOVALIDADO');
+                    
+                    if (o.validado_por === 'Robot (Auto)' || o.estado === 'Validado AG') {
+                        sColor = isCritical ? '#F87171' : '#34d399'; 
+                        sBg = isCritical ? 'rgba(248, 113, 113, 0.2)' : 'rgba(52, 211, 153, 0.2)'; 
+                        sIcon = 'fa-robot'; 
+                        sText = isCritical ? 'ALERTA ROBOT' : 'Val. Auto';
+                        
+                        if (isCritical) {
+                           borderColor = 'rgba(248, 113, 113, 0.8)';
+                           bgColor = 'rgba(248, 113, 113, 0.15)';
+                        }
                     } else {
                         sColor = '#4ADE80'; sBg = 'rgba(74, 222, 128, 0.2)'; sIcon = 'fa-check-circle'; 
                     }
@@ -658,11 +676,11 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                     if (isCanceledBox || data.isUnassigned || data.orders.length === 0) return '';
                     const stats = getDriverStatusDetailed(data.orders);
 
-                    // --- AUTOMATIZACION DE ID (Basada solo en Horas) ---
-                    if (stats.llegaron && !data.tripId) {
-                        console.log(`[AutoID] Generando ID para ${data.name}...`);
-                        setTimeout(() => window.agruparTodoPendiente(mKey, true), 100);
-                        return `<div style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-spinner fa-spin"></i> GENERANDO ID...</div>`;
+                    // --- AUTOMATIZACION DE ID (v6.0: se genera al PRIMER pedido entregado) ---
+                    if (stats.someHaveTime && !data.tripId) {
+                        console.log(`[AutoID v6] Primera entrega detectada para ${data.name}. Generando ID de caja...`);
+                        setTimeout(() => window._asignarIdAuto(mKey), 100);
+                        return `<div style="background: rgba(96, 165, 250, 0.2); color: #60a5fa; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-spinner fa-spin"></i> ASIGNANDO ID...</div>`;
                     }
 
                     // --- DOBLE CANDADO: BOTON LIQUIDAR ---
@@ -1097,9 +1115,13 @@ window.cerrarTodosLosViajesGlobal = async function () {
         if (driverKey && !driverKey.includes('SIN_ASIGNAR') && !driverKey.includes('CANCELADOS')) {
             const cards = Array.from(container.querySelectorAll('.motorizado-order-card'));
             if (cards.length > 0) {
-                // Solo cerramos si TODOS los pedidos de este repartidor están validados
-                const allValidated = cards.every(c => c.getAttribute('data-estado') === 'Validado');
-                if (allValidated) {
+                // Solo cerramos si TODOS los pedidos de este repartidor están en un estado final (Validado, Cancelado, o Rechazado)
+                const allFinished = cards.every(c => {
+                    const status = c.getAttribute('data-estado');
+                    return status === 'Validado' || status === 'Cancelado' || status === 'Rechazado';
+                });
+
+                if (allFinished) {
                     const nros = cards.map(c => Number(c.getAttribute('data-nro')));
                     driversToClose.push({ driverKey, nros });
                 }
@@ -1108,13 +1130,13 @@ window.cerrarTodosLosViajesGlobal = async function () {
     });
 
     if (driversToClose.length === 0) {
-        Swal.fire('Atención', 'No hay pedidos activos en ningún repartidor para cerrar.', 'info');
+        Swal.fire('Atención', 'No hay repartidores con todas sus rutas terminadas (Validadas/Canceladas) para cerrar.', 'info');
         return;
     }
 
     const { isConfirmed } = await Swal.fire({
         title: '¿Cerrar Todos los Viajes?',
-        text: `Se crearán viajes definitivos para ${driversToClose.length} repartidores listos(${driversToClose.reduce((acc, d) => acc + d.nros.length, 0)} pedidos validados en total).`,
+        text: `Se crearán viajes definitivos para ${driversToClose.length} repartidores listos (${driversToClose.reduce((acc, d) => acc + d.nros.length, 0)} pedidos terminados en total).`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
@@ -1290,7 +1312,55 @@ window.agruparTodoPendiente = async function (driverKey, isSilent = false) {
     }
 }
 
-// Función de autogrupado eliminada por requerimiento de v5.1
+// --- NUEVO v6.0: Asignar ID de caja al primer pedido entregado ---
+// Genera AUTO_177xxx para TODOS los pedidos del repartidor sin viaje_id.
+// El prefijo AUTO_ mantiene los pedidos en el Monitor Activo (no van a Viajes aún).
+// Al liquidar, AUTO_ se quita y el número base queda como ID definitivo.
+window._asignarIdAuto = async function(driverKey) {
+    const dUpper = (driverKey || "").trim().toUpperCase();
+    if (!dUpper || typeof orders === 'undefined') return;
+
+    // Debounce: evitar llamadas simultáneas para el mismo repartidor
+    if (!window._autoIdInProgress) window._autoIdInProgress = {};
+    if (window._autoIdInProgress[dUpper]) return;
+    window._autoIdInProgress[dUpper] = true;
+
+    // Pedidos activos del repartidor (sin viaje_id)
+    const pendingOrders = orders.filter(o =>
+        (o.envio || "").trim().toUpperCase() === dUpper &&
+        (!o.viaje_id || ['', 'null', 'undefined'].includes(String(o.viaje_id).trim()))
+    );
+
+    if (pendingOrders.length === 0) {
+        window._autoIdInProgress[dUpper] = false;
+        return;
+    }
+
+    // Generar ID: AUTO_177xxxxxxxxx (el número base es el ID definitivo futuro)
+    const definitiveNum = "177" + Date.now().toString().substring(3);
+    const autoId = "AUTO_" + definitiveNum;
+    console.log(`[AutoID v6] Asignando ${autoId} a ${pendingOrders.length} pedidos de ${dUpper}`);
+
+    try {
+        const nros = pendingOrders.map(o => Number(o.nro));
+        const res = await fetchAPI('asignarViajePedido', { nros, viajeId: autoId });
+        if (res.success) {
+            // Actualizar localmente para rerender inmediato
+            nros.forEach(n => {
+                const o = orders.find(x => x.nro == n);
+                if (o) o.viaje_id = autoId;
+            });
+            renderMapaMotorizados();
+        } else {
+            console.error('[AutoID v6] Error del servidor:', res.message);
+        }
+    } catch(e) {
+        console.error('[AutoID v6] Error de red:', e);
+    } finally {
+        // Liberar debounce después de 5 seg para permitir reintentos
+        setTimeout(() => { if (window._autoIdInProgress) window._autoIdInProgress[dUpper] = false; }, 5000);
+    }
+};
 
 window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = null, targetTripId = null) {
     const dUpper = (driverKey || "").trim().toUpperCase();
@@ -1327,7 +1397,7 @@ window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = n
 
         // "Está Terminado" (Verde/Rojo Final): Robot detectó entrega o Administrador ya validó/canceló
         const isFinished = (o.tiempo_entrega && o.tiempo_entrega !== "" && o.tiempo_entrega !== "---") ||
-            ['Validado', 'Cancelado', 'Rechazado'].includes(o.estado);
+            ['Validado', 'Validado AG', 'Cancelado', 'Rechazado'].includes(o.estado);
 
         return isSameDate && matchDriver && matchTrip && matchSpecificOrder && !isDefinitive && isFinished;
     });
@@ -1360,9 +1430,15 @@ window.liquidarViajeDefinitivo = async function (driverKey, specificOrderNro = n
             const nros = targetOrders.map(o => Number(o.nro));
             console.log("[Liquidación] Nros a procesar:", nros);
 
-            // Generar ID DEFINITIVO (177 + timestamp)
-            const definitiveId = "177" + Date.now().toString().substring(3);
-            console.log("[Liquidación] Generando ID Definitivo:", definitiveId);
+            // NUEVO v6.0: Si los pedidos ya tienen AUTO_177xxx, reutilizar el número base
+            // (evita generar un ID diferente y mantiene el ID de toda la vida del grupo)
+            const existingAutoId = targetOrders.find(o =>
+                o.viaje_id && String(o.viaje_id).startsWith('AUTO_177')
+            )?.viaje_id;
+            const definitiveId = existingAutoId
+                ? String(existingAutoId).replace('AUTO_', '')
+                : "177" + Date.now().toString().substring(3);
+            console.log("[Liquidación] ID Definitivo:", definitiveId, existingAutoId ? '(reutilizado del AUTO_)' : '(nuevo)');
 
             // Usamos asignarViajePedido para forzar nuestro propio ID
             const response = await fetchAPI('asignarViajePedido', {
@@ -1422,22 +1498,32 @@ async function autoCerrarViajeSilent(driverKey) {
 }
 
 function getDriverStatusDetailed(driverOrders) {
-    if (!driverOrders || !Array.isArray(driverOrders) || driverOrders.length === 0) return { enRuta: false, llegaron: false, isLiquidable: false };
+    if (!driverOrders || !Array.isArray(driverOrders) || driverOrders.length === 0)
+        return { enRuta: false, llegaron: false, someHaveTime: false, isLiquidable: false };
 
-    // 1. Un repartidor está "ENTREGARON" (VERDE) SOLO si TODOS sus pedidos tienen Hora de Entrega (Columna Y)
-    const allHaveTime = driverOrders.every(o =>
-        (o.fechaHoraReal && String(o.fechaHoraReal).trim() !== "" && String(o.fechaHoraReal).trim() !== "---")
-    );
+    // Auxiliar para determinar si un pedido "terminó" físicamente o administrativamente
+    const isFinished = (o) => {
+        const hasTime = (o.fechaHoraReal && String(o.fechaHoraReal).trim() !== "" && String(o.fechaHoraReal).trim() !== "---");
+        const isFinalState = ['Validado', 'Validado AG', 'Cancelado', 'Rechazado'].includes(o.estado);
+        return hasTime || isFinalState;
+    };
 
-    // 2. Se puede "LIQUIDAR" (BOTON) SOLO si está terminado Y TODO está Validado o Cancelado
+    // 1. VERDE: TODOS los pedidos están terminados (Entrega detectada o Cancelado/Validado)
+    const allFinished = driverOrders.every(o => isFinished(o));
+
+    // 2. TRIGGER ID: Al menos UNO está terminado (para disparar el ID de caja AUTO_)
+    const someFinished = driverOrders.some(o => isFinished(o));
+
+    // 3. LIQUIDABLE: Todos terminados Y todos Validados/Cancelados/Rechazados (Doble Candado)
     const allValidatedOrCanceled = driverOrders.every(o =>
-        (o.estado === 'Validado' || o.estado === 'Cancelado' || o.estado === 'Rechazado')
+        (o.estado === 'Validado' || o.estado === 'Validado AG' || o.estado === 'Cancelado' || o.estado === 'Rechazado')
     );
 
     return {
-        enRuta: !allHaveTime,
-        llegaron: allHaveTime,
-        isLiquidable: allHaveTime && allValidatedOrCanceled
+        enRuta: !allFinished,
+        llegaron: allFinished,
+        someHaveTime: someFinished, // Mantenemos el nombre de la propiedad por compatibilidad con _asignarIdAuto
+        isLiquidable: allFinished && allValidatedOrCanceled
     };
 }
 

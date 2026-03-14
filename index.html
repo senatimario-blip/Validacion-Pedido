@@ -145,11 +145,66 @@
                             style="width: auto; max-width: 180px; padding: 8px 12px; background: #1e1b4b; color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; cursor: pointer;">
                             <option value="all">Todos los Repartidores</option>
                         </select>
+
+                        <!-- NUEVO: FILTRO POR DETALLE MULTI-SELECCIÓN (v22) -->
+                        <div class="multi-select-container" id="detail-filter-container">
+                            <button class="multi-select-button" id="detail-filter-btn">
+                                <i class="fa-solid fa-filter"></i>
+                                <span id="detail-filter-label">Detalle: Todos</span>
+                                <i class="fa-solid fa-chevron-down" style="font-size: 0.7em; margin-left: auto;"></i>
+                            </button>
+                            <div class="multi-select-dropdown" id="detail-filter-dropdown">
+                                <label class="multi-select-option" style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 5px; padding-bottom: 10px;">
+                                    <input type="checkbox" id="detail-select-all" checked>
+                                    <span style="font-weight: bold; color: white;">(Seleccionar todo)</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="EFECTIVO" checked class="detail-cb">
+                                    <span>💵 Efectivo</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="ONLINE" checked class="detail-cb">
+                                    <span>🌐 Online</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="TARJETA" checked class="detail-cb">
+                                    <span>💳 Tarjeta</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="QR" checked class="detail-cb">
+                                    <span>📱 QR</span>
+                                </label>
+                                <hr style="margin: 8px 0; border: none; border-top: 1px solid rgba(255,255,255,0.05);">
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="PENDIENTE" checked class="detail-cb">
+                                    <span>⏳ Contado</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="CANCELADO_CONSUMIDOR" checked class="detail-cb">
+                                    <span>🙋‍♂️ Consumidor</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="CANCELADO_PTO_VENTA" checked class="detail-cb">
+                                    <span>🏪 Pto de Venta</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="checkbox" value="CANCELADO_REPARTIDOR" checked class="detail-cb">
+                                    <span>🚴 Repartidor</span>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                     <!-- Alertas Switch -->
                     <button id="toggle-alerts-btn" class="btn-secondary"
                         style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px 15px;">
                         <i class="fa-solid fa-bell-slash"></i> <span id="lbl-alerts">Alertas: OFF</span>
+                    </button>
+                    <button id="robot-alerts-btn" class="btn-secondary hidden"
+                        style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 8px 15px; position: relative;">
+                        <i class="fa-solid fa-robot"></i> <span id="robot-alerts-count">0 Alertas Robot</span>
+                        <span class="pulse-status"
+                            style="position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #f59e0b; border-radius: 50%; display: none;"
+                            id="robot-alerts-pulse"></span>
                     </button>
                     <button id="refresh-btn" class="btn-icon" title="Actualizar datos">
                         <i class="fa-solid fa-rotate-right"></i>
@@ -906,7 +961,7 @@
         <div class="modal-card glass-panel wide-modal">
             <div class="modal-header">
                 <h3 style="display:flex; align-items:center; gap:10px;">
-                    Validar Pedido #<span id="val-nro-display"></span>
+                    Validar Pedido #<span id="val-nro-display"></span> <span id="val-validator-display" style="font-size: 0.75em; opacity: 0.8; margin-left: 10px; color: #60a5fa; font-weight: normal;"></span>
                     <span id="val-status-badge" style="font-size: 0.6em; padding: 4px 8px; border-radius: 6px; font-weight: bold;"></span>
                 </h3>
                 <div style="display:flex; gap:8px; align-items:center;">
@@ -918,14 +973,27 @@
             <div class="modal-body-grid">
                 <!-- Left: Details -->
                 <div class="details-column">
+                    <!-- Hallazgos del Robot (OCR) -->
+                    <div id="val-robot-findings-container" class="robot-findings-box hidden"></div>
                     <div class="detail-group">
                         <label>Llave</label>
-                        <div class="detail-value" id="val-key-display"></div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="detail-value" id="val-key-display"></div>
+                            <button type="button" id="btn-copy-llave" class="btn-copy" title="Copiar Llave">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
                         <div id="val-extra-info" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
                     </div>
-                    <div class="detail-group">
-                        <label>Monto Registrado</label>
-                        <div class="detail-value amount-highlight">S/ <span id="val-amount-display"></span></div>
+                    <div class="detail-group" style="display: flex; gap: 20px; align-items: flex-end;">
+                        <div>
+                            <label>Monto Registrado</label>
+                            <div class="detail-value amount-highlight" style="font-size: 1.25em; line-height: 1;">S/ <span id="val-amount-display"></span></div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div style="font-size: 0.8em; color: #fbbf24; font-weight: 600;"><i class="fa-solid fa-clock" style="font-size: 0.9em;"></i> <span id="val-entrega-y-display">--</span></div>
+                            <div style="font-size: 0.8em; color: #fbbf24; font-weight: 600;"><i class="fa-solid fa-ghost" style="font-size: 0.9em;"></i> <span id="val-tada-z-display">--</span></div>
+                        </div>
                     </div>
 
                     <hr class="divider">

@@ -1,0 +1,150 @@
+/** 
+ * HERRAMIENTA MANUAL OCR - VERSIÓN CON LOGS DETALLADOS
+ * Propósito: Ver exactamente por qué el robot no está validando.
+ */
+function probarRobotOcrManualmente() {
+  const TEST_SPREADSHEET_ID = '1wFzE3tJCLsx-bBoOnLcyCsBngPu75JLfUaFTK_mX62U'; 
+  const ss = SpreadsheetApp.openById(TEST_SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Pedidos');
+  
+  if (!sheet) { Logger.log("❌ No se encontró la hoja 'Pedidos'"); return; }
+  
+  const rows = sheet.getDataRange().getValues();
+  let procesados = 0;
+  
+  // Mapeos
+  const COL_NRO = 0; const COL_FECHA = 1; const COL_MONTO = 3; const COL_FOTO = 4;
+  const COL_MONTO_FOTO = 5; const COL_ESTADO = 6; const COL_VALIDADO_POR = 7;
+  const COL_FECHA_VAL = 8; const COL_PAGO = 10; const COL_TIPO_VAL = 11;
+  const COL_ID_POS = 26; const COL_FECHA_POS = 27; const COL_HORA_POS = 28; 
+  const COL_ID_COMPRAS = 29; // AD
+  const COL_ES_DUPLICADO = 30; // AE
+  const COL_HALLAZGO_ROBOT = 31; // AF
+
+  const metodosPermitidos = ['Tarjeta de crédito / débito', 'Código QR de Plin', 'Código QR de Yape'];
+
+  for (let i = 1; i < rows.length; i++) {
+    if (procesados >= 3) { Logger.log("🛑 Límite de 3 alcanzado."); break; }
+
+    const estado = rows[i][COL_ESTADO];
+    const fotoUrl = rows[i][COL_FOTO];
+    const metodoPagoOriginal = String(rows[i][COL_PAGO]).trim();
+    
+    if (estado === 'Por Validar' && fotoUrl && fotoUrl.toLowerCase().includes('google') && metodosPermitidos.includes(metodoPagoOriginal)) {
+      const nro = rows[i][COL_NRO];
+      const montoEsperado = parseFloat(rows[i][COL_MONTO]) || 0;
+      Logger.log("-----------------------------------------");
+      Logger.log("🔍 PROCESANDO PEDIDO: " + nro + " (S/ " + montoEsperado + ")");
+      
+      const photoData = getPhotoBase64(nro);
+      if (!photoData || !photoData.success) { Logger.log("⚠️ No se pudo obtener imagen."); continue; }
+
+      const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+      const prompt = 'Extract data from this payment voucher image (POS or Online). '
+    + 'JSON keys: {"fecha":"DD/MM/YY", "hora":"HH:MM", "total":0.00, "tipoPago":"QR|TARJETA", "idOperacion":"", "idCompras":"", "esDuplicado":boolean, "hallazgo":""} '
+    + 'Rules: '
+    + '1. total: extraction of the final amount paid. '
+    + '2. idOperacion: number in parentheses after establishment name. '
+    + '3. idCompras: number after "COMPRAS" or "ID:" (up to 16 digits). '
+    + '4. esDuplicado: true if "Duplicado" is visible. '
+    + '5. hallazgo: describe if image is cut-off (right/left/top/bottom) or incomplete. '
+    + 'If Duplicado, hallazgo MUST include "Voucher DUPLICADO". '
+    + 'RETURN ONLY A JSON OBJECT.';
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+      const body = {
+        contents: [{ parts: [
+          { text: prompt },
+          { inline_data: { mime_type: photoData.mimeType, data: photoData.base64 } }
+        ]}],
+        generationConfig: { 
+          temperature: 0.1, 
+          maxOutputTokens: 2048,
+          response_mime_type: "application/json"
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
+      };
+
+      try {
+        const response = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify(body), muteHttpExceptions: true });
+        const resText = response.getContentText();
+        const jsonResp = JSON.parse(resText);
+        
+        if (jsonResp.candidates && jsonResp.candidates[0].content.parts[0].text) {
+          const candidate = jsonResp.candidates[0];
+          console.log("🏁 Finish Reason:", candidate.finishReason);
+          if (candidate.finishReason === 'SAFETY') {
+            Logger.log("⚠️ Bloqueado por Seguridad por la IA.");
+          }
+          
+          let aiText = candidate.content.parts[0].text.trim();
+          console.log("🤖 IA RAW:", aiText);
+          
+          let result;
+          try {
+            result = JSON.parse(aiText);
+          } catch(e) {
+            // Intentar extraer si tiene basura alrededor
+            const match = aiText.match(/\{[\s\S]*\}/);
+            if (match) result = JSON.parse(match[0]);
+            else throw e;
+          }
+            const montoOCR = parseFloat(result.total);
+            
+            // Verificamos monto con margen de error pequeño por centavos
+            if (!isNaN(montoOCR) && (Math.abs(montoOCR - montoEsperado) < 0.1)) {
+              const reqDate = rows[i][COL_FECHA]; 
+              if (result.fecha && result.hora && Object.prototype.toString.call(reqDate) === "[object Date]") {
+                const fParts = result.fecha.split('/'); const hParts = result.hora.split(':');
+                const pYear = fParts[2].length === 2 ? '20' + fParts[2] : fParts[2];
+                const posDate = new Date(pYear, fParts[1]-1, fParts[0], hParts[0], hParts[1]);
+                const diffMinutos = Math.abs(reqDate - posDate) / 60000;
+                
+                if (diffMinutos <= 50) { // Subí a 50 min de margen
+                  sheet.getRange(i + 1, COL_MONTO_FOTO + 1).setValue(montoOCR);
+                  sheet.getRange(i + 1, COL_ESTADO + 1).setValue('Validado AG');
+                  sheet.getRange(i + 1, COL_VALIDADO_POR + 1).setValue('AG');
+                  sheet.getRange(i + 1, COL_FECHA_VAL + 1).setValue(new Date());
+                  sheet.getRange(i + 1, COL_TIPO_VAL + 1).setValue(result.tipoPago || 'TARJETA');
+                  sheet.getRange(i + 1, COL_ID_POS + 1).setValue(result.idOperacion || '');
+                  sheet.getRange(i + 1, COL_FECHA_POS + 1).setValue(result.fecha || '');
+                  sheet.getRange(i + 1, COL_HORA_POS + 1).setValue(result.hora || '');
+                  
+                  // SINCRONIZACIÓN P/Q (P=16, Q=17)
+                  if (result.fecha) sheet.getRange(i + 1, 16).setValue(result.fecha);
+                  if (result.hora)  sheet.getRange(i + 1, 17).setValue(result.hora);
+                  
+                  sheet.getRange(i + 1, COL_ID_COMPRAS + 1).setValue(result.idCompras || '');
+                  
+                  // NUEVO: Guardar Duplicado y Hallazgo
+                  if (result.esDuplicado) sheet.getRange(i + 1, COL_ES_DUPLICADO + 1).setValue(true);
+                  if (result.hallazgo)    sheet.getRange(i + 1, COL_HALLAZGO_ROBOT + 1).setValue(result.hallazgo);
+                  
+                  Logger.log("✅ EXITOSO: Se validó correctamente.");
+                  procesados++;
+                } else { 
+                  const reason = "Rechazado: Tiempo muy lejano (" + Math.round(diffMinutos) + " min)";
+                  Logger.log("❌ " + reason);
+                  sheet.getRange(i + 1, COL_HALLAZGO_ROBOT + 1).setValue((result.hallazgo ? result.hallazgo + " | " : "") + reason);
+                }
+              } else { 
+                const reason = "Rechazado: Fecha/Hora inválida";
+                Logger.log("❌ " + reason); 
+                sheet.getRange(i + 1, COL_HALLAZGO_ROBOT + 1).setValue((result.hallazgo ? result.hallazgo + " | " : "") + reason);
+              }
+            } else { 
+              const reason = "Rechazado: Monto IA " + montoOCR + " ≠ " + montoEsperado;
+              Logger.log("❌ " + reason); 
+              sheet.getRange(i + 1, COL_HALLAZGO_ROBOT + 1).setValue((result.hallazgo ? result.hallazgo + " | " : "") + reason);
+            }
+          } else { Logger.log("⚠️ Gemini respondió raro: " + resText); }
+      } catch(e) { Logger.log("❌ Error fatal: " + e.message); }
+      Utilities.sleep(3000);
+    }
+  }
+  Logger.log("=== FIN DE LA PRUEBA (Procesados: " + procesados + ") ===");
+}

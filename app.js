@@ -20,17 +20,20 @@ const driverFilterSelect = document.getElementById('driver-filter'); // v18
 // State
 let currentUser = null;
 let orders = [];
-let API_URL = localStorage.getItem('api_url') || 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
+let API_URL = localStorage.getItem('api_url') || 'https://script.google.com/macros/s/AKfycbwaZf3nyRZc-VBhNWcj-0sDpvBAXCLJQzobodptzTGRQBpE-DtRZXILgamlhmTLrQY-/exec';
 let currentFilter = 'all';
 let currentFilteredOrders = [];
 let dateRange = { start: null, end: null };
 window.allDriversList = []; // v1.21: Lista completa de motorizados desde DB
+let bestOCRData = {}; // v6.1: Almacén global para data extraída por OCR
 
 // Alerts State
 let alertsEnabled = false;
 let notifiedDelayed = new Set();
 let notifiedPorValidar = new Set();
 let notifiedContado = new Set(); // v5.1: Alerta para pedidos al contado
+let notifiedRobotFindings = new Set(); // v5.5: Alerta para hallazgos del robot
+let currentRobotAlerts = []; // v5.5: Lista actual de alertas del robot
 let audioCtx = null;
 
 // Initialize
@@ -79,6 +82,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (photoPreview) {
         photoPreview.onerror = () => handleImageError(photoPreview);
     }
+
+    // Botón Copiar Llave (v22.1)
+    const btnCopyLlave = document.getElementById('btn-copy-llave');
+    if (btnCopyLlave) {
+        btnCopyLlave.addEventListener('click', async () => {
+            const llave = document.getElementById('val-key-display').textContent;
+            if (llave && llave.trim() !== "") {
+                try {
+                    await navigator.clipboard.writeText(llave);
+                    const icon = btnCopyLlave.querySelector('i');
+                    if (icon) icon.className = 'fa-solid fa-check';
+                    btnCopyLlave.classList.add('copy-success');
+                    
+                    setTimeout(() => {
+                        if (icon) icon.className = 'fa-regular fa-copy';
+                        btnCopyLlave.classList.remove('copy-success');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Error al copiar:', err);
+                }
+            }
+        });
+    }
 });
 
 // --- Authentication ---
@@ -115,6 +141,44 @@ if (toggleAlertsBtn) {
             toggleAlertsBtn.style.border = '1px solid rgba(239, 68, 68, 0.3)';
             toggleAlertsBtn.innerHTML = '<i class="fa-solid fa-bell-slash"></i> <span id="lbl-alerts">Alertas: OFF</span>';
         }
+    });
+}
+const robotAlertsBtn = document.getElementById('robot-alerts-btn');
+if (robotAlertsBtn) {
+    robotAlertsBtn.addEventListener('click', () => {
+        document.getElementById('robot-alerts-pulse').style.display = 'none';
+        
+        if (currentRobotAlerts.length === 0) {
+            Swal.fire('Sin Alertas', 'No hay hallazgos del robot pendientes.', 'success');
+            return;
+        }
+
+        let html = '<div style="text-align: left; max-height: 400px; overflow-y: auto;">';
+        currentRobotAlerts.forEach(o => {
+            html += `<div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 5px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong style="color: #f59e0b;"># ${o.nro} - ${o.llave}</strong>
+                    <span style="font-size: 0.8em; color: gray; margin-left: auto;">S/ ${parseFloat(o.monto || 0).toFixed(2)}</span>
+                </div>
+                <div style="font-size: 0.9em; margin-top: 5px; color: #fef3c7;">
+                    <i class="fa-solid fa-triangle-exclamation"></i> ${o.hallazgoRobot}
+                </div>
+                <button onclick="window.openValidateModal(${o.nro})" style="margin-top: 8px; font-size: 0.75em; padding: 6px 10px; background: #3b82f6; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                    Ver Detalle
+                </button>
+            </div>`;
+        });
+        html += '</div>';
+
+        Swal.fire({
+            title: 'Hallazgos del Robot',
+            html: html,
+            icon: 'warning',
+            background: 'var(--card-bg)',
+            color: 'var(--text-main)',
+            confirmButtonText: 'Cerrar',
+            confirmButtonColor: '#334155'
+        });
     });
 }
 
@@ -590,6 +654,45 @@ async function loadOrdersSilent() {
             orders = newOrders.sort((a, b) => b.nro - a.nro);
             updateDriverFilterOptions();
 
+            // --- DECTECTAR HALLAZGOS DEL ROBOT (v5.5) ---
+            const findings = orders.filter(o => o.hallazgoRobot && o.hallazgoRobot.trim() !== "" && !o.hallazgoRobot.toLowerCase().includes('todo conforme'));
+            currentRobotAlerts = findings;
+
+            const robotBtn = document.getElementById('robot-alerts-btn');
+            const robotCount = document.getElementById('robot-alerts-count');
+            const robotPulse = document.getElementById('robot-alerts-pulse');
+
+            if (findings.length > 0) {
+                robotBtn.classList.remove('hidden');
+                robotCount.textContent = `${findings.length} Alerta${findings.length > 1 ? 's' : ''} Robot`;
+                
+                // Buscar si hay alguno nuevo que no hayamos notificado
+                const newFindings = findings.filter(f => !notifiedRobotFindings.has(f.llave + f.hallazgoRobot));
+                if (newFindings.length > 0 && orders.length > 0) {
+                    newFindings.forEach(f => notifiedRobotFindings.add(f.llave + f.hallazgoRobot));
+                    playAlertSound('warning'); 
+                    robotPulse.style.display = 'block';
+
+                    const Toast = Swal.mixin({
+                        toast: true,
+                        position: 'top-end',
+                        showConfirmButton: false,
+                        timer: 6000,
+                        timerProgressBar: true,
+                        background: '#78350f',
+                        color: '#fef3c7',
+                    });
+                    Toast.fire({
+                        icon: 'warning',
+                        title: `Robot detectó ${newFindings.length} hallazgo(s) nuevo(s)`,
+                        text: 'Revisa el panel de alertas'
+                    });
+                }
+            } else {
+                robotBtn.classList.add('hidden');
+                robotPulse.style.display = 'none';
+            }
+
             // Re-aplicar el filtro de la tabla de forma silenciosa si estamos en la vista
             const isOrdersView = window.getComputedStyle(document.getElementById('app-content')).display !== 'none';
             if (isOrdersView) {
@@ -625,7 +728,7 @@ function renderOrders(data) {
             else if (motivo.includes('venta')) detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🏪 Pto de Venta</span>';
             else if (motivo.includes('repartidor')) detalleHtml = '<span style="color:#fca5a5; font-size:0.9em;">🚴 Repartidor</span>';
             else if (motivo !== '') detalleHtml = `<span style="color:#fca5a5; font-size:0.9em;">${order.motivo_cancelacion}</span>`;
-        } else if (order.estado === 'Validado') {
+        } else if (order.estado === 'Validado' || order.estado === 'Validado AG') {
             const tipo = (order.tipo_pago_val || order.tipo_pago || '').toString().toUpperCase();
             if (tipo.includes('EFECTIVO')) detalleHtml = '<span style="color:#4ade80; font-weight:bold; font-size:0.85em;">💵 EFECTIVO</span>';
             else if (tipo.includes('ONLINE')) detalleHtml = '<span style="color:#60a5fa; font-weight:bold; font-size:0.85em;">🌐 ONLINE</span>';
@@ -644,7 +747,7 @@ function renderOrders(data) {
             const currentVuelto = order.vuelto ? parseFloat(order.vuelto).toFixed(2) : '';
             // Si el motorizado o admin ya validó, se puede deshabilitar o dejar en solo lectura dependiendo del rol.
             // Para simplicidad, si está Validado, bloqueamos la edición directa aquí.
-            const isReadonly = (order.estado === 'Validado' || currentUser.rol !== 'Admin') ? 'disabled' : '';
+            const isReadonly = (order.estado === 'Validado' || order.estado === 'Validado AG' || currentUser.rol !== 'Admin') ? 'disabled' : '';
 
             vueltoHtml = `
                 <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
@@ -707,7 +810,7 @@ function renderOrders(data) {
                 let staticMins = null; // Para cuando viene de HH:MM:SS de Google Sheets
 
                 // Usamos el tiempo guardado si ya está procesado (Validado/Cancelado) and existe la columna
-                if ((order.estado === 'Validado' || order.estado === 'Por Validar' || order.estado === 'Cancelado' || order.estado === 'Rechazado') && order.tiempo_transcurrido) {
+                if ((order.estado === 'Validado' || order.estado === 'Validado AG' || order.estado === 'Por Validar' || order.estado === 'Cancelado' || order.estado === 'Rechazado') && order.tiempo_transcurrido) {
                     let valTiempo = order.tiempo_transcurrido;
 
                     // Si viene como string HH:MM:SS
@@ -732,7 +835,7 @@ function renderOrders(data) {
                     }
                 }
                 // Si no hay tiempo estático, calculamos dinámicamente o por fecha entrega (legacy/fallbacks)
-                else if ((order.estado === 'Validado' || order.estado === 'Por Validar') && order.hora_entrega) {
+                else if ((order.estado === 'Validado' || order.estado === 'Validado AG' || order.estado === 'Por Validar') && order.hora_entrega) {
                     let hStr = String(order.hora_entrega).trim();
                     let hh = 0, mm = 0, ok = false;
 
@@ -880,14 +983,17 @@ function renderOrders(data) {
         if (orderDate && !isNaN(orderDate.getTime())) {
             tr.setAttribute('data-time', orderDate.getTime());
         }
+        const validadoPorColH = (order.validado_por || '').toString();
+        const displayResponsable = validadoPorColH ? ` <span style="font-size:0.75em; opacity:0.6; color:#60a5fa; font-weight:normal;">(${validadoPorColH.includes(':') ? validadoPorColH.split(':')[0].trim() : validadoPorColH})</span>` : '';
+
         tr.innerHTML = `
-            <td>#${dynamicCorrelative}</td>
+            <td>#${dynamicCorrelative}${displayResponsable}</td>
             <td>${order.llave}</td>
             <td>${formatDate(order.fecha)}</td>
             <td>S/ ${formatMoney(order.monto)}</td>
             <td>${vueltoHtml}</td>
             <td>${detalleHtml}</td>
-            <td><span class="badge ${order.estado === 'Validado' && order.validado_por === 'Robot (Auto)' ? 'Validado-Auto' : order.estado.replace(' ', '-')}">${order.estado === 'Validado' && order.validado_por === 'Robot (Auto)' ? 'Validado Auto' : order.estado}</span>
+            <td><span class="badge ${order.estado === 'Validado AG' ? 'Validado-AG' : (order.estado === 'Validado' && order.validado_por === 'Robot (Auto)' ? 'Validado-Auto' : order.estado.replace(' ', '-'))}">${order.estado}</span>
                 ${(order.lat && order.lat !== 0) ? `
                     <a href="https://www.google.com/maps/search/?api=1&query=${order.lat},${order.lng}" target="_blank" class="gps-link" title="Abrir en Google Maps: ${order.lat}, ${order.lng}">
                         <i class="fa-solid fa-location-dot" style="margin-left:8px;"></i>
@@ -965,9 +1071,9 @@ function startGlobalTimers() {
 
                 let tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
 
-                // Actualizar la celda exacta del tiempo (es la columna índice 7)
-                if (tr.children[7]) {
-                    tr.children[7].innerHTML = tiempoHtml;
+                // Actualizar la celda exacta del tiempo (es la columna índice 8)
+                if (tr.children[8]) {
+                    tr.children[8].innerHTML = tiempoHtml;
                 }
             }
         });
@@ -1458,16 +1564,54 @@ async function loadAllDrivers() {
         console.error("Error al cargar lista de motorizados:", e);
     }
 }
-
+// window.loadDriversList() ya se llama al inicio...
 window.openValidateModal = (nro) => {
     const order = orders.find(o => o.nro == nro);
     if (!order) return;
+    currentOrderForValidation = order; // v4.0 FIX
+    bestOCRData = {}; // Reset cada vez que se abre el modal
+    const ocrChips = document.getElementById('ocr-info-chips');
+    if (ocrChips) ocrChips.innerHTML = '';
 
-    currentOrderForValidation = order;
-    document.getElementById('val-nro-display').textContent = order.nro;
-    document.getElementById('val-key-display').textContent = order.llave;
-    document.getElementById('val-amount-display').textContent = formatMoney(order.monto);
-    document.getElementById('val-id').value = order.nro;
+    // Poblar datos del encabezado del modal (v1.23 Fix)
+    const nroDisplay = document.getElementById('val-nro-display');
+    const amountDisplay = document.getElementById('val-amount-display');
+    const keyDisplay = document.getElementById('val-key-display');
+    
+    if (nroDisplay) nroDisplay.textContent = order.nro;
+    if (amountDisplay) amountDisplay.textContent = formatMoney(order.monto);
+    if (keyDisplay) keyDisplay.textContent = order.llave || '';
+
+    // Poblar Entrega (Y) e Intervalo (Z) (v4.2 Refined)
+    const entregaYDisplay = document.getElementById('val-entrega-y-display');
+    const tadaZDisplay = document.getElementById('val-tada-z-display');
+    
+    let timeY = '--';
+    if (order.fechaHoraReal) {
+        try {
+            const d = new Date(order.fechaHoraReal);
+            if (!isNaN(d.getTime())) {
+                timeY = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+            } else {
+                timeY = String(order.fechaHoraReal).substring(0, 10);
+            }
+        } catch(e) { timeY = '--'; }
+    }
+    if (entregaYDisplay) entregaYDisplay.textContent = timeY;
+    
+    let minZ = '--';
+    const mzRaw = String(order.minutosReales || '').trim();
+    if (mzRaw && mzRaw !== "---") {
+        minZ = `${mzRaw} min`;
+    }
+    if (tadaZDisplay) tadaZDisplay.textContent = minZ;
+
+    const validatorDisplay = document.getElementById('val-validator-display');
+    if (validatorDisplay) {
+        const fullVal = (order.validado_por || '').toString();
+        const namePart = fullVal.includes(':') ? fullVal.split(':')[0].trim() : fullVal;
+        validatorDisplay.textContent = namePart ? `(${namePart})` : '';
+    }
 
     const statusBadge = document.getElementById('val-status-badge');
     if (statusBadge) {
@@ -1476,12 +1620,15 @@ window.openValidateModal = (nro) => {
         let colorStr = 'white';
         let borderStr = 'rgba(255,255,255,0.2)';
 
-        if (order.estado === 'Validado') {
-            if (order.validado_por === 'Robot (Auto)') {
-                text = 'VAL. AUTO';
-                bgStr = 'rgba(52, 211, 153, 0.2)';
-                colorStr = '#34d399';
-                borderStr = 'rgba(52, 211, 153, 0.5)';
+        if (order.estado === 'Validado' || order.estado === 'Validado AG') {
+            const findings = (order.hallazgoRobot || '').toUpperCase();
+            const isCritical = findings.includes('ALERTA') || findings.includes('DUPLICADO') || findings.includes('ERR:') || findings.includes('NOVALIDADO');
+
+            if (order.validado_por === 'Robot (Auto)' || order.estado === 'Validado AG') {
+                text = isCritical ? 'ALERTA ROBOT' : 'VAL. AUTO';
+                bgStr = isCritical ? 'rgba(248, 113, 113, 0.2)' : 'rgba(52, 211, 153, 0.2)';
+                colorStr = isCritical ? '#F87171' : '#34d399';
+                borderStr = isCritical ? 'rgba(248, 113, 113, 0.5)' : 'rgba(52, 211, 153, 0.5)';
             } else {
                 bgStr = 'rgba(74, 222, 128, 0.2)';
                 colorStr = '#4ADE80';
@@ -1511,9 +1658,48 @@ window.openValidateModal = (nro) => {
         statusBadge.style.border = `1px solid ${borderStr}`;
     }
 
+    console.log(`[Diagnostic] Abriendo modal para pedido #${order.nro}, estado: ${order.estado}, hallazgoRobot:`, order.hallazgoRobot);
+
+    // --- Lógica para mostrar Hallazgos del Robot ---
+    const robotContainer = document.getElementById('val-robot-findings-container');
+    if (robotContainer) {
+        const fullVal = (order.validado_por || '').toString();
+        const columnZFindings = (order.minutosReales || '').toString();
+        const columnAFBox = (order.hallazgoRobot || '').toString(); // Nueva Columna AF
+        
+        // Prioridad: 1. Columna AF, 2. Columna Z (si no es num), 3. Texto en H
+        let findingMsg = '';
+        if (columnAFBox.trim()) {
+            findingMsg = columnAFBox;
+        } else if (columnZFindings && isNaN(parseFloat(columnZFindings))) {
+            findingMsg = columnZFindings;
+        } else if (fullVal.includes(':')) {
+            findingMsg = fullVal.split(':').slice(1).join(':').trim();
+        }
+
+        if (findingMsg) {
+            robotContainer.classList.remove('hidden');
+            const isError = findingMsg.toLowerCase().includes('novalidado') || 
+                            findingMsg.toLowerCase().includes('err:') || 
+                            findingMsg.toLowerCase().includes('duplicado');
+            robotContainer.className = `robot-findings-box ${isError ? 'error' : 'info'}`;
+            robotContainer.innerHTML = `
+                <strong><i class="fa-solid fa-circle-info"></i> Hallazgos</strong>
+                ${findingMsg}
+            `;
+        } else {
+            robotContainer.classList.add('hidden');
+            robotContainer.innerHTML = '';
+        }
+    }
+
     const extraInfoDiv = document.getElementById('val-extra-info');
     extraInfoDiv.innerHTML = '';
     const chipStyle = 'display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:0.78em; font-weight:600; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.85);';
+
+    if (order.idCompras) {
+        extraInfoDiv.innerHTML += `<span style="${chipStyle} background:rgba(59,130,246,0.15); border-color:rgba(59,130,246,0.3); color:#60a5fa;" title="ID Compras del Voucher"><i class="fa-solid fa-receipt"></i> ID: ${order.idCompras}</span>`;
+    }
 
     if (order.envio) {
         extraInfoDiv.innerHTML += `<span style="${chipStyle}"><i class="fa-solid fa-motorcycle" style="color:#60a5fa;"></i> ${order.envio}</span>`;
@@ -1545,10 +1731,14 @@ window.openValidateModal = (nro) => {
     photoPreview.classList.add('hidden');
     uploadPlaceholder.classList.remove('hidden');
     document.getElementById('photo-actions').classList.add('hidden');
+    
+    // El monto del voucher SIEMPRE inicia vacío para validador manual (v4.0 Corazón APP)
     valPhotoAmountInput.value = '';
 
     const vueltoInput = document.getElementById('val-vuelto-amount');
+    const recibidoInput = document.getElementById('val-monto-recibido');
     if (vueltoInput) vueltoInput.value = '';
+    if (recibidoInput) recibidoInput.value = '';
 
     const ocrChipsContainer = document.getElementById('ocr-info-chips');
     if (ocrChipsContainer) {
@@ -1562,13 +1752,21 @@ window.openValidateModal = (nro) => {
     const valFechaEntrega = document.getElementById('val-fecha-entrega');
     const valHoraEntrega = document.getElementById('val-hora-entrega');
 
-    if (order.fecha_entrega) {
-        let fe = String(order.fecha_entrega).trim();
-        // Si ya viene en formato DD/MM/YYYY, lo usamos tal cual para evitar que Date() lo invierta
-        if (fe.includes('/') && fe.split('/').length === 3) {
-            valFechaEntrega.value = fe;
+    // --- PRIORIDAD OBLIGATORIA: 1. Extracción Robot (AB), 2. Manual (P) ---
+    // Usamos ?.toString() para manejar nulos y trim() para ignorar celdas con solo espacios
+    const robotFecha = (order.fechaPos || '').toString().trim();
+    const manualFecha = (order.fecha_entrega || '').toString().trim();
+    const rawFecha = robotFecha || manualFecha;
+
+    console.log(`[Diagnostic] Modal #${order.nro} | RobotFecha: "${robotFecha}", ManualFecha: "${manualFecha}"`);
+
+    if (rawFecha) {
+        if (rawFecha.includes('/') && rawFecha.split('/').length === 3) {
+            let partes = rawFecha.split('/');
+            if (partes[2].length === 2) partes[2] = '20' + partes[2];
+            valFechaEntrega.value = partes.join('/');
         } else {
-            const d = new Date(fe);
+            const d = new Date(rawFecha);
             if (!isNaN(d.getTime())) {
                 const fmt = new Intl.DateTimeFormat('en-US', {
                     timeZone: 'America/Lima',
@@ -1578,19 +1776,22 @@ window.openValidateModal = (nro) => {
                 const getP = (type) => parts.find(p => p.type === type).value;
                 valFechaEntrega.value = `${getP('day')}/${getP('month')}/${getP('year')}`;
             } else {
-                valFechaEntrega.value = fe;
+                valFechaEntrega.value = rawFecha;
             }
         }
     } else {
         valFechaEntrega.value = '';
     }
 
-    if (order.hora_entrega) {
-        let hStr = String(order.hora_entrega).trim();
-        if (hStr.includes('T')) {
-            let dT = new Date(hStr);
+    const robotHora = (order.horaPos || '').toString().trim();
+    const manualHora = (order.hora_entrega || '').toString().trim();
+    const rawHora = robotHora || manualHora;
+
+    if (rawHora) {
+        if (rawHora.includes('T')) {
+            let dT = new Date(rawHora);
             if (!isNaN(dT.getTime())) {
-                dT.setUTCFullYear(2000); // Fix para evitar descuento de 13 mins por zona horaria de 1899
+                dT.setUTCFullYear(2000); 
                 const fmtD = new Intl.DateTimeFormat('en-US', {
                     timeZone: 'America/Lima',
                     hour: 'numeric', minute: 'numeric',
@@ -1602,15 +1803,15 @@ window.openValidateModal = (nro) => {
                 if (tH === '24') tH = '00';
                 valHoraEntrega.value = `${tH.padStart(2, '0')}:${getPD('minute').padStart(2, '0')}`;
             } else {
-                valHoraEntrega.value = hStr;
+                valHoraEntrega.value = rawHora;
             }
-        } else if (hStr.includes(':')) {
-            const parts = hStr.split(':');
+        } else if (rawHora.includes(':')) {
+            const parts = rawHora.split(':');
             const hh = parts[0].padStart(2, '0');
             const mm = parts[1].padStart(2, '0');
             valHoraEntrega.value = `${hh}:${mm}`;
         } else {
-            valHoraEntrega.value = hStr;
+            valHoraEntrega.value = rawHora;
         }
     } else {
         valHoraEntrega.value = '';
@@ -1682,21 +1883,17 @@ window.openValidateModal = (nro) => {
         }
     }
 
-    if (cleanUrl && (order.estado === 'Validado' || order.estado === 'Por Validar')) {
+    if (cleanUrl && (order.estado === 'Validado' || order.estado === 'Validado AG' || order.estado === 'Por Validar')) {
         photoPreview.setAttribute('data-nro', order.nro); // Para el fallback onerror
         photoPreview.src = getDirectPhotoUrl(order.foto);
         photoPreview.classList.remove('hidden');
         uploadPlaceholder.classList.add('hidden');
         document.getElementById('photo-actions').classList.remove('hidden');
         document.getElementById('view-full-photo').href = extractPhotoUrl(order.foto);
-    } else {
-        photoPreview.removeAttribute('src');
-        photoPreview.classList.add('hidden');
-        uploadPlaceholder.classList.remove('hidden');
-        document.getElementById('photo-actions').classList.add('hidden');
     }
 
-    if (order.estado === 'Validado' && tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA' || (order.foto && (order.foto.includes('QR') || order.foto.includes('TARJETA')))) {
+    // --- PRE-POBLACIÓN DE MONTO (Solo para Robot / Revisiones) ---
+    if ((order.estado === 'Validado' || order.estado === 'Validado AG') && (tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA')) {
         if (order.monto_foto && parseFloat(order.monto_foto) > 0) {
             valPhotoAmountInput.value = parseFloat(order.monto_foto).toFixed(2);
         }
@@ -1763,6 +1960,9 @@ window.openValidateModal = (nro) => {
         const removeBtn = document.getElementById('remove-photo-btn');
         if (removeBtn) removeBtn.style.display = 'inline-block';
     }
+
+    // Calcular tiempo y validar UI inicialmente (v4.0 Corazón APP)
+    calculateLiveElapsedTime();
 
     document.getElementById('modal-validate').classList.add('active');
 };
@@ -1833,6 +2033,13 @@ const valTypeRadios = document.querySelectorAll('input[name="valType"]');
 if (valVueltoAmount) {
     valVueltoAmount.addEventListener('input', () => {
         updateSugeridoRedondo();
+        validateAmounts(); // v4.0
+    });
+}
+
+if (valMontoRecibido) {
+    valMontoRecibido.addEventListener('input', () => {
+        validateAmounts(); // v4.0
     });
 }
 
@@ -1854,6 +2061,7 @@ valTypeRadios.forEach(radio => {
         if (e.target.value === 'efectivo') {
             updateSugeridoRedondo();
         }
+        validateAmounts(); // Actualizar UI al cambiar tipo (v4.0)
     });
 });
 
@@ -1915,16 +2123,15 @@ function calculateLiveElapsedTime() {
         const diffMin = Math.round(diffMs / 60000);
 
         if (diffMin >= 0) {
-            const h = Math.floor(diffMin / 60);
-            const m = diffMin % 60;
-            display.textContent = h > 0 ? `${h}h ${m}m` : `${m} min`;
-            display.setAttribute('data-min', diffMin);
+            display.textContent = diffMin + (diffMin === 1 ? ' minuto' : ' minutos');
             display.style.color = '#60a5fa';
         } else {
-            display.textContent = 'Hora anterior al registro';
-            display.removeAttribute('data-min');
+            display.textContent = 'Error: Entrega < Pedido';
             display.style.color = '#f87171';
         }
+        
+        // Disparar validación de UI para chequear fechas/montos (v4.0 Corazón APP)
+        validateAmounts();
     } catch (e) {
         display.textContent = '--';
     }
@@ -2043,22 +2250,28 @@ dropZone.addEventListener('drop', (e) => {
 });
 
 document.addEventListener('paste', (e) => {
+    // 1. Caso: Modal de Validación estándar
     const validateModal = document.getElementById('modal-validate');
-    if (!validateModal || !validateModal.classList.contains('active')) return;
+    const isValidateActive = validateModal && validateModal.classList.contains('active');
 
+    // 2. Caso: Modal de Cancelación (SweetAlert)
+    const swalTitle = Swal.isVisible() ? Swal.getTitle()?.innerText : '';
+    const isCancelActive = swalTitle && swalTitle.includes('Evidencia del Repartidor');
+
+    if (!isValidateActive && !isCancelActive) return;
     if (currentUser && currentUser.rol !== 'Admin') return;
 
-    const valType = document.querySelector('input[name="valType"]:checked');
-    if (!valType) {
-        Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'warning',
-            title: 'Seleccione un tipo (POS, Online, Efectivo) primero',
-            showConfirmButton: false,
-            timer: 3000
-        });
-        return;
+    // Solo validamos valType para el modal de validación estándar
+    if (isValidateActive) {
+        const valType = document.querySelector('input[name="valType"]:checked');
+        if (!valType) {
+            Swal.fire({
+                toast: true, position: 'top-end', icon: 'warning',
+                title: 'Seleccione un tipo (POS, Online, Efectivo) primero',
+                showConfirmButton: false, timer: 3000
+            });
+            return;
+        }
     }
 
     const tagName = e.target.tagName.toUpperCase();
@@ -2079,10 +2292,48 @@ document.addEventListener('paste', (e) => {
 
     if (imageFile) {
         e.preventDefault();
-        const dt = new DataTransfer();
-        dt.items.add(imageFile);
-        photoInput.files = dt.files;
-        handleFileSelect();
+        
+        if (isValidateActive) {
+            const dt = new DataTransfer();
+            dt.items.add(imageFile);
+            photoInput.files = dt.files;
+            handleFileSelect();
+        } 
+        else if (isCancelActive) {
+            // Manejo especial para el SweetAlert de cancelación
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64Content = event.target.result.split(',')[1];
+                window.lastPastedEvidence = {
+                    data: base64Content,
+                    type: imageFile.type,
+                    name: `evidencia_pegada_${Date.now()}.jpg`
+                };
+
+                // Actualizar la UI del Swal de forma dinámica
+                const container = Swal.getHtmlContainer();
+                const photoArea = container?.querySelector('div[style*="border:2px dashed"], div[style*="border:2px solid"]');
+                if (photoArea) {
+                    photoArea.innerHTML = `
+                        <img src="${event.target.result}" style="max-height:350px; max-width:100%; border-radius:12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                        <div style="margin-top:8px; font-size:0.8em; color:#22c55e; font-weight:600;">
+                            <i class="fa-solid fa-paste"></i> Evidencia pegada correctamente
+                        </div>
+                    `;
+                    photoArea.style.border = '2px solid #22c55e';
+                    photoArea.style.background = '#f0fdf4';
+                    photoArea.style.padding = '8px';
+                }
+
+                // Habilitar y resaltar botón de confirmar
+                const confirmBtn = Swal.getConfirmButton();
+                if (confirmBtn) {
+                    confirmBtn.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar Cancelación';
+                    confirmBtn.style.background = '#d33';
+                }
+            };
+            reader.readAsDataURL(imageFile);
+        }
     }
 });
 
@@ -2512,125 +2763,123 @@ async function runOCR(file, rotation = 0) {
     document.getElementById('val-hora-entrega').value = '';
     document.getElementById('val-tiempo-transcurrido').textContent = '--';
 
-    let bestData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', esOnlineValido: false };
+    bestOCRData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', esOnlineValido: false };
     let engine = '';
     const valType = document.querySelector('input[name="valType"]:checked')?.value;
 
     try {
-        if (valType === 'pos' || valType === 'online') {
-            let apiKey = localStorage.getItem('gcp_api_key');
-            if (!apiKey) {
-                const { value: key } = await Swal.fire({
-                    title: 'Api Key Requerida',
-                    input: 'password',
-                    inputLabel: 'Ingresa tu API Key de Google Cloud Vision',
-                    inputPlaceholder: 'AIzaSy...',
-                    showCancelButton: true
-                });
-                if (key) {
-                    localStorage.setItem('gcp_api_key', key);
-                    apiKey = key;
-                } else {
-                    ocrOverlay.classList.add('hidden');
-                    return;
-                }
-            }
-
+        // 1. INTELIGENCIA GEMINI (Backend) - PRIORIDAD MÁXIMA (Igual que el Robot)
+        if (API_URL) {
             try {
-                engine = 'Google Cloud Vision';
                 const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
-
-                const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        requests: [{
-                            image: { content: base64 },
-                            features: [
-                                { type: 'TEXT_DETECTION' },
-                                { type: 'DOCUMENT_TEXT_DETECTION' }
-                            ]
-                        }]
-                    })
+                const response = await fetchAPI('processVoucherOCR', {
+                    imageBase64: base64,
+                    mimeType: file.type || 'image/jpeg'
                 });
 
-                const data = await response.json();
-
-                if (data.error) throw new Error(data.error.message);
-
-                const textAnnotations = data.responses[0]?.textAnnotations;
-                if (!textAnnotations || textAnnotations.length === 0) throw new Error('No se detectó texto en la imagen');
-                const fullText = textAnnotations[0].description.toLowerCase();
-                const parsed = parseIziPayVoucherData(textAnnotations[0].description);
-                bestData = {
-                    amount: parsed.amount || 0,
-                    fecha: parsed.fecha || '',
-                    hora: parsed.hora || '',
-                    tipoPago: parsed.tipoPago || 'TARJETA',
-                    esOnlineValido: fullText.includes('débito en línea') || fullText.includes('debito en linea')
-                };
-            } catch (err) {
-                console.error('[OCR] Google Cloud Vision error:', err);
-                if (err.message && err.message.includes('API key not valid')) {
-                    localStorage.removeItem('gcp_api_key');
-                    Swal.fire('API Key Inválida', 'La clave ingresada no es válida. Intente nuevamente.', 'error');
+                if (response.success && response.data) {
+                    const d = response.data;
+                    bestOCRData = {
+                        amount: parseFloat(d.total) || 0,
+                        fecha: d.fecha || '',
+                        hora: d.hora || '',
+                        tipoPago: d.tipoPago || 'TARJETA',
+                        esOnlineValido: !!d.esOnlineValido,
+                        // NUEVO v6.1: Almacenar toda la metadata inteligente
+                        idOperacion: d.idOperacion || '',
+                        fechaPOS: d.fecha || '',
+                        horaPOS: d.hora || '',
+                        idCompras: d.idCompras || '',
+                        esDuplicado: !!d.esDuplicado,
+                        hallazgo: d.hallazgo || ''
+                    };
+                    engine = `Gemini (${d.model || 'AI'})`;
                 }
-                throw err;
-            }
-        } else {
-            if (API_URL) {
-                try {
-                    const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
-                    const response = await fetchAPI('processVoucherOCR', {
-                        imageBase64: base64,
-                        mimeType: file.type || 'image/jpeg'
-                    });
-
-                    if (response.success && response.data) {
-                        const d = response.data;
-                        bestData = {
-                            amount: parseFloat(d.total) || 0,
-                            fecha: d.fecha || '',
-                            hora: d.hora || '',
-                            tipoPago: d.tipoPago || 'TARJETA',
-                            esOnlineValido: !!d.esOnlineValido
-                        };
-                        engine = `Gemini (${d.model || 'AI'})`;
-                    }
-                } catch (geminiErr) {
-                    console.warn('[OCR] Gemini backend error:', geminiErr.message);
-                }
-            }
-
-            if (bestData.amount <= 0 && valType !== 'online') {
-                engine = 'Tesseract';
-
-                function mergeData(passData) {
-                    if (passData.amount > 0 && bestData.amount === 0) bestData.amount = passData.amount;
-                    if (passData.fecha && !bestData.fecha) bestData.fecha = passData.fecha;
-                    if (passData.hora && !bestData.hora) bestData.hora = passData.hora;
-                    if (passData.tipoPago === 'QR') bestData.tipoPago = 'QR';
-                }
-
-                const processedImage = await preprocessImage(file);
-                mergeData(await ocrPass(processedImage, { tessedit_char_whitelist: '0123456789SsTtOoAaLl/., :', tessedit_pageseg_mode: '6' }, 'Pass 1'));
-                if (bestData.amount <= 0 || !bestData.fecha || !bestData.hora) mergeData(await ocrPass(processedImage, { tessedit_pageseg_mode: '3' }, 'Pass 2'));
+            } catch (geminiErr) {
+                console.warn('[OCR] Gemini backend error:', geminiErr.message);
             }
         }
 
-        if (bestData.amount > 0) {
-            valPhotoAmountInput.value = bestData.amount.toFixed(2);
-            itemDetected(bestData.amount);
-            processVoucherTimes(bestData.fecha, bestData.hora);
+        // 2. GOOGLE CLOUD VISION (Directo) - SEGUNDO RESPALDO (Menos inteligente)
+        if (bestOCRData.amount <= 0 && (valType === 'pos' || valType === 'online')) {
+            let apiKey = localStorage.getItem('gcp_api_key');
+            if (apiKey) {
+                try {
+                    engine = 'Google Cloud Vision';
+                    const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
+                    const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            requests: [{
+                                image: { content: base64 },
+                                features: [
+                                    { type: 'TEXT_DETECTION' },
+                                    { type: 'DOCUMENT_TEXT_DETECTION' }
+                                ]
+                            }]
+                        })
+                    });
 
-            if (valType === 'pos') {
-                setPosType(bestData.tipoPago);
+                    const data = await response.json();
+                    if (!data.error) {
+                        const textAnnotations = data.responses[0]?.textAnnotations;
+                        if (textAnnotations && textAnnotations.length > 0) {
+                            const fullText = textAnnotations[0].description.toLowerCase();
+                            const parsed = parseIziPayVoucherData(textAnnotations[0].description);
+                            bestOCRData = {
+                                amount: parsed.amount || 0,
+                                fecha: parsed.fecha || '',
+                                hora: parsed.hora || '',
+                                tipoPago: parsed.tipoPago || 'TARJETA',
+                                esOnlineValido: fullText.includes('débito en línea') || fullText.includes('debito en linea'),
+                                fechaPOS: parsed.fecha || '',
+                                horaPOS: parsed.hora || ''
+                            };
+                        }
+                    }
+                } catch (cvErr) {
+                    console.error('[OCR] Cloud Vision error:', cvErr);
+                }
+            }
+        }
+
+        // 3. TESSERACT.JS (Local) - ÚLTIMO RECURSO
+        if (bestOCRData.amount <= 0 && (valType === 'pos' || valType === 'online')) {
+            engine = 'Tesseract';
+            function mergeData(passData) {
+                if (passData.amount > 0 && bestOCRData.amount === 0) bestOCRData.amount = passData.amount;
+                if (passData.fecha && !bestOCRData.fecha) {
+                    bestOCRData.fecha = passData.fecha;
+                    bestOCRData.fechaPOS = passData.fecha;
+                }
+                if (passData.hora && !bestOCRData.hora) {
+                    bestOCRData.hora = passData.hora;
+                    bestOCRData.horaPOS = passData.hora;
+                }
+                if (passData.tipoPago === 'QR') bestOCRData.tipoPago = 'QR';
             }
 
-            showOcrInfoChips(bestData);
+            const processedImage = await preprocessImage(file);
+            mergeData(await ocrPass(processedImage, { tessedit_char_whitelist: '0123456789SsTtOoAaLl/., :', tessedit_pageseg_mode: '6' }, 'Pass 1'));
+            if (bestOCRData.amount <= 0 || !bestOCRData.fecha || !bestOCRData.hora) {
+                mergeData(await ocrPass(processedImage, { tessedit_pageseg_mode: '3' }, 'Pass 2'));
+            }
+        }
+
+        if (bestOCRData.amount > 0) {
+            valPhotoAmountInput.value = bestOCRData.amount.toFixed(2);
+            itemDetected(bestOCRData.amount);
+            processVoucherTimes(bestOCRData.fecha, bestOCRData.hora);
+
+            if (valType === 'pos') {
+                setPosType(bestOCRData.tipoPago);
+            }
+
+            showOcrInfoChips(bestOCRData);
 
             // Warning for ONLINE voucher if text is missing
-            if (valType === 'online' && !bestData.esOnlineValido) {
+            if (valType === 'online' && !bestOCRData.esOnlineValido) {
                 Swal.fire({
                     title: 'Verificación ONLINE Fallida',
                     html: `El comprobante no contiene el texto exacto <b>"Tarjeta de crédito o débito en línea"</b>.<br>Por favor, compruebe que sea el comprobante correcto.`,
@@ -2644,14 +2893,15 @@ async function runOCR(file, rotation = 0) {
                     timer: 4000,
                     timerProgressBar: true,
                 });
-                let detailParts = [`S/ ${bestData.amount.toFixed(2)}`];
-                if (bestData.fecha) detailParts.push(`📅 ${bestData.fecha}`);
-                if (bestData.hora) detailParts.push(`🕐 ${bestData.hora}`);
+                let detailParts = [`S/ ${bestOCRData.amount.toFixed(2)}`];
+                if (bestOCRData.fecha) detailParts.push(`📅 ${bestOCRData.fecha}`);
+                if (bestOCRData.hora) detailParts.push(`🕐 ${bestOCRData.hora}`);
                 if (valType === 'online') {
                     detailParts.push('🌐 ONLINE Verificado');
                 } else {
-                    detailParts.push(bestData.tipoPago === 'QR' ? '📱 QR' : '💳 Tarjeta');
+                    detailParts.push(bestOCRData.tipoPago === 'QR' ? '📱 QR' : '💳 Tarjeta');
                 }
+                if (bestOCRData.idTransaccion) detailParts.push(`🆔 ID: ${bestOCRData.idTransaccion}`); // NEW
 
                 Toast.fire({
                     icon: 'success',
@@ -2702,6 +2952,16 @@ function showOcrInfoChips(data) {
         container.innerHTML += `<span style="${chipStyle} background:rgba(167,139,250,0.15); color:#a78bfa;"><i class="fa-solid fa-clock"></i> ${data.hora}</span>`;
     }
     container.innerHTML += `<span style="${chipStyle} background:rgba(74,222,128,0.15); color:#4ade80;"><i class="fa-solid fa-${data.tipoPago === 'QR' ? 'qrcode' : 'credit-card'}"></i> ${data.tipoPago}</span>`;
+
+    if (data.idOperacion) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(251,191,36,0.15); color:#fbbf24;"><i class="fa-solid fa-hashtag"></i> Op: ${data.idOperacion}</span>`;
+    }
+    if (data.idCompras) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(244,114,182,0.15); color:#f472b6;"><i class="fa-solid fa-receipt"></i> ID: ${data.idCompras}</span>`;
+    }
+    if (data.esDuplicado) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(239,68,68,0.15); color:#ef4444;"><i class="fa-solid fa-copy"></i> DUPLICADO</span>`;
+    }
 }
 
 async function ocrPass(image, params, label) {
@@ -2718,7 +2978,7 @@ async function ocrPass(image, params, label) {
         return data;
     } catch (err) {
         console.warn(`[${label}] Failed:`, err.message);
-        return { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA' };
+        return { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', idTransaccion: '' };
     }
 }
 
@@ -2866,6 +3126,7 @@ function extractVoucherData(text) {
         tipoPago = 'QR';
     }
 
+
     let amount = 0;
 
     const sPattern = /[Ss]\/?\.\?\s*(\d{1,3}(?:[,.]?\d{3})*[.,]\d{2})/;
@@ -2970,22 +3231,84 @@ function validateAmounts() {
 }
 
 function updateValidationUI(photoAmount, registeredAmount) {
+    const saveBtn = document.getElementById('btn-save-validation');
+    const saveNextBtn = document.getElementById('btn-save-next');
+    
+    if (!currentOrderForValidation) return; // Seguridad v4.0
+    
+    // 1. Validar Fecha (PUNTO CRÍTICO)
+    const fechaEntrega = document.getElementById('val-fecha-entrega').value;
+    let dateMismatch = false;
+    
+    if (fechaEntrega && currentOrderForValidation.fecha) {
+        const dEntrega = fechaEntrega.split('/'); // DD/MM/YYYY
+        const dRegistroOrig = new Date(currentOrderForValidation.fecha);
+        
+        // Extraer DD/MM/YYYY de la fecha original en America/Lima
+        const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Lima' }); // en-GB da DD/MM/YYYY
+        const parts = fmt.formatToParts(dRegistroOrig);
+        const getP = (type) => parts.find(p => p.type === type).value;
+        
+        const dayReg = getP('day').padStart(2, '0');
+        const monthReg = getP('month').padStart(2, '0');
+        const yearReg = getP('year');
+        
+        if (dEntrega[0] !== dayReg || dEntrega[1] !== monthReg || dEntrega[2] !== yearReg) {
+            dateMismatch = true;
+        }
+    }
+
+    if (dateMismatch) {
+        validationStatusBox.className = 'validation-status-box invalid';
+        document.getElementById('status-icon').className = 'fa-solid fa-calendar-times';
+        document.getElementById('status-text').textContent = 'FECHA DIFIERE: BLOQUEADO';
+        if (saveBtn) saveBtn.disabled = true;
+        if (saveNextBtn) saveNextBtn.disabled = true;
+        return;
+    }
+
     if (!photoAmount) {
         validationStatusBox.className = 'validation-status-box';
         document.getElementById('status-icon').className = 'fa-solid fa-circle-question';
         document.getElementById('status-text').textContent = 'Pendiente de Validar';
+        if (saveBtn) saveBtn.disabled = false;
+        if (saveNextBtn) saveNextBtn.disabled = false;
         return;
     }
 
+    // 3. Validar Flujo de Caja (Solo Efectivo v4.0)
+    const valTypeRadio = document.querySelector('input[name="valType"]:checked');
+    if (valTypeRadio && valTypeRadio.value === 'efectivo') {
+        const montoPedido = registeredAmount;
+        const montoVuelto = parseFloat(document.getElementById('val-vuelto-amount')?.value) || 0;
+        const sugerido = montoPedido + montoVuelto;
+        const recibido = parseFloat(document.getElementById('val-monto-recibido')?.value) || 0;
+        
+        const diffRecibido = Math.abs(recibido - sugerido);
+        if (diffRecibido >= 0.001) {
+            validationStatusBox.className = 'validation-status-box invalid';
+            document.getElementById('status-icon').className = 'fa-solid fa-hand-holding-dollar';
+            document.getElementById('status-text').textContent = 'RECIBIDO NO COINCIDE';
+            if (saveBtn) saveBtn.disabled = true;
+            if (saveNextBtn) saveNextBtn.disabled = true;
+            return;
+        }
+    }
+
+    // 2. Validar Monto (Exactitud Decimal Exacta v4.0)
     const diff = Math.abs(photoAmount - registeredAmount);
-    if (diff < 0.05) {
+    if (diff < 0.001) { // Exacto
         validationStatusBox.className = 'validation-status-box valid';
         document.getElementById('status-icon').className = 'fa-solid fa-circle-check';
         document.getElementById('status-text').textContent = 'Monto Coincide: VALIDADO';
+        if (saveBtn) saveBtn.disabled = false;
+        if (saveNextBtn) saveNextBtn.disabled = false;
     } else {
         validationStatusBox.className = 'validation-status-box invalid';
         document.getElementById('status-icon').className = 'fa-solid fa-triangle-exclamation';
         document.getElementById('status-text').textContent = 'Monto Difiere: RECHAZAR';
+        if (saveBtn) saveBtn.disabled = true; // Bloquear si no coincide
+        if (saveNextBtn) saveNextBtn.disabled = true;
     }
 }
 
@@ -3094,6 +3417,13 @@ validateForm.addEventListener('submit', async (e) => {
             fechaEntrega: document.getElementById('val-fecha-entrega').value || '',
             horaEntrega: document.getElementById('val-hora-entrega').value || '',
             tiempoTranscurrido: timeFormatted,
+            // NUEVO v6.1: Pasar inteligencia total al Backend (Columnas AA-AF)
+            idOperacion: bestOCRData.idOperacion || '',
+            fechaPOS: bestOCRData.fechaPOS || '',
+            horaPOS: bestOCRData.horaPOS || '',
+            idCompras: bestOCRData.idCompras || '',
+            esDuplicado: bestOCRData.esDuplicado || false,
+            hallazgo: bestOCRData.hallazgo || '',
             archivo: fileData ? {
                 name: `pedido_${currentOrderForValidation.nro}_${Date.now()}.jpg`,
                 type: file ? file.type : 'image/jpeg',
@@ -3117,10 +3447,8 @@ validateForm.addEventListener('submit', async (e) => {
                         currentFilteredOrders[currentIndex].estado = 'Validado';
 
                         for (let i = currentIndex + 1; i < currentFilteredOrders.length; i++) {
-                            if (currentFilteredOrders[i].estado === 'Por Validar') {
-                                nextOrder = currentFilteredOrders[i];
-                                break;
-                            }
+                            nextOrder = currentFilteredOrders[i];
+                            break;
                         }
                     }
                     // Loop around eliminado a petición del usuario para que termine al llegar al final del barrido
@@ -3317,7 +3645,7 @@ function updateStats(data = orders) {
         totalCount++;
         totalAmount += monto;
 
-        if (o.estado === 'Validado') {
+        if (o.estado === 'Validado' || o.estado === 'Validado AG') {
             validCount++;
             validAmount += monto;
         } else if (o.estado === 'Pendiente') {
@@ -3363,6 +3691,44 @@ function applyFilters() {
     const filterDate = document.getElementById('date-filter').value;
     const hasRange = dateRange.start && dateRange.end;
 
+    // --- NUEVA LÓGICA FILTRO DETALLE (v22) ---
+    const detailCheckboxes = document.querySelectorAll('.detail-cb');
+    const selectedCategories = Array.from(detailCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+    const detailLabel = document.getElementById('detail-filter-label');
+    const selectAllCb = document.getElementById('detail-select-all');
+
+    if (detailLabel) {
+        if (selectedCategories.length === 0) {
+            detailLabel.textContent = 'Detalle: Ninguno';
+        } else if (selectedCategories.length === detailCheckboxes.length) {
+            detailLabel.textContent = 'Detalle: Todos';
+            if (selectAllCb) selectAllCb.checked = true;
+        } else {
+            detailLabel.textContent = `Detalle: ${selectedCategories.length} sel.`;
+            if (selectAllCb) selectAllCb.checked = false;
+        }
+    }
+
+    const getOrderCategory = (o) => {
+        if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
+            const motivo = (o.motivo_cancelacion || '').toLowerCase();
+            if (motivo.includes('consumidor')) return 'CANCELADO_CONSUMIDOR';
+            if (motivo.includes('venta')) return 'CANCELADO_PTO_VENTA';
+            if (motivo.includes('repartidor')) return 'CANCELADO_REPARTIDOR';
+            return 'PENDIENTE'; // Fallback
+        }
+        
+        let tipo = (o.tipo_pago_val || o.tipo_pago || o.pago || '').toString().toUpperCase();
+        
+        if (tipo.includes('EFECTIVO')) return 'EFECTIVO';
+        if (tipo.includes('ONLINE')) return 'ONLINE';
+        if (tipo.includes('TARJETA')) return 'TARJETA';
+        if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) return 'QR';
+        
+        return 'PENDIENTE';
+    };
+    // ------------------------------------------
+
     // 1. Primer paso: Filtrar solo por Estado y Fecha para determinar los repartidores disponibles (v18.1)
     const contextOrders = orders.filter(o => {
         let statusMatch = currentFilter === 'all' || o.estado === currentFilter;
@@ -3387,7 +3753,12 @@ function applyFilters() {
                 dateMatch = oDateStr === filterDate;
             }
         }
-        return statusMatch && dateMatch;
+        
+        // v22: Integrar el filtro de detalle aquí también para que el podio/stats se actualicen
+        const category = getOrderCategory(o);
+        const detailMatch = selectedCategories.includes(category);
+
+        return statusMatch && dateMatch && detailMatch;
     });
 
     // 2. Actualizar el selector de repartidores con los nombres relevantes del contexto (v18.1)
@@ -3455,6 +3826,46 @@ document.getElementById('date-filter').addEventListener('change', (e) => {
 if (driverFilterSelect) {
     driverFilterSelect.addEventListener('change', applyFilters);
 }
+
+// --- LÓGICA DE UI PARA FILTRO DETALLE (v22) ---
+const detailFilterBtn = document.getElementById('detail-filter-btn');
+const detailFilterDropdown = document.getElementById('detail-filter-dropdown');
+
+if (detailFilterBtn && detailFilterDropdown) {
+    // Toggle dropdown
+    detailFilterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        detailFilterDropdown.classList.toggle('active');
+    });
+
+    // Cerrar al hacer clic fuera
+    document.addEventListener('click', (e) => {
+        if (!detailFilterDropdown.contains(e.target) && e.target !== detailFilterBtn) {
+            detailFilterDropdown.classList.remove('active');
+        }
+    });
+
+    // Re-filtrar cuando cambie cualquier casilla
+    const detailCheckboxes = detailFilterDropdown.querySelectorAll('.detail-cb');
+    detailCheckboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+            applyFilters();
+        });
+    });
+
+    // Lógica (Seleccionar todo)
+    const selectAllCb = document.getElementById('detail-select-all');
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', () => {
+            const isChecked = selectAllCb.checked;
+            detailCheckboxes.forEach(cb => {
+                cb.checked = isChecked;
+            });
+            applyFilters();
+        });
+    }
+}
+// ----------------------------------------------
 
 // v19.2: Auto-refresco automático cada 5 minutos (300,000ms)
 setInterval(() => {
@@ -3800,7 +4211,7 @@ window.rejectOrder = async (nro) => {
     // ====== Enviar cancelación ======
     Swal.fire({ title: 'Cancelando...', didOpen: () => Swal.showLoading() });
     try {
-        const res = await fetchAPI('rechazarPedido', {
+        const payload = {
             nro,
             usuario: currentUser.usuario,
             motivo,
@@ -3808,12 +4219,26 @@ window.rejectOrder = async (nro) => {
             fechaEntrega: fechaFinal,
             horaEntrega: horaFinal,
             tiempoTranscurrido: durationFormatted
-        });
+        };
+
+        // Si hay una foto pegada, incluirla
+        if (window.lastPastedEvidence) {
+            payload.archivo = window.lastPastedEvidence;
+        }
+
+        const res = await fetchAPI('rechazarPedido', payload);
+        
+        // Limpiar evidencia después del intento
+        window.lastPastedEvidence = null;
+
         if (res.success) {
             Swal.fire('Cancelado', `Pedido cancelado: <strong>${motivo}</strong><br><small>Evidencia registrada ✅</small>`, 'success');
             loadOrders();
         } else { Swal.fire('Error', res.message, 'error'); }
-    } catch (e) { Swal.fire('Error', 'Error de conexión', 'error'); }
+    } catch (e) { 
+        window.lastPastedEvidence = null;
+        Swal.fire('Error', 'Error de conexión', 'error'); 
+    }
 }
 
 window.marcarPorValidarManual = async (nro) => {

@@ -1,4 +1,5 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbw0rSapCV9vhSSY5vW7z4JQFvjlcsLlEpPUdZqQLCtDx4T1LWFppLJriiW-4OyPl-IX/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwaZf3nyRZc-VBhNWcj-0sDpvBAXCLJQzobodptzTGRQBpE-DtRZXILgamlhmTLrQY-/exec';
+let bestAdminOCRData = {}; // v6.1: Almacén global para data extraída por OCR (Admin)
 
 // SweetAlert2 Toast configuration (Lazy initialization)
 let Toast = null;
@@ -612,9 +613,22 @@ function autoLoginData(name) {
     if (name.toLowerCase() === 'admin') {
         if (adminControls) adminControls.classList.remove('hidden');
         if (navBtnValidar) navBtnValidar.classList.remove('hidden');
+        
+        // REGULARIZACIÓN: Permitir acceso a galería para el Admin en el modal de repartidor
+        const inputPos = document.getElementById('input-foto-pos');
+        const inputEvidencia = document.getElementById('input-foto-evidencia');
+        if (inputPos) inputPos.removeAttribute('capture');
+        if (inputEvidencia) inputEvidencia.removeAttribute('capture');
+        console.log("🔓 [ADMIN] Acceso a galería desbloqueado para regularización.");
     } else {
         if (adminControls) adminControls.classList.add('hidden');
         if (navBtnValidar) navBtnValidar.classList.add('hidden');
+        
+        // Restaurar modo cámara para repartidores normales
+        const inputPos = document.getElementById('input-foto-pos');
+        const inputEvidencia = document.getElementById('input-foto-evidencia');
+        if (inputPos) inputPos.setAttribute('capture', 'environment');
+        if (inputEvidencia) inputEvidencia.setAttribute('capture', 'environment');
     }
 
     fetchDriverOrders();
@@ -947,6 +961,7 @@ function renderSingleOrderCard(order, index) {
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-0.5">Llave</span>
                     <div class="flex items-center gap-2">
                         <span class="text-2xl font-bold tracking-tight text-white">${order.llave || 'PED-' + order.nro}</span>
+                        ${order.validado_por ? `<span class="text-[10px] text-blue-400 font-bold bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">${order.validado_por.includes(':') ? order.validado_por.split(':')[0].trim() : order.validado_por}</span>` : ''}
                         ${order.direccion ? `
                         <button onclick="event.stopPropagation(); window.open('https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.direccion)}', '_blank')" class="btn-copy text-primary" title="Ver en Mapa">
                             <i class="fa-solid fa-location-dot"></i>
@@ -1411,40 +1426,63 @@ async function handleSendToWhatsApp() {
     // 1. INICIAR TAREAS DE FONDO (SIN AWAIT)
     console.log("🚀 Iniciando tareas de servidor en segundo plano para:", orderRef.llave);
 
-    // Tarea A: Subida silenciosa a Google Drive
-    uploadPosSilently(posFileRef, orderRef.llave).then(res => {
-        if (!res) console.error("❌ Falló la subida a Drive en segundo plano");
-        else console.log("✅ Foto guardada en Drive exitosamente (background)");
-    });
-
     const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
     const strPagoOrig = String(orderRef.pago || '').toUpperCase();
 
     // Tarea B: Marcar como "Por Validar" en el Excel (o disparar OCR automático)
-    const payloadValidar = { action: 'marcarPorValidar', nro: orderRef.nro };
-    
-    // Si el pago es POS (Tarjeta) o QR, solicitamos validación automática por OCR en el backend
-    if (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN') || 
-        strPagoOrig.includes('CRÉDITO / DÉBITO') || strPagoOrig.includes('CREDITO / DEBITO')) {
-        payloadValidar.isAutoValidated = true;
-    }
+    // CAMBIO: Ahora esperamos a que la subida a Drive termine para evitar que el OCR intente leer un pedido sin foto (Race Condition)
+    uploadPosSilently(posFileRef, orderRef.llave).then(res => {
+        if (!res) {
+            console.error("❌ Falló la subida a Drive, no se puede auto-validar.");
+            return;
+        }
+        console.log("✅ Foto guardada en Drive, disparando auto-validación...");
+        
+        const payloadValidar = { action: 'marcarPorValidar', nro: orderRef.nro };
+        
+        // Si el pago es POS (Tarjeta), QR o En Línea, solicitamos validación automática por OCR
+        // He mejorado el filtro para que acepte variaciones como "o débito", "/ débito" y pagos "en línea"
+        const isAuto = (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN') || 
+                        strPagoOrig.includes('CRÉDITO') || strPagoOrig.includes('DÉBITO') || 
+                        strPagoOrig.includes('TARJETA') || strPagoOrig.includes('ONLINE') || strPagoOrig.includes('LÍNEA'));
+        
+        console.log("🔍 Pago Detectado:", strPagoOrig, "-> ¿Disparar OCR?:", isAuto);
+        if (isAuto) {
+            payloadValidar.isAutoValidated = true;
+        }
 
-    // Siempre enviar fecha y hora de entrega (hora Lima) para todos los modos
-    const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
-    const limaDate = new Date(nowLima);
-    payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+        // Siempre enviar fecha y hora de entrega (hora Lima) para todos los modos
+        const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+        const limaDate = new Date(nowLima);
+        payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-    // Incluir GPS en el registro (Anti-Cheat)
-    payloadValidar.lat = currentLocation.lat;
-    payloadValidar.lng = currentLocation.lng;
-    payloadValidar.accuracy = currentLocation.accuracy;
-    payloadValidar.phoneTimestamp = currentLocation.timestamp;
+        // Incluir GPS en el registro (Anti-Cheat)
+        payloadValidar.lat = currentLocation.lat;
+        payloadValidar.lng = currentLocation.lat;
+        payloadValidar.accuracy = currentLocation.accuracy;
+        payloadValidar.phoneTimestamp = currentLocation.timestamp;
 
-    fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify(payloadValidar)
-    }).catch(e => console.warn('⚠️ Error background marcando Por Validar / AutoValidando', e));
+        fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify(payloadValidar)
+        })
+        .then(r => r.json())
+        .then(resValid => {
+            if (resValid.success) {
+                console.log("✅ Servidor procesó marcarPorValidar con éxito:", resValid);
+                // Si es auto-validado pero el estado sigue siendo "Por Validar", avisar que el OCR falló
+                if (isAuto && resValid.status === 'Por Validar') {
+                    console.warn("⚠️ El OCR no pudo validar automáticamente (ver logs en Excel).");
+                    // Opcional: comentar si no quieres distraer al repartidor
+                    // alert("El OCR no pudo auto-validar. Se validará manual.");
+                }
+            } else {
+                console.error("❌ El servidor devolvió error en marcarPorValidar:", resValid.message);
+            }
+        })
+        .catch(e => console.error("📡 Error de Red en marcarPorValidar:", e));
+    });
 
     let posIcon = '💳'; // Default (e.g. Tarjeta física)
     if (strPagoOrig.includes('CONTADO') || strPagoOrig.includes('EFECTIVO')) {
@@ -2468,7 +2506,6 @@ async function loadAllDrivers() {
     }
 }
 
-// --- Admin Validation Functions ---
 
 window.openValidateModalAdmin = (nro) => {
     const order = (window.orders || []).find(o => o.nro == nro);
@@ -2483,6 +2520,9 @@ window.openValidateModalAdmin = (nro) => {
     valAdminPhotoAmount.value = '';
     valAdminDriver.value = order.envio || '';
     valAdminPhotoFileData = null;
+    bestAdminOCRData = {}; // NUEVO v6.1: Reset metadata OCR
+    const ocrChipsAdmin = document.getElementById('ocr-info-chips-admin');
+    if (ocrChipsAdmin) ocrChipsAdmin.innerHTML = '';
 
     // --- PHOTO LOADING (PRE-CARGA) ---
     const cleanUrl = extractPhotoUrl(order.foto);
@@ -2509,10 +2549,87 @@ window.openValidateModalAdmin = (nro) => {
         valAdminChips.innerHTML += `<span class="px-2 py-0.5 rounded-md bg-primary/10 text-[10px] font-bold text-primary border border-primary/20 uppercase">${order.canal}</span>`;
     }
 
-    // Date/Time defaults
-    const now = new Date();
-    valAdminTime.value = now.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' });
-    valAdminDate.value = getYMDLima(now).split('-').reverse().join('/'); // DD/MM/YYYY
+    // --- Robot Findings (Column Z/H) ---
+    const robotContainer = document.getElementById('val-admin-robot-findings-container');
+    if (robotContainer) {
+        const fullVal = (order.validado_por || '').toString();
+        const columnZFindings = (order.minutosReales || '').toString();
+
+        let findingMsg = '';
+        if (columnZFindings && isNaN(parseFloat(columnZFindings))) {
+            findingMsg = columnZFindings;
+        } else if (fullVal.includes(':')) {
+            findingMsg = fullVal.split(':').slice(1).join(':').trim();
+        }
+
+        if (findingMsg) {
+            robotContainer.classList.remove('hidden');
+            const isError = findingMsg.toLowerCase().includes('novalidado') || findingMsg.toLowerCase().includes('err:');
+            robotContainer.className = `p-4 mt-4 rounded-xl text-xs flex flex-col gap-1 border ${isError ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-blue-500/10 border-blue-500/30 text-blue-300'}`;
+            robotContainer.innerHTML = `
+                <div class="flex items-center gap-2 font-bold mb-1">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <span>Hallazgos del Robot</span>
+                </div>
+                <p class="leading-relaxed">${findingMsg}</p>
+            `;
+        } else {
+            robotContainer.classList.add('hidden');
+            robotContainer.innerHTML = '';
+        }
+    }
+
+    // --- PRIORIDAD OBLIGATORIA: 1. Extracción Robot (AB/AC), 2. Manual (P/Q), 3. Hora Actual ---
+    const robotFecha = (order.fechaPos || '').toString().trim();
+    const manualFecha = (order.fecha_entrega || '').toString().trim();
+    const rawFecha = robotFecha || manualFecha;
+
+    if (rawFecha) {
+        if (rawFecha.includes('/') && rawFecha.split('/').length === 3) {
+            let partes = rawFecha.split('/');
+            if (partes[2].length === 2) partes[2] = '20' + partes[2];
+            valAdminDate.value = partes.join('/');
+        } else {
+            const d = new Date(rawFecha);
+            if (!isNaN(d.getTime())) {
+                const dayF = String(d.getDate()).padStart(2, '0');
+                const monthF = String(d.getMonth() + 1).padStart(2, '0');
+                valAdminDate.value = `${dayF}/${monthF}/${d.getFullYear()}`;
+            } else {
+                valAdminDate.value = rawFecha;
+            }
+        }
+    } else {
+        const nowF = new Date();
+        const dayN = String(nowF.getDate()).padStart(2, '0');
+        const monthN = String(nowF.getMonth() + 1).padStart(2, '0');
+        valAdminDate.value = `${dayN}/${monthN}/${nowF.getFullYear()}`;
+    }
+
+    const robotHora = (order.horaPos || '').toString().trim();
+    const manualHora = (order.hora_entrega || '').toString().trim();
+    const rawHora = robotHora || manualHora;
+
+    if (rawHora) {
+        if (rawHora.includes('T')) {
+            let dT = new Date(rawHora);
+            if (!isNaN(dT.getTime())) {
+                dT.setUTCFullYear(2000); 
+                valAdminTime.value = dT.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' });
+            } else {
+                valAdminTime.value = rawHora;
+            }
+        } else if (rawHora.includes(':')) {
+            const parts = rawHora.split(':');
+            const hh = parts[0].padStart(2, '0');
+            const mm = parts[1].padStart(2, '0');
+            valAdminTime.value = `${hh}:${mm}`;
+        } else {
+            valAdminTime.value = rawHora;
+        }
+    } else {
+        valAdminTime.value = new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' });
+    }
 
     // Show modal
     modalValidarAdmin.classList.remove('hidden');
@@ -2521,7 +2638,113 @@ window.openValidateModalAdmin = (nro) => {
 
     // Initial toggle
     toggleValAdminOptions();
+
+    // --- REFUERZO DE VALIDACIÓN (Mirror app.js) ---
+    // Limpiar estados previos
+    document.getElementById('val-admin-status-monto').classList.add('hidden');
+    document.getElementById('val-admin-status-fecha').classList.add('hidden');
+    
+    // Escuchar cambios para validar en tiempo real
+    const inputsToWatch = [
+        valAdminPhotoAmount, valAdminDate, 
+        document.getElementById('val-admin-monto-recibido'),
+        document.getElementById('val-admin-vuelto')
+    ];
+    
+    inputsToWatch.forEach(input => {
+        if (input) {
+            input.removeEventListener('input', updateValidationUIAdmin);
+            input.addEventListener('input', updateValidationUIAdmin);
+        }
+    });
+
+    // Escuchar cambios de radio "valAdminType"
+    document.querySelectorAll('input[name="valAdminType"]').forEach(radio => {
+        radio.removeEventListener('change', updateValidationUIAdmin);
+        radio.addEventListener('change', updateValidationUIAdmin);
+    });
+
+    // Ejecutar validación inicial
+    updateValidationUIAdmin();
 };
+
+function updateValidationUIAdmin() {
+    if (!currentOrderForAdminValidation) return;
+    const order = currentOrderForAdminValidation;
+
+    const valType = document.querySelector('input[name="valAdminType"]:checked').value;
+    const montoValidado = parseFloat(valAdminPhotoAmount.value || 0);
+    const montoSistema = parseFloat(order.monto || 0);
+
+    // 1. VALIDACIÓN DE MONTO (Exacta con margen 0.001)
+    const statusMonto = document.getElementById('val-admin-status-monto');
+    if (montoValidado > 0) {
+        statusMonto.classList.remove('hidden');
+        const diff = Math.abs(montoValidado - montoSistema);
+        if (diff < 0.001) {
+            statusMonto.innerHTML = '<span class="text-[9px] font-black text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">MONTO COINCIDE: VALIDADO</span>';
+        } else {
+            statusMonto.innerHTML = '<span class="text-[9px] font-black text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">MONTO DIFIERE</span>';
+        }
+    } else {
+        statusMonto.classList.add('hidden');
+    }
+
+    // 2. VALIDACIÓN DE FECHA
+    const statusFecha = document.getElementById('val-admin-status-fecha');
+    const fechaInputRaw = valAdminDate.value.trim();
+    if (fechaInputRaw) {
+        statusFecha.classList.remove('hidden');
+        const fechaPedidoYMD = getYMDLima(order.fecha);
+        const [d, m, y] = fechaInputRaw.split('/');
+        const fechaInputYMD = (d && m && y) ? `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}` : "";
+
+        if (fechaInputYMD === fechaPedidoYMD) {
+            statusFecha.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500 text-sm"></i>';
+        } else {
+            statusFecha.innerHTML = '<i class="fa-solid fa-circle-exclamation text-red-500 text-sm" title="Fecha no coincide con pedido"></i>';
+        }
+    } else {
+        statusFecha.classList.add('hidden');
+    }
+
+    // 3. LÓGICA DE EFECTIVO (Sugerido vs Recibido)
+    const btnConfirmar = document.getElementById('btn-confirm-val-admin');
+    let blockByCash = false;
+
+    if (valType === 'efectivo') {
+        const recibido = parseFloat(document.getElementById('val-admin-monto-recibido').value || 0);
+        const vuelto = parseFloat(document.getElementById('val-admin-vuelto').value || 0);
+        const sugeridoRedondo = montoSistema + vuelto;
+
+        if (recibido > 0) {
+            const diffCash = Math.abs(recibido - sugeridoRedondo);
+            if (diffCash >= 0.01) {
+                blockByCash = true;
+            }
+        } else {
+            blockByCash = true; // No permitir confirmar sin recibo
+        }
+    }
+
+    // 4. BLOQUEO DE BOTÓN FINAL
+    const diffMonto = Math.abs(montoValidado - montoSistema);
+    const montoOk = montoValidado > 0 && diffMonto < 0.001;
+    
+    // Validar fecha solo si es POS u ONLINE (Efectivo a veces es posterior)
+    const fechaPedidoYMD = getYMDLima(order.fecha);
+    const [dd, mm, yy] = fechaInputRaw.split('/');
+    const fechaInputYMD = (dd && mm && yy) ? `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}` : "";
+    const fechaOk = (fechaInputYMD === fechaPedidoYMD);
+
+    if (montoOk && fechaOk && !blockByCash) {
+        btnConfirmar.disabled = false;
+        btnConfirmar.classList.remove('opacity-50', 'grayscale');
+    } else {
+        btnConfirmar.disabled = true;
+        btnConfirmar.classList.add('opacity-50', 'grayscale');
+    }
+}
 
 window.closeValidateModalAdmin = () => {
     modalValidarAdmin.classList.add('hidden');
@@ -2579,121 +2802,117 @@ async function runAdminOCR(file, rotation = 0) {
     valAdminPhotoAmount.value = '';
     valAdminPhotoAmount.placeholder = 'Escaneando...';
 
-    let bestData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', esOnlineValido: false };
+    bestAdminOCRData = { amount: 0, fecha: '', hora: '', tipoPago: 'TARJETA', esOnlineValido: false };
     let engine = '';
     const valType = document.querySelector('input[name="valAdminType"]:checked')?.value;
 
     try {
-        if (valType === 'pos' || valType === 'online') {
-            let apiKey = localStorage.getItem('gcp_api_key');
-            if (!apiKey) {
-                const { value: key } = await Swal.fire({
-                    title: 'Api Key Requerida',
-                    input: 'password',
-                    inputLabel: 'Ingresa tu API Key de Google Cloud Vision',
-                    inputPlaceholder: 'AIzaSy...',
-                    showCancelButton: true
-                });
-                if (key) {
-                    localStorage.setItem('gcp_api_key', key);
-                    apiKey = key;
-                } else {
-                    valAdminOcrOverlay.classList.add('hidden');
-                    return;
-                }
-            }
+        // 1. INTELIGENCIA GEMINI (Backend) - PRIORIDAD MÁXIMA (Igual que el Robot)
+        try {
+            const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
+            const response = await window.fetchAPI('processVoucherOCR', {
+                imageBase64: base64,
+                mimeType: file.type || 'image/jpeg'
+            });
 
-            try {
-                engine = 'Google Cloud Vision';
-                const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
-
-                const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        requests: [{
-                            image: { content: base64 },
-                            features: [
-                                { type: 'TEXT_DETECTION' },
-                                { type: 'DOCUMENT_TEXT_DETECTION' }
-                            ]
-                        }]
-                    })
-                });
-
-                const data = await response.json();
-                if (data.error) throw new Error(data.error.message);
-
-                const textAnnotations = data.responses[0]?.textAnnotations;
-                if (!textAnnotations || textAnnotations.length === 0) throw new Error('No se detectó texto en la imagen');
-
-                const fullText = textAnnotations[0].description.toLowerCase();
-                const parsed = parseIziPayVoucherData(textAnnotations[0].description);
-                bestData = {
-                    amount: parsed.amount || 0,
-                    fecha: parsed.fecha || '',
-                    hora: parsed.hora || '',
-                    tipoPago: parsed.tipoPago || 'TARJETA',
-                    esOnlineValido: fullText.includes('débito en línea') || fullText.includes('debito en linea')
+            if (response.success && response.data) {
+                const d = response.data;
+                bestAdminOCRData = {
+                    amount: parseFloat(d.total) || 0,
+                    fecha: d.fecha || '',
+                    hora: d.hora || '',
+                    tipoPago: d.tipoPago || 'TARJETA',
+                    esOnlineValido: !!d.esOnlineValido,
+                    // NUEVO v6.1: Almacenar toda la metadata inteligente
+                    idOperacion: d.idOperacion || '',
+                    fechaPOS: d.fecha || '',
+                    horaPOS: d.hora || '',
+                    idCompras: d.idCompras || '',
+                    esDuplicado: !!d.esDuplicado,
+                    hallazgo: d.hallazgo || ''
                 };
-            } catch (err) {
-                console.error('[OCR] Google Cloud Vision error:', err);
-                if (err.message && err.message.includes('API key not valid')) {
-                    localStorage.removeItem('gcp_api_key');
-                    Swal.fire('API Key Inválida', 'La clave ingresada no es válida. Intente nuevamente.', 'error');
-                }
-                throw err;
+                engine = `Gemini (${d.model || 'AI'})`;
             }
-        } else {
-            // Backup Gemini OCR
-            try {
-                const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
-                const response = await window.fetchAPI('processVoucherOCR', {
-                    imageBase64: base64,
-                    mimeType: file.type || 'image/jpeg'
-                });
+        } catch (geminiErr) {
+            console.warn('[OCR] Gemini backend error:', geminiErr.message);
+        }
 
-                if (response.success && response.data) {
-                    const d = response.data;
-                    bestData = {
-                        amount: parseFloat(d.total) || 0,
-                        fecha: d.fecha || '',
-                        hora: d.hora || '',
-                        tipoPago: d.tipoPago || 'TARJETA',
-                        esOnlineValido: !!d.esOnlineValido
-                    };
-                    engine = `Gemini (${d.model || 'AI'})`;
-                }
-            } catch (geminiErr) {
-                console.warn('[OCR] Gemini backend error:', geminiErr.message);
-            }
+        // 2. GOOGLE CLOUD VISION (Directo) - SEGUNDO RESPALDO (Menos inteligente)
+        if (bestAdminOCRData.amount <= 0 && (valType === 'pos' || valType === 'online')) {
+            let apiKey = localStorage.getItem('gcp_api_key');
+            if (apiKey) {
+                try {
+                    engine = 'Google Cloud Vision';
+                    const base64 = rotation === 0 ? await fileToBase64(file) : await getRotatedBase64(file, rotation);
+                    const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            requests: [{
+                                image: { content: base64 },
+                                features: [
+                                    { type: 'TEXT_DETECTION' },
+                                    { type: 'DOCUMENT_TEXT_DETECTION' }
+                                ]
+                            }]
+                        })
+                    });
 
-            if (bestData.amount <= 0 && window.Tesseract) {
-                engine = 'Tesseract';
-                function mergeData(passData) {
-                    if (passData.amount > 0 && bestData.amount === 0) bestData.amount = passData.amount;
-                    if (passData.fecha && !bestData.fecha) bestData.fecha = passData.fecha;
-                    if (passData.hora && !bestData.hora) bestData.hora = passData.hora;
-                    if (passData.tipoPago === 'QR') bestData.tipoPago = 'QR';
-                }
-
-                const processedImage = await preprocessImage(file);
-                mergeData(await ocrPass(processedImage, { tessedit_char_whitelist: '0123456789SsTtOoAaLl/., :', tessedit_pageseg_mode: '6' }, 'Pass 1'));
-                if (bestData.amount <= 0 || !bestData.fecha || !bestData.hora) {
-                    mergeData(await ocrPass(processedImage, { tessedit_pageseg_mode: '3' }, 'Pass 2'));
+                    const data = await response.json();
+                    if (!data.error) {
+                        const textAnnotations = data.responses[0]?.textAnnotations;
+                        if (textAnnotations && textAnnotations.length > 0) {
+                            const fullText = textAnnotations[0].description.toLowerCase();
+                            const parsed = parseIziPayVoucherData(textAnnotations[0].description);
+                            bestAdminOCRData = {
+                                amount: parsed.amount || 0,
+                                fecha: parsed.fecha || '',
+                                hora: parsed.hora || '',
+                                tipoPago: parsed.tipoPago || 'TARJETA',
+                                esOnlineValido: fullText.includes('débito en línea') || fullText.includes('debito en linea'),
+                                fechaPOS: parsed.fecha || '',
+                                horaPOS: parsed.hora || ''
+                            };
+                        }
+                    }
+                } catch (cvErr) {
+                    console.error('[OCR] Cloud Vision error:', cvErr);
                 }
             }
         }
 
-        if (bestData.amount > 0) {
-            valAdminPhotoAmount.value = bestData.amount.toFixed(2);
-            processAdminVoucherTimes(bestData.fecha, bestData.hora);
-
-            if (valType === 'pos') {
-                setValAdminPosType(bestData.tipoPago);
+        // 3. TESSERACT.JS (Local) - ÚLTIMO RECURSO
+        if (bestAdminOCRData.amount <= 0 && window.Tesseract && (valType === 'pos' || valType === 'online')) {
+            engine = 'Tesseract';
+            function mergeData(passData) {
+                if (passData.amount > 0 && bestAdminOCRData.amount === 0) bestAdminOCRData.amount = passData.amount;
+                if (passData.fecha && !bestAdminOCRData.fecha) {
+                    bestAdminOCRData.fecha = passData.fecha;
+                    bestAdminOCRData.fechaPOS = passData.fecha;
+                }
+                if (passData.hora && !bestAdminOCRData.hora) {
+                    bestAdminOCRData.hora = passData.hora;
+                    bestAdminOCRData.horaPOS = passData.hora;
+                }
+                if (passData.tipoPago === 'QR') bestAdminOCRData.tipoPago = 'QR';
             }
 
-            if (valType === 'online' && !bestData.esOnlineValido) {
+            const processedImage = await preprocessImage(file);
+            mergeData(await ocrPass(processedImage, { tessedit_char_whitelist: '0123456789SsTtOoAaLl/., :', tessedit_pageseg_mode: '6' }, 'Pass 1'));
+            if (bestAdminOCRData.amount <= 0 || !bestAdminOCRData.fecha || !bestAdminOCRData.hora) {
+                mergeData(await ocrPass(processedImage, { tessedit_pageseg_mode: '3' }, 'Pass 2'));
+            }
+        }
+
+        if (bestAdminOCRData.amount > 0) {
+            valAdminPhotoAmount.value = bestAdminOCRData.amount.toFixed(2);
+            processAdminVoucherTimes(bestAdminOCRData.fecha, bestAdminOCRData.hora);
+
+            if (valType === 'pos') {
+                setValAdminPosType(bestAdminOCRData.tipoPago);
+            }
+
+            if (valType === 'online' && !bestAdminOCRData.esOnlineValido) {
                 Swal.fire({
                     title: 'Verificación ONLINE Fallida',
                     html: `El comprobante no contiene el texto exacto <b>"Tarjeta de crédito o débito en línea"</b>.<br>Por favor, compruebe que sea el comprobante correcto.`,
@@ -2702,9 +2921,10 @@ async function runAdminOCR(file, rotation = 0) {
             } else {
                 getToast().fire({
                     icon: 'success',
-                    title: `${engine}: S/ ${bestData.amount.toFixed(2)}`
+                    title: `${engine}: S/ ${bestAdminOCRData.amount.toFixed(2)}`
                 });
             }
+            showAdminOcrInfoChips(bestAdminOCRData);
         } else {
             getToast().fire({
                 icon: 'info',
@@ -2719,6 +2939,7 @@ async function runAdminOCR(file, rotation = 0) {
     }
 
     valAdminOcrOverlay.classList.add('hidden');
+    updateValidationUIAdmin();
 }
 
 window.confirmarValidacionAdmin = async () => {
@@ -2730,11 +2951,38 @@ window.confirmarValidacionAdmin = async () => {
     else if (type === 'online') tipoFinal = 'ONLINE';
     else if (type === 'efectivo') tipoFinal = 'EFECTIVO';
 
-    const driver = valAdminDriver.value.trim();
-    const amount = valAdminPhotoAmount.value.trim();
-    if (!amount) {
-        Swal.fire('Atención', 'Debes ingresar el monto validado', 'warning');
+    const montoValidado = parseFloat(valAdminPhotoAmount.value || 0);
+    const montoSistema = parseFloat(currentOrderForAdminValidation.monto || 0);
+    const diffMonto = Math.abs(montoValidado - montoSistema);
+
+    if (montoValidado <= 0 || diffMonto >= 0.001) {
+        Swal.fire({
+            title: 'Monto No Coincide',
+            text: `El monto validado (S/ ${montoValidado.toFixed(2)}) no coincide exactamente con el monto del sistema (S/ ${montoSistema.toFixed(2)}). Corrija antes de continuar.`,
+            icon: 'error'
+        });
         return;
+    }
+
+    // Validación de fecha (doble check)
+    const fechaInputRaw = valAdminDate.value.trim();
+    const fechaPedidoYMD = getYMDLima(currentOrderForAdminValidation.fecha);
+    const [d, m, y] = fechaInputRaw.split('/');
+    const fechaInputYMD = (d && m && y) ? `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}` : "";
+
+    if (fechaInputYMD !== fechaPedidoYMD) {
+        Swal.fire('Fecha Incorrecta', 'La fecha del comprobante no coincide con el pedido.', 'error');
+        return;
+    }
+
+    if (type === 'efectivo') {
+        const recibido = parseFloat(document.getElementById('val-admin-monto-recibido').value || 0);
+        const vuelto = parseFloat(document.getElementById('val-admin-vuelto').value || 0);
+        const sugeridoRedondo = montoSistema + vuelto;
+        if (Math.abs(recibido - sugeridoRedondo) >= 0.01) {
+            Swal.fire('Error en Efectivo', 'El monto recibido debe ser igual al Sugerido Redondo (Monto + Vuelto).', 'error');
+            return;
+        }
     }
 
     Swal.fire({ title: 'Confirmando...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
@@ -2742,15 +2990,22 @@ window.confirmarValidacionAdmin = async () => {
     // Payload exactly like app.js
     const payload = {
         nro: currentOrderForAdminValidation.nro,
-        montoFoto: parseFloat(amount),
+        montoFoto: montoValidado,
         usuario: currentUser,
         tipo: tipoFinal,
         vuelto: (type === 'efectivo') ? document.getElementById('val-admin-vuelto').value : '',
         montoRecibido: (type === 'efectivo') ? document.getElementById('val-admin-monto-recibido').value : '',
-        envio: driver,
+        envio: currentOrderForAdminValidation.envio || '',
         fechaEntrega: valAdminDate.value,
         horaEntrega: valAdminTime.value,
         tiempoTranscurrido: '',
+        // NUEVO v6.1: Inteligencia total (Columnas AA-AF)
+        idOperacion: bestAdminOCRData.idOperacion || '',
+        fechaPOS: bestAdminOCRData.fechaPOS || '',
+        horaPOS: bestAdminOCRData.horaPOS || '',
+        idCompras: bestAdminOCRData.idCompras || '',
+        esDuplicado: !!bestAdminOCRData.esDuplicado,
+        hallazgo: bestAdminOCRData.hallazgo || '',
         archivo: valAdminPhotoFileData ? {
             name: `admin_val_${currentOrderForAdminValidation.nro}_${Date.now()}.jpg`,
             type: 'image/jpeg',
@@ -2929,6 +3184,38 @@ function parseIziPayVoucherData(text) {
     }
     if (text.toLowerCase().includes('qr')) tipoPago = 'QR';
     return { amount: monto, fecha, hora, tipoPago };
+}
+
+function showAdminOcrInfoChips(data) {
+    let container = document.getElementById('ocr-info-chips-admin');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'ocr-info-chips-admin';
+        container.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; justify-content:center;';
+        const photoSection = document.getElementById('val-admin-photo-section') || document.querySelector('.modal-card');
+        photoSection.appendChild(container);
+    }
+    container.innerHTML = '';
+
+    const chipStyle = 'display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:16px; font-size:0.75em; font-weight:600; border:1px solid rgba(255,255,255,0.15);';
+
+    if (data.fecha) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(96,165,250,0.15); color:#60a5fa;"><i class="fa-solid fa-calendar"></i> ${data.fecha}</span>`;
+    }
+    if (data.hora) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(167,139,250,0.15); color:#a78bfa;"><i class="fa-solid fa-clock"></i> ${data.hora}</span>`;
+    }
+    container.innerHTML += `<span style="${chipStyle} background:rgba(74,222,128,0.15); color:#4ade80;"><i class="fa-solid fa-${data.tipoPago === 'QR' ? 'qrcode' : 'credit-card'}"></i> ${data.tipoPago || 'TARJETA'}</span>`;
+
+    if (data.idOperacion) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(251,191,36,0.15); color:#fbbf24;"><i class="fa-solid fa-hashtag"></i> Op: ${data.idOperacion}</span>`;
+    }
+    if (data.idCompras) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(244,114,182,0.15); color:#f472b6;"><i class="fa-solid fa-receipt"></i> ID: ${data.idCompras}</span>`;
+    }
+    if (data.esDuplicado) {
+        container.innerHTML += `<span style="${chipStyle} background:rgba(239,68,68,0.15); color:#ef4444;"><i class="fa-solid fa-copy"></i> DUPLICADO</span>`;
+    }
 }
 
 function processAdminVoucherTimes(extractedFecha, extractedHora) {

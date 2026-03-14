@@ -710,6 +710,11 @@
                 </div>
             </div>
 
+            <!-- Robot Findings (Column Z/H) -->
+            <div id="val-admin-robot-findings-container" class="hidden">
+                <!-- Inyectado via JS -->
+            </div>
+
             <!-- Validation Type Selector -->
             <div class="space-y-3">
                 <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Tipo de Validación</label>
@@ -818,6 +823,9 @@
                         <input type="number" id="val-admin-photo-amount" step="0.01"
                             class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-amber-400 font-black text-lg outline-none focus:border-amber-500 transition-all pl-9 pr-12">
                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500/50 font-bold">S/</span>
+                        <div id="val-admin-status-monto" class="absolute right-12 top-1/2 -translate-y-1/2 hidden flex items-center gap-1">
+                            <!-- Inyectado por JS: Check o Alerta -->
+                        </div>
                         <button type="button" id="btn-val-admin-ocr-trigger"
                             class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-slate-700/50 text-slate-400 flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-all"
                             title="Re-escanear">
@@ -837,8 +845,13 @@
             <div class="grid grid-cols-2 gap-4 pb-10">
                 <div class="space-y-1.5">
                     <label class="text-[10px] font-bold text-slate-500 uppercase block">Fecha Entrega</label>
-                    <input type="text" id="val-admin-date"
-                        class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white/80 font-medium outline-none focus:border-primary">
+                    <div class="relative">
+                        <input type="text" id="val-admin-date" placeholder="DD/MM/YYYY"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white/80 font-medium outline-none focus:border-primary">
+                        <div id="val-admin-status-fecha" class="absolute right-3 top-1/2 -translate-y-1/2 hidden">
+                            <!-- Inyectado por JS: Check o Alerta -->
+                        </div>
+                    </div>
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-[10px] font-bold text-slate-500 uppercase block">Hora Entrega</label>
