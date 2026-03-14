@@ -1469,13 +1469,5 @@ function obtenerLlavesExistentes() {
 
 
 
-function actualizarLlaveGemini() {
-  // Pega tu llave real aquí (la que empieza con AIza...)
-  const llaveBuena = 'AIzaSyAxzZlGfJ2EM5NdULpZpBQK-F0d1iyQmUk'; 
-  
-  // Guardamos la llave en las propiedades del script
-  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', llaveBuena);
-  
-  Logger.log("✅ ¡LLAVE ACTUALIZADA CORRECTAMENTE!");
-  Logger.log("Ahora ya puedes probar el robot manual en PruebaOCR.gs");
-}
+// La función actualizarLlaveGemini ha sido eliminada por seguridad para evitar filtraciones de API Keys.
+// Use Script Properties en el editor de Google Apps Script para configurar 'GEMINI_API_KEY'.
