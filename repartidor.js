@@ -1285,6 +1285,10 @@ function startLocationCapture() {
 function resetModalState() {
     photoPosFile = null;
     photoEvidenciaFile = null;
+    
+    // Reset inputs físicos para permitir re-capturar si se cierra y abre el modal
+    if (inputPos) inputPos.value = "";
+    if (inputEvidencia) inputEvidencia.value = "";
 
     // Reset UI POS
     btnUiPos.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
@@ -1300,6 +1304,27 @@ function resetModalState() {
     previewEvidencia.classList.add('hidden');
     previewEvidencia.src = '';
 
+    checkReadyToShare();
+}
+
+function resetSinglePhoto(type) {
+    if (type === 'pos') {
+        photoPosFile = null;
+        if (inputPos) inputPos.value = "";
+        btnUiPos.className = `bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors relative overflow-hidden`;
+        iconPos.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
+        iconPos.innerHTML = '<i class="fa-solid fa-receipt"></i>';
+        previewPos.classList.add('hidden');
+        previewPos.src = '';
+    } else {
+        photoEvidenciaFile = null;
+        if (inputEvidencia) inputEvidencia.value = "";
+        btnUiEvidencia.className = `bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors relative overflow-hidden`;
+        iconEvidencia.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
+        iconEvidencia.innerHTML = '<i class="fa-solid fa-box-open"></i>';
+        previewEvidencia.classList.add('hidden');
+        previewEvidencia.src = '';
+    }
     checkReadyToShare();
 }
 
@@ -1369,6 +1394,8 @@ function handlePhotoCapture(e, type) {
                     iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
                 }
 
+                // IMPORTANTE: Limpiar el value del input para permitir re-capturar si se vuelve a hacer clic (especialmente útil si la foto sale borrosa)
+                e.target.value = "";
                 checkReadyToShare();
             }, 'image/jpeg', 0.8);
         }

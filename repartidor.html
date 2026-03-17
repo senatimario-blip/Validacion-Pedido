@@ -541,10 +541,10 @@
             </div>
 
             <!-- Boton Captura POS/Pago -->
-            <div class="w-full relative">
+            <div class="w-full relative group">
                 <input type="file" accept="image/*" capture="environment" id="input-foto-pos" class="hidden">
                 <div id="btn-ui-pos"
-                    class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors relative overflow-hidden">
                     <div class="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl"
                         id="icon-pos">
                         <i class="fa-solid fa-receipt"></i>
@@ -556,14 +556,20 @@
                     </div>
                     <img id="preview-pos"
                         class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-slate-600">
+                    
+                    <!-- Botón Reintentar (Capa superior) -->
+                    <button onclick="event.stopPropagation(); resetSinglePhoto('pos')" 
+                        class="absolute top-2 right-2 w-8 h-8 bg-black/60 rounded-full text-white flex items-center justify-center opacity-0 group-focus-within:opacity-100 transition-opacity z-10" id="btn-reset-pos">
+                        <i class="fa-solid fa-rotate-right text-xs"></i>
+                    </button>
                 </div>
             </div>
 
             <!-- Boton Captura Evidencia -->
-            <div class="w-full relative mt-4">
+            <div class="w-full relative group mt-4">
                 <input type="file" accept="image/*" capture="environment" id="input-foto-evidencia" class="hidden">
                 <div id="btn-ui-evidencia"
-                    class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors relative overflow-hidden">
                     <div class="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl"
                         id="icon-evidencia">
                         <i class="fa-solid fa-box-open"></i>
@@ -574,6 +580,12 @@
                     </div>
                     <img id="preview-evidencia"
                         class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-slate-600">
+
+                    <!-- Botón Reintentar (Capa superior) -->
+                    <button onclick="event.stopPropagation(); resetSinglePhoto('evidencia')" 
+                        class="absolute top-2 right-2 w-8 h-8 bg-black/60 rounded-full text-white flex items-center justify-center opacity-0 group-focus-within:opacity-100 transition-opacity z-10" id="btn-reset-evidencia">
+                        <i class="fa-solid fa-rotate-right text-xs"></i>
+                    </button>
                 </div>
             </div>
 
