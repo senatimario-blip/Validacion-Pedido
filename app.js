@@ -5041,6 +5041,8 @@ let auditFilesData = [];
 let auditPosData = [];
 let auditSystemData = [];
 let matchedSysIds = new Set();
+let currentAuditPosTotal = 0;
+let currentAuditSysTotal = 0;
 
 function openAuditoriaModal() {
     const modal = document.getElementById('modal-auditoria');
@@ -5085,12 +5087,14 @@ function loadAuditData() {
         // Comparación de fecha exacta (Lima)
         const matchDate = oDate.getFullYear() === y && (oDate.getMonth() + 1) === m && oDate.getDate() === d;
         
-        const metodosDigitales = ['tarjeta', 'qr', 'yape', 'plin', 'online', 'pos'];
-        const p = (o.pago || '').toLowerCase();
-        const tp = (o.tipo_pago || '').toLowerCase();
-        const tpv = (o.tipo_pago_val || '').toLowerCase();
+        const p = (o.pago || '').trim();
+        const metodosFiltro = [
+            'Código QR de Plin',
+            'Código QR de Yape',
+            'Tarjeta de crédito / débito'
+        ];
         
-        const esDigital = metodosDigitales.some(met => p.includes(met) || tp.includes(met) || tpv.includes(met));
+        const esDigital = metodosFiltro.some(met => p.toLowerCase().includes(met.toLowerCase()));
         
         return o.envio === driver && matchDate && esDigital && o.estado !== 'Cancelado' && o.estado !== 'Rechazado';
     });
@@ -5169,43 +5173,109 @@ function renderAuditTables() {
     
     let totalPOS = 0;
     let totalSys = 0;
-    
     matchedSysIds = new Set();
+
+    // -- Detección de duplicados --
+    const posMontoCounts = {};
+    const posDigitsCounts = {};
+    auditPosData.forEach(p => {
+        posMontoCounts[p.monto] = (posMontoCounts[p.monto] || 0) + 1;
+        if (p.tarjeta) posDigitsCounts[p.tarjeta] = (posDigitsCounts[p.tarjeta] || 0) + 1;
+    });
+
+    const sysMontoCounts = {};
+    const sysLlaveCounts = {};
+    auditSystemData.forEach(s => {
+        const m = parseFloat(s.monto).toFixed(2);
+        sysMontoCounts[m] = (sysMontoCounts[m] || 0) + 1;
+        sysLlaveCounts[s.llave] = (sysLlaveCounts[s.llave] || 0) + 1;
+    });
+
+    // -- Agrupar POS por Página --
+    const posByPage = {};
+    auditPosData.forEach(p => {
+        const pag = p.pagina || 1;
+        if (!posByPage[pag]) posByPage[pag] = [];
+        posByPage[pag].push(p);
+    });
+
+    const pages = Object.keys(posByPage).sort((a,b) => a-b);
+    const allPosIds = [...new Set(auditPosData.map(p => p.posId).filter(id => id))];
     
-    // 1. Mostrar lo que dice el POS
-    auditPosData.forEach(pos => {
-        totalPOS += pos.monto;
-        const matchIdx = auditSystemData.findIndex((sys, idx) => 
-            !matchedSysIds.has(idx) && Math.abs(parseFloat(sys.monto) - pos.monto) < 0.01
-        );
+    // 1. Mostrar lo que dice el POS (con agrupamiento por página)
+    pages.forEach(pagNum => {
+        const items = posByPage[pagNum];
+        const isComplete = items.length === 10 || pagNum == pages[pages.length-1];
+        const pagColor = isComplete ? '#60a5fa' : '#fbbf24'; 
         
-        let statusHtml = '<span style="color:#f87171;"><i class="fa-solid fa-xmark"></i> No en Sistema</span>';
-        if (matchIdx !== -1) {
-            matchedSysIds.add(matchIdx);
-            statusHtml = '<span style="color:#4ade80;"><i class="fa-solid fa-check"></i> Conciliado</span>';
-        }
-        
-        posTbody.innerHTML += `<tr>
-            <td>S/ ${pos.monto.toFixed(2)}</td>
-            <td>${pos.tarjeta ? '*' + pos.tarjeta : ''} <small>${pos.metodo}</small></td>
-            <td>${statusHtml}</td>
+        posTbody.innerHTML += `<tr style="background: rgba(0,0,0,0.3); font-weight: bold; border-left: 4px solid ${pagColor};">
+            <td colspan="3" style="color: ${pagColor}; padding: 8px;">
+                <i class="fa-solid fa-file-lines"></i> PÁGINA ${pagNum} (${items.length} registros)
+                ${!isComplete ? ' - <small style="color:#fbbf24;">(Incompleta - Verificar)</small>' : ''}
+            </td>
         </tr>`;
+
+        items.forEach(pos => {
+            totalPOS += pos.monto;
+            const matchIdx = auditSystemData.findIndex((sys, idx) => 
+                !matchedSysIds.has(idx) && Math.abs(parseFloat(sys.monto) - pos.monto) < 0.01
+            );
+            
+            let statusHtml = '<span style="color:#f87171;"><i class="fa-solid fa-xmark"></i> No en Sistema</span>';
+            if (matchIdx !== -1) {
+                matchedSysIds.add(matchIdx);
+                auditSystemData[matchIdx].matchedTime = pos.hora; // Guardar hora vinculada
+                statusHtml = '<span style="color:#4ade80;"><i class="fa-solid fa-check"></i> Conciliado</span>';
+            }
+
+            const montoDupe = posMontoCounts[pos.monto] > 1 ? 'background: rgba(245, 158, 11, 0.4);' : '';
+            const posIdDiff = (allPosIds.length > 1) ? 'color: #fbbf24; border-bottom: 1px dashed;' : '';
+            
+            posTbody.innerHTML += `<tr>
+                <td style="${montoDupe}">S/ ${pos.monto.toFixed(2)}<br><small style="opacity:0.6;">${pos.hora || ''}</small></td>
+                <td>
+                    <span style="${posDigitsCounts[pos.tarjeta]>1?'color:#f87171;':''}">${pos.tarjeta ? '*' + pos.tarjeta : ''}</span>
+                    <br><small style="${posIdDiff} opacity:0.7;">${pos.posId || 'POS-?'}</small>
+                </td>
+                <td>${statusHtml}</td>
+            </tr>`;
+        });
     });
     
     // 2. Mostrar lo que dice el Sistema
     auditSystemData.forEach((sys, idx) => {
+        const montoFix = parseFloat(sys.monto).toFixed(2);
         totalSys += parseFloat(sys.monto);
         const isMatched = matchedSysIds.has(idx);
+
+        const montoDupe = sysMontoCounts[montoFix] > 1 ? 'background: rgba(245, 158, 11, 0.4);' : '';
+        const matchTimeHtml = sys.matchedTime ? `<br><small style="color:#4ade80; font-size:0.8em;"><i class="fa-solid fa-clock"></i> ${sys.matchedTime}</small>` : '';
+
         sysTbody.innerHTML += `<tr>
-            <td>#${sys.nro}</td>
-            <td>S/ ${parseFloat(sys.monto).toFixed(2)}</td>
+            <td style="font-weight: bold;">${sys.llave}${matchTimeHtml}</td>
+            <td style="${montoDupe}">S/ ${montoFix}</td>
             <td>${isMatched ? '<span style="color:#4ade80;">✅ SÍ</span>' : '<span style="color:#f87171;">❌ NO</span>'}</td>
         </tr>`;
     });
     
-    // 3. Totales
-    document.getElementById('summary-pos-total').textContent = `POS Total: S/ ${totalPOS.toFixed(2)}`;
-    document.getElementById('summary-sys-total').textContent = `Sistema Total: S/ ${totalSys.toFixed(2)}`;
+    // 3. Totales resaltados con Conteo
+    currentAuditPosTotal = totalPOS;
+    currentAuditSysTotal = totalSys;
+    
+    posTbody.innerHTML += `<tr style="background: rgba(96, 165, 250, 0.2); font-weight: bold; border-top: 2px solid #60a5fa;">
+        <td style="color:#fff;">S/ ${totalPOS.toFixed(2)}</td>
+        <td style="color:#fff;">${auditPosData.length} REGISTROS (POS)</td>
+        <td>-</td>
+    </tr>`;
+
+    sysTbody.innerHTML += `<tr style="background: rgba(74, 222, 128, 0.2); font-weight: bold; border-top: 2px solid #4ade80;">
+        <td style="color:#fff;">${auditSystemData.length} REGISTROS (SISTEMA)</td>
+        <td style="color:#fff;">S/ ${totalSys.toFixed(2)}</td>
+        <td>-</td>
+    </tr>`;
+
+    document.getElementById('summary-pos-total').textContent = `POS: S/ ${totalPOS.toFixed(2)} (${auditPosData.length} items)`;
+    document.getElementById('summary-sys-total').textContent = `TADA: S/ ${totalSys.toFixed(2)} (${auditSystemData.length} items)`;
     const diff = totalPOS - totalSys;
     const diffEl = document.getElementById('summary-diff-total');
     diffEl.textContent = `Diferencia: S/ ${diff.toFixed(2)}`;
@@ -5219,8 +5289,8 @@ async function saveAuditReport() {
     const payload = {
         fechaReporte: date,
         repartidor: driver,
-        montoSistema: parseFloat(document.getElementById('summary-sys-total').textContent.replace('Sistema Total: S/ ', '')),
-        montoPOS: parseFloat(document.getElementById('summary-pos-total').textContent.replace('POS Total: S/ ', '')),
+        montoSistema: currentAuditSysTotal,
+        montoPOS: currentAuditPosTotal,
         conciliadosCount: matchedSysIds.size,
         faltantesPOS: auditPosData.length - matchedSysIds.size,
         faltantesSistema: auditSystemData.length - matchedSysIds.size,

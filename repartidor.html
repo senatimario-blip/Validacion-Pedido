@@ -321,6 +321,108 @@
             </div>
         </main>
     </div>
+    <!-- PANTALLA 6: AUDITORÍA POS (Solo Admin) -->
+    <div id="pantalla-auditoria" class="hidden flex-col h-screen slide-up relative bg-bgDark">
+        <header class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Auditoría POS</h2>
+                    <p class="text-xs text-slate-400">Análisis Forense por Páginas</p>
+                </div>
+            </div>
+            <button onclick="fetchDriverOrders()" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-24">
+            <!-- Selector de Fecha y Chofer (Reutilizado) -->
+            <div class="bg-cardDark p-4 rounded-2xl border border-slate-700/50 space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Fecha</label>
+                        <input type="date" id="audit-date" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold outline-none focus:ring-1 focus:ring-primary">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Repartidor</label>
+                        <input type="text" id="audit-driver" list="drivers-list" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold outline-none focus:ring-1 focus:ring-primary" placeholder="Nombre...">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="loadAuditDataPWA()" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded-xl py-3 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all">
+                        <i class="fa-solid fa-magnifying-glass"></i> Consultar
+                    </button>
+                    <button onclick="document.getElementById('audit-photo-input').click()" class="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl py-3 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all">
+                        <i class="fa-solid fa-camera"></i> Subir POS
+                        <input type="file" id="audit-photo-input" accept="image/*" multiple class="hidden" onchange="processAuditPhotos(event)">
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resumen de Totales -->
+            <div id="audit-summary-box" class="hidden grid grid-cols-2 gap-3">
+                <div class="bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl text-center">
+                    <span class="text-[10px] text-blue-400/70 font-bold uppercase block">Total POS</span>
+                    <span id="summary-pos-total" class="text-lg font-black text-white">S/ 0.00</span>
+                </div>
+                <div class="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl text-center">
+                    <span class="text-[10px] text-emerald-400/70 font-bold uppercase block">Total TADA</span>
+                    <span id="summary-sys-total" class="text-lg font-black text-white">S/ 0.00</span>
+                </div>
+                <div class="col-span-2 bg-slate-800/50 border border-slate-700 p-3 rounded-xl flex justify-between items-center px-5">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Diferencia</span>
+                    <span id="summary-diff-total" class="text-xl font-black">S/ 0.00</span>
+                </div>
+            </div>
+
+            <!-- Tablas de Comparación (Cuerpo Dinámico) -->
+            <div id="audit-results-container" class="hidden space-y-6">
+                <!-- Seccion POS -->
+                <div>
+                     <h3 class="text-sm font-bold text-blue-400 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-mobile-screen"></i> DETALLE POS (FOTOS)
+                     </h3>
+                     <div class="bg-slate-900/40 rounded-2xl border border-slate-800 overflow-hidden">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-800/50 text-slate-500 uppercase font-black text-[9px] tracking-widest">
+                                <tr>
+                                    <th class="p-3">Monto / Hora</th>
+                                    <th class="p-3 text-right">Tarjeta / POS ID</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-pos-tbody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                     </div>
+                </div>
+
+                <!-- Seccion Sistema -->
+                <div>
+                    <h3 class="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                       <i class="fa-solid fa-laptop-code"></i> DETALLE SISTEMA (TADA)
+                    </h3>
+                    <div class="bg-slate-900/40 rounded-2xl border border-slate-800 overflow-hidden">
+                        <table class="w-full text-left text-xs">
+                           <thead class="bg-slate-800/50 text-slate-500 uppercase font-black text-[9px] tracking-widest">
+                               <tr>
+                                   <th class="p-3">Pedido (Llave)</th>
+                                   <th class="p-3 text-right">Monto</th>
+                               </tr>
+                           </thead>
+                           <tbody id="audit-system-tbody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Botón de Acción Final -->
+                <button onclick="saveAuditReportPWA()" class="w-full bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 transition-all">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> GUARDAR AUDITORÍA
+                </button>
+            </div>
+        </main>
+    </div>
 
     <!-- NAVEGACIÓN INFERIOR (Solo visible cuando se inicia sesión) -->
     <nav id="nav-footer"
@@ -341,6 +443,12 @@
                 class="flex flex-col items-center justify-center gap-1 text-slate-500">
                 <i class="fa-solid fa-clock-rotate-left text-xl"></i>
                 <span class="text-[10px] font-bold uppercase tracking-wider">Historial</span>
+            </button>
+            <!-- Botón Auditoría (Solo Admin) -->
+            <button onclick="switchTab('auditoria')" id="nav-btn-auditoria"
+                class="hidden flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-magnifying-glass-chart text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Auditoría</span>
             </button>
             <!-- Botón Logout integrado -->
             <button id="btn-cerrar-ruta" class="flex flex-col items-center justify-center gap-1 text-slate-500">
@@ -660,8 +768,8 @@
     <!-- Lógica de la App del Repartidor -->
     <!-- mapa.js requiere global orders -->
     <script>window.orders = [];</script>
-    <script src="mapa.js?v=28"></script>
-    <script src="repartidor.js?v=28"></script>
+    <script src="mapa.js?v=43"></script>
+    <script src="repartidor.js?v=43"></script>
 
     <!-- Registro del Service Worker para PWA -->
     <!--
@@ -888,6 +996,7 @@
             animation: ocr-scan 2s linear infinite;
         }
     </style>
+    <datalist id="drivers-list"></datalist>
 </body>
 
 </html>

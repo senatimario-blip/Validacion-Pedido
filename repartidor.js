@@ -453,19 +453,21 @@ function switchTab(tab) {
     const pantallaRuta = document.getElementById('pantalla-ruta');
     const pantallaHistorial = document.getElementById('pantalla-historial');
     const pantallaValidar = document.getElementById('pantalla-validar');
+    const pantallaAuditoria = document.getElementById('pantalla-auditoria');
 
     const btnRuta = document.getElementById('nav-btn-ruta');
     const btnHistorial = document.getElementById('nav-btn-historial');
     const btnValidar = document.getElementById('nav-btn-validar');
+    const btnAuditoria = document.getElementById('nav-btn-auditoria');
 
     // Reset all
-    [pantallaRuta, pantallaHistorial, pantallaValidar].forEach(p => {
+    [pantallaRuta, pantallaHistorial, pantallaValidar, pantallaAuditoria].forEach(p => {
         if (p) {
             p.classList.add('hidden');
             p.classList.remove('flex');
         }
     });
-    [btnRuta, btnHistorial, btnValidar].forEach(b => {
+    [btnRuta, btnHistorial, btnValidar, btnAuditoria].forEach(b => {
         if (b) {
             b.classList.remove('text-primary');
             b.classList.add('text-slate-500');
@@ -490,6 +492,12 @@ function switchTab(tab) {
         btnValidar.classList.add('text-primary');
         btnValidar.classList.remove('text-slate-500');
         renderValidationTab();
+    } else if (tab === 'auditoria') {
+        pantallaAuditoria.classList.remove('hidden');
+        pantallaAuditoria.classList.add('flex');
+        btnAuditoria.classList.add('text-primary');
+        btnAuditoria.classList.remove('text-slate-500');
+        initAuditTabPWA();
     }
 }
 
@@ -619,6 +627,8 @@ function autoLoginData(name) {
     if (name.toLowerCase() === 'admin') {
         if (adminControls) adminControls.classList.remove('hidden');
         if (navBtnValidar) navBtnValidar.classList.remove('hidden');
+        const navBtnAuditoria = document.getElementById('nav-btn-auditoria');
+        if (navBtnAuditoria) navBtnAuditoria.classList.remove('hidden');
         
         // REGULARIZACIÓN: Permitir acceso a galería para el Admin en el modal de repartidor
         const inputPos = document.getElementById('input-foto-pos');
@@ -3305,9 +3315,317 @@ async function loadAllDrivers() {
         if (res.success && res.data) {
             window.allDriversList = res.data;
             console.log("✅ Lista completa de motorizados cargada:", window.allDriversList.length);
+            
+            // Poblar datalist id="drivers-list"
+            const dl = document.getElementById('drivers-list');
+            if (dl) {
+                dl.innerHTML = '';
+                res.data.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    dl.appendChild(opt);
+                });
+            }
+
             if (typeof renderOrders === 'function') renderOrders();
         }
     } catch (e) {
         console.error("Error al cargar lista de motorizados:", e);
+    }
+}
+
+// ==========================================
+// 🛡️ LÓGICA DE AUDITORÍA POS (ADMIN MOBILE)
+// ==========================================
+let auditPosData = [];
+let auditSystemData = [];
+let matchedSysIds = new Set();
+let currentAuditPosTotal = 0;
+let currentAuditSysTotal = 0;
+
+function initAuditTabPWA() {
+    const auditDate = document.getElementById('audit-date');
+    const auditDriver = document.getElementById('audit-driver');
+    
+    // Set date to today (Lima)
+    if (auditDate && !auditDate.value) {
+        auditDate.value = getYMDLima(new Date());
+    }
+    
+    // Fill driver datalist if needed (already should be filled by drivers-list global)
+    // No specific initialization needed for results until photos are uploaded
+}
+
+async function processAuditPhotos(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const auditDate = document.getElementById('audit-date').value;
+    const auditDriver = document.getElementById('audit-driver').value;
+
+    if (!auditDate) {
+        Swal.fire('Error', 'Debes seleccionar una fecha para la auditoría', 'warning');
+        return;
+    }
+
+    Swal.fire({
+        title: 'Procesando Imágenes',
+        text: 'Gemini está leyendo los vouchers del POS...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+
+    try {
+        const base64Images = [];
+        for (const file of files) {
+            const b64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result); // Data URI completo
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+            base64Images.push(b64);
+        }
+
+        // 1. Extraer data del POS via Gemini (Backend espera 'imageBase64Array')
+        const resPos = await window.fetchAPI('extraerListaPOS', { imageBase64Array: base64Images });
+        if (!resPos.success) throw new Error(resPos.message || 'Error en Gemini');
+
+        // 2. Obtener data del Sistema (TADA)
+        const resSys = await window.fetchAPI('obtenerDataSistemaAudit', { 
+            fecha: auditDate, 
+            motorizado: auditDriver // Opcional, si está vacío trae todos
+        });
+        if (!resSys.success) throw new Error(resSys.message || 'Error al obtener data del sistema');
+
+        auditPosData = resPos.data || [];
+        auditSystemData = resSys.data || [];
+
+        renderAuditTablesPWA();
+        Swal.close();
+
+        // Mostrar box de resultados
+        document.getElementById('audit-summary-box').classList.remove('hidden');
+        document.getElementById('audit-results-container').classList.remove('hidden');
+
+    } catch (e) {
+        console.error(e);
+        Swal.fire('Error', e.message || 'Error al procesar la auditoría', 'error');
+    }
+}
+
+async function loadAuditDataPWA() {
+    const auditDate = document.getElementById('audit-date').value;
+    const auditDriver = document.getElementById('audit-driver').value;
+
+    if (!auditDate) {
+        Swal.fire('Error', 'Debes seleccionar una fecha', 'warning');
+        return;
+    }
+
+    Swal.fire({ title: 'Consultando Sistema...', didOpen: () => { Swal.showLoading(); } });
+
+    try {
+        const resSys = await window.fetchAPI('obtenerDataSistemaAudit', { 
+            fecha: auditDate, 
+            motorizado: auditDriver
+        });
+        
+        if (!resSys.success) throw new Error(resSys.message);
+        
+        auditSystemData = resSys.data || [];
+        renderAuditTablesPWA();
+        
+        document.getElementById('audit-summary-box').classList.remove('hidden');
+        document.getElementById('audit-results-container').classList.remove('hidden');
+        Swal.close();
+
+        if (auditSystemData.length === 0) {
+            Swal.fire('Atención', 'No se encontraron pedidos con tarjeta/QR para los filtros seleccionados', 'info');
+        }
+    } catch (e) {
+        Swal.fire('Error', e.message || 'Error al consultar sistema', 'error');
+    }
+}
+
+function renderAuditTablesPWA() {
+    const posTbody = document.getElementById('audit-pos-tbody');
+    const sysTbody = document.getElementById('audit-system-tbody');
+    
+    posTbody.innerHTML = '';
+    sysTbody.innerHTML = '';
+    
+    let totalPOS = 0;
+    let totalSys = 0;
+    matchedSysIds = new Set();
+
+    // Detección de duplicados simple para UI
+    const posMontoCounts = {};
+    const posDigitsCounts = {};
+    (auditPosData || []).forEach(p => {
+        posMontoCounts[p.monto] = (posMontoCounts[p.monto] || 0) + 1;
+        if (p.tarjeta) posDigitsCounts[p.tarjeta] = (posDigitsCounts[p.tarjeta] || 0) + 1;
+    });
+
+    const sysMontoCounts = {};
+    (auditSystemData || []).forEach(s => {
+        const m = parseFloat(s.monto).toFixed(2);
+        sysMontoCounts[m] = (sysMontoCounts[m] || 0) + 1;
+    });
+
+    // --- RENDER POS ---
+    const posByPage = {};
+    (auditPosData || []).forEach(p => {
+        const pag = p.pagina || 1;
+        if (!posByPage[pag]) posByPage[pag] = [];
+        posByPage[pag].push(p);
+    });
+
+    const pages = Object.keys(posByPage).sort((a,b) => a-b);
+    const allPosIds = [...new Set((auditPosData || []).map(p => p.posId).filter(id => id))];
+
+    pages.forEach(pagNum => {
+        const items = posByPage[pagNum];
+        const isComplete = items.length === 10 || pagNum == pages[pages.length-1];
+        const borderColor = isComplete ? 'border-blue-500' : 'border-amber-500';
+
+        posTbody.innerHTML += `
+            <tr class="bg-slate-800/80 font-bold border-l-4 ${borderColor}">
+                <td colspan="2" class="p-3 text-slate-300">
+                    <i class="fa-solid fa-file-lines"></i> PÁGINA ${pagNum} (${items.length} regs)
+                    ${!isComplete ? ' - <small class="text-amber-400">(Incompleta)</small>' : ''}
+                </td>
+            </tr>
+        `;
+
+        items.forEach(pos => {
+            totalPOS += pos.monto;
+            const matchIdx = auditSystemData.findIndex((sys, idx) => 
+                !matchedSysIds.has(idx) && Math.abs(parseFloat(sys.monto) - pos.monto) < 0.01
+            );
+            
+            let statusIcon = '<i class="fa-solid fa-circle-xmark text-red-400"></i>';
+            if (matchIdx !== -1) {
+                matchedSysIds.add(matchIdx);
+                auditSystemData[matchIdx].matchedTime = pos.hora;
+                statusIcon = '<i class="fa-solid fa-circle-check text-emerald-400"></i>';
+            }
+
+            const montoDupe = posMontoCounts[pos.monto] > 1 ? 'bg-amber-500/20' : '';
+            const posIdDiff = (allPosIds.length > 1) ? 'text-amber-400' : 'text-slate-500';
+
+            posTbody.innerHTML += `
+                <tr class="${montoDupe}">
+                    <td class="p-3">
+                        <div class="font-bold flex items-center gap-2">
+                            ${statusIcon} S/ ${pos.monto.toFixed(2)}
+                        </div>
+                        <div class="text-[10px] text-slate-500 ml-5">${pos.hora || '--:--'}</div>
+                    </td>
+                    <td class="p-3 text-right">
+                        <div class="font-medium ${posDigitsCounts[pos.tarjeta]>1?'text-red-400':''}">
+                            ${pos.tarjeta ? '*' + pos.tarjeta : 'N/A'}
+                        </div>
+                        <div class="text-[10px] ${posIdDiff}">${pos.posId || 'POS-?'}</div>
+                    </td>
+                </tr>
+            `;
+        });
+    });
+
+    // Row de Resumen POS
+    if ((auditPosData || []).length > 0) {
+        posTbody.innerHTML += `
+            <tr class="bg-blue-500/20 font-black border-t-2 border-blue-500">
+                <td class="p-4 text-white font-bold">S/ ${totalPOS.toFixed(2)}</td>
+                <td class="p-4 text-right text-white font-bold">${auditPosData.length} VOUCHERS</td>
+            </tr>
+        `;
+    }
+
+    // --- RENDER SISTEMA ---
+    (auditSystemData || []).forEach((sys, idx) => {
+        const montoFix = parseFloat(sys.monto).toFixed(2);
+        totalSys += parseFloat(sys.monto);
+        const isMatched = matchedSysIds.has(idx);
+        const montoDupe = sysMontoCounts[montoFix] > 1 ? 'bg-amber-500/10' : '';
+
+        sysTbody.innerHTML += `
+            <tr class="${montoDupe}">
+                <td class="p-3">
+                    <div class="font-bold text-slate-200">${sys.llave}</div>
+                    <div class="text-[9px] text-slate-500 font-medium"><i class="fa-solid fa-clock"></i> TADA: ${sys.hora || '--:--'}</div>
+                    ${sys.matchedTime ? `<div class="text-[9px] text-emerald-400 font-bold"><i class="fa-solid fa-receipt"></i> POS: ${sys.matchedTime}</div>` : ''}
+                </td>
+                <td class="p-3 text-right">
+                    <div class="font-black ${isMatched ? 'text-emerald-400' : 'text-red-400'}">S/ ${montoFix}</div>
+                    <div class="text-[10px] uppercase font-bold text-slate-600">${isMatched ? 'Conciliado' : 'No Encontrado'}</div>
+                </td>
+            </tr>
+        `;
+    });
+
+    // Row de Resumen Sistema
+    if ((auditSystemData || []).length > 0) {
+        sysTbody.innerHTML += `
+            <tr class="bg-emerald-500/20 font-black border-t-2 border-emerald-500">
+                <td class="p-4 text-white">${auditSystemData.length} PEDIDOS</td>
+                <td class="p-4 text-right text-white">S/ ${totalSys.toFixed(2)}</td>
+            </tr>
+        `;
+    }
+
+    // Actualizar Totales del Sub-Header
+    currentAuditPosTotal = totalPOS;
+    currentAuditSysTotal = totalSys;
+    const diff = totalPOS - totalSys;
+
+    document.getElementById('summary-pos-total').textContent = `S/ ${totalPOS.toFixed(2)}`;
+    document.getElementById('summary-sys-total').textContent = `S/ ${totalSys.toFixed(2)}`;
+    
+    const diffElem = document.getElementById('summary-diff-total');
+    diffElem.textContent = `S/ ${diff.toFixed(2)}`;
+    diffElem.className = `text-xl font-black ${Math.abs(diff) < 0.1 ? 'text-emerald-400' : 'text-red-400'}`;
+}
+
+async function saveAuditReportPWA() {
+    const auditDate = document.getElementById('audit-date').value;
+    const auditDriver = document.getElementById('audit-driver').value;
+    const notes = `Auditoría via PWA - ${auditDriver || 'Global'}`;
+
+    const { isConfirmed } = await Swal.fire({
+        title: '¿Guardar Auditoría?',
+        text: `Se registrará un reporte por S/ ${currentAuditPosTotal.toFixed(2)}`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, guardar',
+        cancelButtonText: 'Revisar'
+    });
+
+    if (!isConfirmed) return;
+
+    Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+
+    try {
+        const payload = {
+            fecha: auditDate,
+            motorizado: auditDriver,
+            totalPos: currentAuditPosTotal,
+            totalSys: currentAuditSysTotal,
+            diferencia: currentAuditPosTotal - currentAuditSysTotal,
+            notas: notes,
+            detallePos: JSON.stringify(auditPosData),
+            detalleSys: JSON.stringify(auditSystemData)
+        };
+
+        const res = await window.fetchAPI('guardarReporteAuditoria', payload);
+        if (res.success) {
+            Swal.fire('¡Éxito!', 'El reporte ha sido guardado en Google Sheets.', 'success');
+            switchTab('ruta'); // Volver a la ruta
+        } else {
+            throw new Error(res.message);
+        }
+    } catch (e) {
+        Swal.fire('Error', e.message || 'Fallo al guardar reporte', 'error');
     }
 }
