@@ -450,6 +450,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- Tab Switching ---
 function switchTab(tab) {
+    // Seguridad: Solo el Admin puede entrar a estas pestañas
+    const isUserAdmin = (currentUser && currentUser.toLowerCase() === 'admin');
+    if ((tab === 'auditoria' || tab === 'validar') && !isUserAdmin) {
+        console.warn("🚫 Acceso denegado a pestaña:", tab);
+        Swal.fire({ icon: 'error', title: 'Acceso Denegado', text: 'Esta función es solo para Administradores.', timer: 2000, showConfirmButton: false });
+        return;
+    }
+
     const pantallaRuta = document.getElementById('pantalla-ruta');
     const pantallaHistorial = document.getElementById('pantalla-historial');
     const pantallaValidar = document.getElementById('pantalla-validar');
@@ -639,6 +647,8 @@ function autoLoginData(name) {
     } else {
         if (adminControls) adminControls.classList.add('hidden');
         if (navBtnValidar) navBtnValidar.classList.add('hidden');
+        const navBtnAuditoria = document.getElementById('nav-btn-auditoria');
+        if (navBtnAuditoria) navBtnAuditoria.classList.add('hidden');
         
         // Restaurar modo cámara para repartidores normales
         const inputPos = document.getElementById('input-foto-pos');
