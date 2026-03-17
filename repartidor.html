@@ -660,23 +660,21 @@
     <!-- Lógica de la App del Repartidor -->
     <!-- mapa.js requiere global orders -->
     <script>window.orders = [];</script>
-    <script src="mapa.js?v=24"></script>
-    <script src="repartidor.js?v=24"></script>
+    <script src="mapa.js?v=28"></script>
+    <script src="repartidor.js?v=28"></script>
 
     <!-- Registro del Service Worker para PWA -->
+    <!--
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js')
-                    .then(registration => {
-                        console.log('ServiceWorker registrado con éxito', registration.scope);
-                    })
-                    .catch(error => {
-                        console.log('Error al registrar ServiceWorker', error);
-                    });
+                navigator.serviceWorker.register('sw_admin.js')
+                    .then(reg => console.log('ServiceWorker Repartidor registrado con éxito', reg.scope))
+                    .catch(err => console.error('Error al registrar ServiceWorker Repartidor', err));
             });
         }
     </script>
+    -->
     <!-- MODAL VALIDAR (ADMIN ONLY) -->
     <div id="modal-validar-admin"
         class="fixed inset-0 bg-bgDark/95 z-[100] hidden flex-col transition-all duration-300">

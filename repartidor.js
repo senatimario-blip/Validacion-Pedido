@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbwaZf3nyRZc-VBhNWcj-0sDpvBAXCLJQzobodptzTGRQBpE-DtRZXILgamlhmTLrQY-/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwHcoS-lpxyMDE4SC6PKlGMLyc8bv279gDZOZ2SDqw5NoHn_RTQHUWHNdI4puLQfM0F/exec';
 let bestAdminOCRData = {}; // v6.1: Almacén global para data extraída por OCR (Admin)
 
 // SweetAlert2 Toast configuration (Lazy initialization)
@@ -248,12 +248,18 @@ document.addEventListener('DOMContentLoaded', () => {
     window.loadOrders = fetchDriverOrders; // For mapa.js compatibility
     // Compatibility for mapa.js which relies on fetchAPI from app.js
     window.fetchAPI = async function (action, data = {}) {
-        const payload = { action, ...data };
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-        return await response.json();
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action, ...data })
+            });
+            const text = await response.text();
+            return JSON.parse(text);
+        } catch (e) {
+            console.error("Error en fetchAPI (Repartidor):", e);
+            throw e;
+        }
     };
 
     // Check if previously logged in

@@ -20,7 +20,7 @@ const driverFilterSelect = document.getElementById('driver-filter'); // v18
 // State
 let currentUser = null;
 let orders = [];
-let API_URL = localStorage.getItem('api_url') || 'https://script.google.com/macros/s/AKfycbwaZf3nyRZc-VBhNWcj-0sDpvBAXCLJQzobodptzTGRQBpE-DtRZXILgamlhmTLrQY-/exec';
+let API_URL = localStorage.getItem('api_url') || 'https://script.google.com/macros/s/AKfycbwHcoS-lpxyMDE4SC6PKlGMLyc8bv279gDZOZ2SDqw5NoHn_RTQHUWHNdI4puLQfM0F/exec';
 let currentFilter = 'all';
 let currentFilteredOrders = [];
 let dateRange = { start: null, end: null };
@@ -143,6 +143,7 @@ if (toggleAlertsBtn) {
         }
     });
 }
+
 const robotAlertsBtn = document.getElementById('robot-alerts-btn');
 if (robotAlertsBtn) {
     robotAlertsBtn.addEventListener('click', () => {
@@ -179,6 +180,38 @@ if (robotAlertsBtn) {
             confirmButtonText: 'Cerrar',
             confirmButtonColor: '#334155'
         });
+    });
+}
+
+const clearRobotFindingsBtn = document.getElementById('clear-robot-findings-btn');
+if (clearRobotFindingsBtn) {
+    clearRobotFindingsBtn.addEventListener('click', async () => {
+        const { isConfirmed } = await Swal.fire({
+            title: '¿Limpiar historial de hallazgos?',
+            text: 'Se borrarán todos los hallazgos y alertas del robot en la base de datos.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, limpiar todo',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#ef4444'
+        });
+
+        if (isConfirmed) {
+            setLoading(true);
+            try {
+                const res = await fetchAPI('limpiarHallazgosRobot', { fecha: document.getElementById('date-filter').value });
+                if (res.success) {
+                    Swal.fire('¡Limpiado!', `Se han borrado ${res.count} hallazgos.`, 'success');
+                    loadOrders(); // Recargar para limpiar localmente
+                } else {
+                    Swal.fire('Error', res.message, 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                Swal.fire('Error', 'Error de red al limpiar hallazgos', 'error');
+            }
+            setLoading(false);
+        }
     });
 }
 
@@ -303,9 +336,10 @@ function checkSession() {
 }
 
 async function showApp() {
+    if (!currentUser) return;
     loginSection.classList.add('hidden');
     appSection.style.display = 'grid'; // Grid layout
-    document.getElementById('user-name-display').textContent = currentUser.nombre;
+    document.getElementById('user-name-display').textContent = currentUser.nombre || 'Usuario';
 
     // Role based UI (null-safe)
     const importBtn = document.getElementById('import-btn');
@@ -518,7 +552,6 @@ if (navHorarios) {
     });
 }
 
-// NUEVO MANEJADOR DE CAJA
 const navCajaElem = document.getElementById('nav-caja');
 if (navCajaElem) {
     navCajaElem.addEventListener('click', (e) => {
@@ -558,6 +591,15 @@ if (navCajaElem) {
     });
 }
 
+// NUEVO MANEJADOR DE AUDITORÍA POS (Botón Independiente)
+const navAuditoria = document.getElementById('nav-auditoria');
+if (navAuditoria) {
+    navAuditoria.addEventListener('click', (e) => {
+        e.preventDefault();
+        openAuditoriaModal();
+    });
+}
+
 
 // --- Orders Management ---
 
@@ -573,6 +615,7 @@ async function loadOrders() {
             loadAllDrivers(); // v1.21: Cargar lista completa de manera asíncrona
             updateDriverFilterOptions(); // v18: Actualizar opciones del filtro
             applyFilters();
+            refreshRobotAlerts(); // Actualizar indicadores del robot
             if (typeof window.refreshDashboardIfVisible === 'function') {
                 window.refreshDashboardIfVisible();
             }
@@ -653,45 +696,7 @@ async function loadOrdersSilent() {
 
             orders = newOrders.sort((a, b) => b.nro - a.nro);
             updateDriverFilterOptions();
-
-            // --- DECTECTAR HALLAZGOS DEL ROBOT (v5.5) ---
-            const findings = orders.filter(o => o.hallazgoRobot && o.hallazgoRobot.trim() !== "" && !o.hallazgoRobot.toLowerCase().includes('todo conforme'));
-            currentRobotAlerts = findings;
-
-            const robotBtn = document.getElementById('robot-alerts-btn');
-            const robotCount = document.getElementById('robot-alerts-count');
-            const robotPulse = document.getElementById('robot-alerts-pulse');
-
-            if (findings.length > 0) {
-                robotBtn.classList.remove('hidden');
-                robotCount.textContent = `${findings.length} Alerta${findings.length > 1 ? 's' : ''} Robot`;
-                
-                // Buscar si hay alguno nuevo que no hayamos notificado
-                const newFindings = findings.filter(f => !notifiedRobotFindings.has(f.llave + f.hallazgoRobot));
-                if (newFindings.length > 0 && orders.length > 0) {
-                    newFindings.forEach(f => notifiedRobotFindings.add(f.llave + f.hallazgoRobot));
-                    playAlertSound('warning'); 
-                    robotPulse.style.display = 'block';
-
-                    const Toast = Swal.mixin({
-                        toast: true,
-                        position: 'top-end',
-                        showConfirmButton: false,
-                        timer: 6000,
-                        timerProgressBar: true,
-                        background: '#78350f',
-                        color: '#fef3c7',
-                    });
-                    Toast.fire({
-                        icon: 'warning',
-                        title: `Robot detectó ${newFindings.length} hallazgo(s) nuevo(s)`,
-                        text: 'Revisa el panel de alertas'
-                    });
-                }
-            } else {
-                robotBtn.classList.add('hidden');
-                robotPulse.style.display = 'none';
-            }
+            refreshRobotAlerts();
 
             // Re-aplicar el filtro de la tabla de forma silenciosa si estamos en la vista
             const isOrdersView = window.getComputedStyle(document.getElementById('app-content')).display !== 'none';
@@ -710,6 +715,50 @@ async function loadOrdersSilent() {
         }
     } catch (e) {
         // Ignorar fallas de red en background
+    }
+}
+
+function refreshRobotAlerts() {
+    // --- DECTECTAR HALLAZGOS DEL ROBOT (v5.5) ---
+    const findings = orders.filter(o => o.hallazgoRobot && o.hallazgoRobot.trim() !== "" && !o.hallazgoRobot.toLowerCase().includes('todo conforme'));
+    currentRobotAlerts = findings;
+
+    const robotBtn = document.getElementById('robot-alerts-btn');
+    const robotCount = document.getElementById('robot-alerts-count');
+    const robotPulse = document.getElementById('robot-alerts-pulse');
+    const clearRobotBtn = document.getElementById('clear-robot-findings-btn');
+
+    if (findings.length > 0) {
+        if (robotBtn) robotBtn.classList.remove('hidden');
+        if (clearRobotBtn) clearRobotBtn.classList.remove('hidden');
+        if (robotCount) robotCount.textContent = `${findings.length} Alerta${findings.length > 1 ? 's' : ''} Robot`;
+        
+        // Buscar si hay alguno nuevo que no hayamos notificado
+        const newFindings = findings.filter(f => !notifiedRobotFindings.has(f.llave + f.hallazgoRobot));
+        if (newFindings.length > 0 && orders.length > 0) {
+            newFindings.forEach(f => notifiedRobotFindings.add(f.llave + f.hallazgoRobot));
+            playAlertSound('warning'); 
+            if (robotPulse) robotPulse.style.display = 'block';
+
+            const Toast = Swal.mixin({
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 6000,
+                timerProgressBar: true,
+                background: '#78350f',
+                color: '#fef3c7',
+            });
+            Toast.fire({
+                icon: 'warning',
+                title: `Robot detectó ${newFindings.length} hallazgo(s) nuevo(s)`,
+                text: 'Revisa el panel de alertas'
+            });
+        }
+    } else {
+        if (robotBtn) robotBtn.classList.add('hidden');
+        if (clearRobotBtn) clearRobotBtn.classList.add('hidden');
+        if (robotPulse) robotPulse.style.display = 'none';
     }
 }
 
@@ -809,12 +858,13 @@ function renderOrders(data) {
                 let diffMs = null;
                 let staticMins = null; // Para cuando viene de HH:MM:SS de Google Sheets
 
-                // Usamos el tiempo guardado si ya está procesado (Validado/Cancelado) and existe la columna
-                if ((order.estado === 'Validado' || order.estado === 'Validado AG' || order.estado === 'Por Validar' || order.estado === 'Cancelado' || order.estado === 'Rechazado') && order.tiempo_transcurrido) {
+                // PRIORIDAD v7.0: Usar el tiempo guardado en Columna R (SLA Operativo)
+                const finalStates = ['Validado', 'Validado AG', 'Por Validar', 'Cancelado', 'Rechazado'];
+                if (finalStates.includes(order.estado) && order.tiempo_transcurrido) {
                     let valTiempo = order.tiempo_transcurrido;
 
-                    // Si viene como string HH:MM:SS
-                    if (typeof valTiempo === 'string' && valTiempo.includes(':') && !valTiempo.includes('T')) {
+                    // Si viene como string HH:MM:SS (formato preferido para Col R)
+                    if (typeof valTiempo === 'string' && valTiempo.includes(':')) {
                         let parts = valTiempo.split(':');
                         let h = parseInt(parts[0] || '0', 10);
                         let m = parseInt(parts[1] || '0', 10);
@@ -822,13 +872,11 @@ function renderOrders(data) {
                             staticMins = (h * 60) + m;
                         }
                     }
-                    // Si viene desde Google Sheets como un objeto Date / ISO String (1899-12-30T00:26:00.000Z)
+                    // Fallback si viene como Date object/ISO string
                     else {
                         try {
                             const d = new Date(valTiempo);
                             if (!isNaN(d.getTime())) {
-                                // En Sheets las duraciones base 1899 se guardan y devuelven relativas a UTC
-                                // Extraemos directamente la hora/minuto en formato UTC para ignorar los timezone locales de la laptop
                                 staticMins = (d.getUTCHours() * 60) + d.getUTCMinutes();
                             }
                         } catch (e) { }
@@ -897,9 +945,9 @@ function renderOrders(data) {
 
                 if (staticMins !== null || (diffMs !== null && diffMs >= 0 && diffMs <= 86400000)) {
                     let mins = staticMins !== null ? staticMins : Math.floor(diffMs / 60000);
-
-                    // --- PRIORIDAD: USAR COLUMNA Z SI ESTÁ DISPONIBLE ---
-                    if (order.minutosReales !== undefined && order.minutosReales !== "" && order.minutosReales !== null && order.minutosReales !== "---") {
+                    
+                    // --- FALLBACK: Solo si no hay tiempo operativo (R), usar TADA (Z) ---
+                    if (staticMins === null && order.minutosReales !== undefined && order.minutosReales !== "" && order.minutosReales !== null && order.minutosReales !== "---") {
                         const mz = Math.floor(parseFloat(order.minutosReales));
                         if (!isNaN(mz)) mins = mz;
                     }
@@ -1046,20 +1094,48 @@ function startGlobalTimers() {
         if (nH === 24) nH = 0;
         const limaNowUtc = Date.UTC(getPN('year'), getPN('month') - 1, getPN('day'), nH, getPN('minute'), 0);
 
-        // Recorrer filas en pantalla con estado Pendiente o Por Validar
+        // Recorrer filas en pantalla con estado Pendiente, En Camino o Por Validar
         Array.from(ordersTableBody.children).forEach(tr => {
             const estado = tr.getAttribute('data-estado');
             const startTime = parseInt(tr.getAttribute('data-time'), 10);
 
-            if ((estado === 'Pendiente' || estado === 'En Camino') && !isNaN(startTime)) {
-                let diffMs = limaNowUtc - startTime;
-                if (diffMs < 0) diffMs = 0;
+            if ((estado === 'Pendiente' || estado === 'En Camino' || estado === 'Por Validar') && !isNaN(startTime)) {
+                let diffMs;
+                const nro = tr.getAttribute('data-nro');
+                const oData = orders.find(x => x.nro == nro);
 
+                // Si está por validar, intentar usar la hora de entrega manual enviada por el repartidor (App)
+                if (estado === 'Por Validar' && oData && oData.hora_entrega && oData.hora_entrega.includes(':')) {
+                    try {
+                        const [h, m] = oData.hora_entrega.split(':').map(Number);
+                        const d = new Date(startTime);
+                        // Crear objeto fecha con la misma fecha del pedido pero hora de entrega
+                        const entregaDate = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m, 0).getTime();
+                        diffMs = entregaDate - startTime;
+                        
+                        // Ajuste por cruce de medianoche si el diff es muy negativo
+                        if (diffMs < -700 * 60000) diffMs += 24 * 3600000;
+                    } catch (e) {
+                        diffMs = limaNowUtc - startTime;
+                    }
+                } else {
+                    diffMs = limaNowUtc - startTime;
+                }
+
+                if (diffMs < 0) diffMs = 0;
                 let mins = Math.floor(diffMs / 60000);
 
-                // --- NUEVO: Intentar buscar minutos reales actualizados en el arreglo global orders ---
-                const oData = orders.find(x => x.nro == tr.getAttribute('data-nro'));
-                if (oData && oData.minutosReales !== undefined && oData.minutosReales !== "" && oData.minutosReales !== null && oData.minutosReales !== "---") {
+                // --- PRIORIDAD v7.0: Si ya existe un tiempo en Columna R, lo usamos (especialmente para "Por Validar") ---
+                if (oData && oData.tiempo_transcurrido && typeof oData.tiempo_transcurrido === 'string' && oData.tiempo_transcurrido.includes(':')) {
+                    const parts = oData.tiempo_transcurrido.split(':');
+                    const h = parseInt(parts[0] || '0', 10);
+                    const m = parseInt(parts[1] || '0', 10);
+                    if (!isNaN(h) && !isNaN(m)) {
+                        mins = (h * 60) + m;
+                    }
+                }
+                // Fallback: Prioridad robot TADA
+                else if (oData && oData.minutosReales !== undefined && oData.minutosReales !== "" && oData.minutosReales !== null && oData.minutosReales !== "---") {
                     const mz = Math.floor(parseFloat(oData.minutosReales));
                     if (!isNaN(mz)) mins = mz;
                 }
@@ -1069,7 +1145,8 @@ function startGlobalTimers() {
                 let bg = mins <= 35 ? 'rgba(96, 165, 250, 0.1)' : 'rgba(248, 113, 113, 0.1)';
                 let text = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`;
 
-                let tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;"><i class="fa-solid fa-clock"></i> ${text}</span>`;
+                let icon = (estado === 'Por Validar') ? 'fa-stopwatch-20' : 'fa-clock';
+                let tiempoHtml = `<span style="color:${color}; font-weight:bold; background:${bg}; padding: 3px 8px; border-radius: 6px; white-space: nowrap;" title="${estado === 'Por Validar' ? 'Tiempo congelado al enviar fotos' : 'Tiempo transcurrido'}"><i class="fa-solid ${icon}"></i> ${text}</span>`;
 
                 // Actualizar la celda exacta del tiempo (es la columna índice 8)
                 if (tr.children[8]) {
@@ -1732,8 +1809,9 @@ window.openValidateModal = (nro) => {
     uploadPlaceholder.classList.remove('hidden');
     document.getElementById('photo-actions').classList.add('hidden');
     
-    // El monto del voucher SIEMPRE inicia vacío para validador manual (v4.0 Corazón APP)
-    valPhotoAmountInput.value = '';
+    // (Se limpia el monto al inicio y se decide si precargar al final de la función)
+    valPhotoAmountInput.value = ''; 
+
 
     const vueltoInput = document.getElementById('val-vuelto-amount');
     const recibidoInput = document.getElementById('val-monto-recibido');
@@ -1892,11 +1970,16 @@ window.openValidateModal = (nro) => {
         document.getElementById('view-full-photo').href = extractPhotoUrl(order.foto);
     }
 
-    // --- PRE-POBLACIÓN DE MONTO (Solo para Robot / Revisiones) ---
-    if ((order.estado === 'Validado' || order.estado === 'Validado AG') && (tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA')) {
+    // --- PRE-POBLACIÓN DE MONTO (v8.0: Solo para pedidos YA VALIDADOS) ---
+    // Según requerimiento: Solo si es Validado o Validado AG se precarga el monto extraído.
+    // Para 'Por Validar', 'En camino' o 'Pendiente' el campo DEBE estar vacío (lo limpiamos al inicio).
+    if ((order.estado === 'Validado' || order.estado === 'Validado AG') && 
+        (tipoPago === 'POS' || tipoPago === 'QR' || tipoPago === 'TARJETA')) {
         if (order.monto_foto && parseFloat(order.monto_foto) > 0) {
             valPhotoAmountInput.value = parseFloat(order.monto_foto).toFixed(2);
+            validateAmounts(); // Actualizar indicadores visuales
         }
+
         showOcrInfoChips({
             fecha: order.fecha_entrega || '',
             hora: order.hora_entrega || '',
@@ -2124,9 +2207,11 @@ function calculateLiveElapsedTime() {
 
         if (diffMin >= 0) {
             display.textContent = diffMin + (diffMin === 1 ? ' minuto' : ' minutos');
+            display.setAttribute('data-min', diffMin);
             display.style.color = '#60a5fa';
         } else {
             display.textContent = 'Error: Entrega < Pedido';
+            display.removeAttribute('data-min');
             display.style.color = '#f87171';
         }
         
@@ -2210,10 +2295,6 @@ function updateValidationMode(mode) {
         const ocrChipsContainer = document.getElementById('ocr-info-chips');
         if (ocrChipsContainer) ocrChipsContainer.style.display = 'none';
     } else {
-        if (currentOrderForValidation && valPhotoAmountInput.value === parseFloat(currentOrderForValidation.monto).toFixed(2)) {
-            valPhotoAmountInput.value = '';
-            validateAmounts();
-        }
         const ocrChipsContainer = document.getElementById('ocr-info-chips');
         if (ocrChipsContainer && ocrChipsContainer.innerHTML !== '') ocrChipsContainer.style.display = 'flex';
     }
@@ -3524,7 +3605,7 @@ function setPosType(tipo) {
 async function fetchAPI(action, data = {}) {
     const response = await fetch(API_URL, {
         method: 'POST',
-        mode: 'cors',
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action, ...data })
     });
     return await response.json();
@@ -4954,3 +5035,211 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// --- Auditoría POS Module ---
+let auditFilesData = [];
+let auditPosData = [];
+let auditSystemData = [];
+let matchedSysIds = new Set();
+
+function openAuditoriaModal() {
+    const modal = document.getElementById('modal-auditoria');
+    modal.classList.add('active');
+    
+    // Poblar select de repartidores
+    const select = document.getElementById('audit-driver');
+    if (select) {
+        select.innerHTML = '<option value="">Seleccionar Repartidor...</option>';
+        if (window.allDriversList) {
+            window.allDriversList.forEach(d => {
+                select.innerHTML += `<option value="${d}">${d}</option>`;
+            });
+        }
+    }
+    
+    // Resetear vistas
+    document.getElementById('audit-upload-zone').classList.add('hidden');
+    document.getElementById('audit-comparison-zone').classList.add('hidden');
+    auditFilesData = [];
+    document.getElementById('audit-previews').innerHTML = '';
+}
+
+function closeAuditoriaModal() {
+    document.getElementById('modal-auditoria').classList.remove('active');
+}
+
+function loadAuditData() {
+    const driver = document.getElementById('audit-driver').value;
+    const dateInput = document.getElementById('audit-date').value; // YYYY-MM-DD
+    
+    if (!driver || !dateInput) {
+        Swal.fire('Error', 'Debe seleccionar Repartidor y Fecha.', 'warning');
+        return;
+    }
+    
+    const [y, m, d] = dateInput.split('-').map(Number);
+    
+    auditSystemData = orders.filter(o => {
+        if (!o.fecha) return false;
+        const oDate = new Date(o.fecha);
+        // Comparación de fecha exacta (Lima)
+        const matchDate = oDate.getFullYear() === y && (oDate.getMonth() + 1) === m && oDate.getDate() === d;
+        
+        const metodosDigitales = ['tarjeta', 'qr', 'yape', 'plin', 'online', 'pos'];
+        const p = (o.pago || '').toLowerCase();
+        const tp = (o.tipo_pago || '').toLowerCase();
+        const tpv = (o.tipo_pago_val || '').toLowerCase();
+        
+        const esDigital = metodosDigitales.some(met => p.includes(met) || tp.includes(met) || tpv.includes(met));
+        
+        return o.envio === driver && matchDate && esDigital && o.estado !== 'Cancelado' && o.estado !== 'Rechazado';
+    });
+    
+    if (auditSystemData.length === 0) {
+        Swal.fire('Atención', 'No se encontraron pedidos con tarjeta/QR para este repartidor en la fecha seleccionada.', 'info');
+    }
+    
+    document.getElementById('audit-upload-zone').classList.remove('hidden');
+    document.getElementById('audit-comparison-zone').classList.add('hidden'); // Resetear vista previa
+}
+
+async function handleAuditFiles(input) {
+    const files = Array.from(input.files);
+    if (files.length === 0) return;
+    
+    const previewContainer = document.getElementById('audit-previews');
+    previewContainer.innerHTML = '';
+    auditFilesData = [];
+
+    Swal.fire({ title: 'Cargando imágenes...', didOpen: () => Swal.showLoading() });
+
+    for (let file of files) {
+        try {
+            const b64_raw = await toBase64(file);
+            const b64 = `data:${file.type};base64,${b64_raw}`;
+            auditFilesData.push(b64);
+            
+            const div = document.createElement('div');
+            div.className = 'preview-item';
+            div.style = 'position:relative; width:80px; height:80px; flex-shrink:0;';
+            div.innerHTML = `
+                <img src="${b64}" style="width:100%; height:100%; object-fit:cover; border-radius:8px; border:1px solid #60a5fa;">
+            `;
+            previewContainer.appendChild(div);
+        } catch (e) {
+            console.error("Error cargando imagen:", e);
+        }
+    }
+    
+    Swal.close();
+    if (auditFilesData.length > 0) {
+        processAuditImages();
+    }
+}
+
+async function processAuditImages() {
+    Swal.fire({ 
+        title: 'IA Analizando Imágenes...', 
+        text: 'Detectando pagos y eliminando repetidos por traslape.',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading() 
+    });
+    
+    try {
+        const res = await fetchAPI('extraerListaPOS', { imageBase64Array: auditFilesData });
+        if (res.success) {
+            auditPosData = res.data || [];
+            document.getElementById('audit-comparison-zone').classList.remove('hidden');
+            renderAuditTables();
+            Swal.close();
+        } else {
+            Swal.fire('Error', res.message || 'Error al procesar imágenes', 'error');
+        }
+    } catch (e) {
+        Swal.fire('Error', 'Fallo de conexión con el servidor', 'error');
+    }
+}
+
+function renderAuditTables() {
+    const posTbody = document.getElementById('audit-pos-tbody');
+    const sysTbody = document.getElementById('audit-system-tbody');
+    
+    posTbody.innerHTML = '';
+    sysTbody.innerHTML = '';
+    
+    let totalPOS = 0;
+    let totalSys = 0;
+    
+    matchedSysIds = new Set();
+    
+    // 1. Mostrar lo que dice el POS
+    auditPosData.forEach(pos => {
+        totalPOS += pos.monto;
+        const matchIdx = auditSystemData.findIndex((sys, idx) => 
+            !matchedSysIds.has(idx) && Math.abs(parseFloat(sys.monto) - pos.monto) < 0.01
+        );
+        
+        let statusHtml = '<span style="color:#f87171;"><i class="fa-solid fa-xmark"></i> No en Sistema</span>';
+        if (matchIdx !== -1) {
+            matchedSysIds.add(matchIdx);
+            statusHtml = '<span style="color:#4ade80;"><i class="fa-solid fa-check"></i> Conciliado</span>';
+        }
+        
+        posTbody.innerHTML += `<tr>
+            <td>S/ ${pos.monto.toFixed(2)}</td>
+            <td>${pos.tarjeta ? '*' + pos.tarjeta : ''} <small>${pos.metodo}</small></td>
+            <td>${statusHtml}</td>
+        </tr>`;
+    });
+    
+    // 2. Mostrar lo que dice el Sistema
+    auditSystemData.forEach((sys, idx) => {
+        totalSys += parseFloat(sys.monto);
+        const isMatched = matchedSysIds.has(idx);
+        sysTbody.innerHTML += `<tr>
+            <td>#${sys.nro}</td>
+            <td>S/ ${parseFloat(sys.monto).toFixed(2)}</td>
+            <td>${isMatched ? '<span style="color:#4ade80;">✅ SÍ</span>' : '<span style="color:#f87171;">❌ NO</span>'}</td>
+        </tr>`;
+    });
+    
+    // 3. Totales
+    document.getElementById('summary-pos-total').textContent = `POS Total: S/ ${totalPOS.toFixed(2)}`;
+    document.getElementById('summary-sys-total').textContent = `Sistema Total: S/ ${totalSys.toFixed(2)}`;
+    const diff = totalPOS - totalSys;
+    const diffEl = document.getElementById('summary-diff-total');
+    diffEl.textContent = `Diferencia: S/ ${diff.toFixed(2)}`;
+    diffEl.style.color = Math.abs(diff) < 0.05 ? '#4ade80' : '#f87171';
+}
+
+async function saveAuditReport() {
+    const driver = document.getElementById('audit-driver').value;
+    const date = document.getElementById('audit-date').value;
+    
+    const payload = {
+        fechaReporte: date,
+        repartidor: driver,
+        montoSistema: parseFloat(document.getElementById('summary-sys-total').textContent.replace('Sistema Total: S/ ', '')),
+        montoPOS: parseFloat(document.getElementById('summary-pos-total').textContent.replace('POS Total: S/ ', '')),
+        conciliadosCount: matchedSysIds.size,
+        faltantesPOS: auditPosData.length - matchedSysIds.size,
+        faltantesSistema: auditSystemData.length - matchedSysIds.size,
+        detalles: { pos: auditPosData, sistema: auditSystemData },
+        usuario: currentUser.usuario,
+        imagenes: auditFilesData // v23: Enviar fotos para archivo en Drive
+    };
+    
+    Swal.fire({ title: 'Guardando reporte...', didOpen: () => Swal.showLoading() });
+    
+    try {
+        const res = await fetchAPI('guardarAuditoriaPOS', payload);
+        if (res.success) {
+            Swal.fire('¡Éxito!', 'Reporte de auditoría guardado correctamente.', 'success');
+            closeAuditoriaModal();
+        } else {
+            Swal.fire('Error', res.message, 'error');
+        }
+    } catch (e) {
+        Swal.fire('Error', 'Fallo al guardar reporte', 'error');
+    }
+}

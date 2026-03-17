@@ -583,7 +583,11 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                     <button onclick="desasignarMotorizadoDesdeMapa(${o.nro})" title="Quitar repartidor" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.8em; cursor: pointer; margin-left: 5px;"><i class="fa-solid fa-user-slash"></i></button>` : '';
 
                 let statusBadge = `<div style="display:flex; align-items:center; margin-left: auto;">
-                    <span style="font-size: 0.7em; background: ${sBg}; color: ${sColor}; padding: 2px 6px; border-radius: 4px; font-weight: 800; border: 1px solid ${sColor}88; text-transform: uppercase;"><i class="fa-solid ${sIcon}"></i> ${sText}</span>
+                    <span onclick="event.stopPropagation(); window.openValidateModal(${o.nro})" 
+                        style="font-size: 0.7em; background: ${sBg}; color: ${sColor}; padding: 2px 6px; border-radius: 4px; font-weight: 800; border: 1px solid ${sColor}88; text-transform: uppercase; cursor: pointer;" 
+                        title="Clic para Validar/Ver detalle">
+                        <i class="fa-solid ${sIcon}"></i> ${sText}
+                    </span>
                     ${unassignBtn}
                 </div>`;
 
@@ -601,7 +605,10 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                         </div>
                         <div style="flex: 1; min-width: 0;">
                             <div style="display:flex; justify-content:space-between; margin-bottom:6px; align-items:center; flex-wrap: wrap; gap: 4px;">
-                                <div style="display:flex; align-items:center; gap:8px;"><strong style="color: #fff; font-size: 1.05em; white-space: normal; word-break: break-word; flex: 1;" title="${o.llave}">${o.llave || '#' + o.nro}</strong></div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <strong style="color: #fff; font-size: 1.05em; white-space: normal; word-break: break-word; flex: 1;" title="${o.llave}">${o.llave || '#' + o.nro}</strong>
+                                    <button onclick="event.stopPropagation(); window.copyLlaveDesdeMapa('${o.llave}', this)" title="Copiar Llave" style="background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-size: 0.8em; cursor: pointer; transition: all 0.2s;"><i class="fa-regular fa-copy"></i></button>
+                                </div>
                                 ${statusBadge}
                             </div>
                             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 4px;">
@@ -791,7 +798,7 @@ function renderViajesSection(tripOrders, container) {
                     const st = (o.estado || "").toUpperCase();
                     globalSubtotal += (parseFloat(o.monto) || 0);
 
-                    if (st === 'VALIDADO') {
+                    if (st === 'VALIDADO' || st === 'VALIDADO AG') {
                         globalValidado++;
                         globalOrders++;
                     } else if (st.includes('CANCELADO') || st.includes('RECHAZADO')) {
@@ -848,7 +855,7 @@ function renderViajesSection(tripOrders, container) {
             driver.trips.forEach(t => {
                 t.orders.forEach(o => {
                     const st = (o.estado || "").toUpperCase();
-                    if (st === 'VALIDADO') {
+                    if (st === 'VALIDADO' || st === 'VALIDADO AG') {
                         countValidado++;
                     } else if (st === 'CANCELADO' || st === 'RECHAZADO') {
                         countCancelado++;
@@ -905,7 +912,7 @@ function renderViajesSection(tripOrders, container) {
                     const payment = calculateOrderPayment(o, index + 1);
                     let st = (o.estado || "").toUpperCase();
                     let sColor = '#94a3b8'; let sIcon = 'fa-clock';
-                    if (st === 'VALIDADO') { sColor = '#4ADE80'; sIcon = 'fa-check-circle'; }
+                    if (st === 'VALIDADO' || st === 'VALIDADO AG') { sColor = '#4ADE80'; sIcon = 'fa-check-circle'; }
                     else if (st.includes('CANCELADO')) { sColor = '#F87171'; sIcon = 'fa-ban'; }
                     else if (st === 'EN CAMINO') { sColor = '#FFFFFF'; sIcon = 'fa-motorcycle'; }
                     let mColor = '#4ADE80';
@@ -1118,7 +1125,7 @@ window.cerrarTodosLosViajesGlobal = async function () {
                 // Solo cerramos si TODOS los pedidos de este repartidor están en un estado final (Validado, Cancelado, o Rechazado)
                 const allFinished = cards.every(c => {
                     const status = c.getAttribute('data-estado');
-                    return status === 'Validado' || status === 'Cancelado' || status === 'Rechazado';
+                    return status === 'Validado' || status === 'Validado AG' || status === 'Cancelado' || status === 'Rechazado';
                 });
 
                 if (allFinished) {
@@ -2247,5 +2254,25 @@ window.desasignarMotorizadoDesdeMapa = async function (nro) {
             renderMapaMotorizados();
             Swal.fire('Error', 'Error de red', 'error');
         }
+    }
+};
+
+window.copyLlaveDesdeMapa = async function (llave, btn) {
+    if (!llave || llave === "undefined" || llave === "null") return;
+    try {
+        await navigator.clipboard.writeText(llave);
+        const icon = btn.querySelector('i');
+        const oldClass = icon.className;
+        icon.className = 'fa-solid fa-check';
+        btn.style.color = '#4ade80';
+        btn.style.borderColor = 'rgba(74, 222, 128, 0.4)';
+        
+        setTimeout(() => {
+            icon.className = oldClass;
+            btn.style.color = '';
+            btn.style.borderColor = '';
+        }, 2000);
+    } catch (err) {
+        console.error('Error al copiar:', err);
     }
 };
