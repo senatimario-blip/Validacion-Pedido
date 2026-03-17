@@ -1290,17 +1290,17 @@ function resetModalState() {
     if (inputPos) inputPos.value = "";
     if (inputEvidencia) inputEvidencia.value = "";
 
-    // Reset UI POS
-    btnUiPos.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
-    iconPos.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
-    iconPos.innerHTML = '<i class="fa-solid fa-receipt"></i>';
+    // Reset UI POS (Nuevo Estilo Purple)
+    btnUiPos.className = `bg-purple-900/10 border-2 border-dashed border-purple-500/30 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all relative overflow-hidden backdrop-blur-sm`;
+    iconPos.className = `w-16 h-16 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 text-2xl border border-purple-500/40`;
+    iconPos.innerHTML = '<i class="fa-solid fa-camera-retro"></i>';
     previewPos.classList.add('hidden');
     previewPos.src = '';
 
-    // Reset UI Evidencia
-    btnUiEvidencia.className = `btn-ui bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors`;
-    iconEvidencia.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
-    iconEvidencia.innerHTML = '<i class="fa-solid fa-box-open"></i>';
+    // Reset UI Evidencia (Nuevo Estilo Blue)
+    btnUiEvidencia.className = `bg-blue-900/10 border-2 border-dashed border-blue-500/30 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all relative overflow-hidden backdrop-blur-sm`;
+    iconEvidencia.className = `w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-2xl border border-blue-500/40`;
+    iconEvidencia.innerHTML = '<i class="fa-solid fa-image"></i>';
     previewEvidencia.classList.add('hidden');
     previewEvidencia.src = '';
 
@@ -1311,17 +1311,17 @@ function resetSinglePhoto(type) {
     if (type === 'pos') {
         photoPosFile = null;
         if (inputPos) inputPos.value = "";
-        btnUiPos.className = `bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors relative overflow-hidden`;
-        iconPos.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
-        iconPos.innerHTML = '<i class="fa-solid fa-receipt"></i>';
+        btnUiPos.className = `bg-purple-900/10 border-2 border-dashed border-purple-500/30 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all relative overflow-hidden backdrop-blur-sm`;
+        iconPos.className = `w-16 h-16 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 text-2xl border border-purple-500/40`;
+        iconPos.innerHTML = '<i class="fa-solid fa-camera-retro"></i>';
         previewPos.classList.add('hidden');
         previewPos.src = '';
     } else {
         photoEvidenciaFile = null;
         if (inputEvidencia) inputEvidencia.value = "";
-        btnUiEvidencia.className = `bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors relative overflow-hidden`;
-        iconEvidencia.className = `w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-2xl`;
-        iconEvidencia.innerHTML = '<i class="fa-solid fa-box-open"></i>';
+        btnUiEvidencia.className = `bg-blue-900/10 border-2 border-dashed border-blue-500/30 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all relative overflow-hidden backdrop-blur-sm`;
+        iconEvidencia.className = `w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-2xl border border-blue-500/40`;
+        iconEvidencia.innerHTML = '<i class="fa-solid fa-image"></i>';
         previewEvidencia.classList.add('hidden');
         previewEvidencia.src = '';
     }
@@ -1376,21 +1376,21 @@ function handlePhotoCapture(e, type) {
                     photoEvidenciaFile = compressedFile;
                     previewEvidencia.src = blobUrl;
                     previewEvidencia.classList.remove('hidden');
-                    // Style change
-                    btnUiEvidencia.classList.replace('border-slate-600', 'border-emerald-500');
+                    // Style change (Success Blue)
+                    btnUiEvidencia.classList.replace('border-blue-500/30', 'border-emerald-500');
                     btnUiEvidencia.classList.replace('border-dashed', 'border-solid');
-                    iconEvidencia.classList.replace('bg-slate-700', 'bg-emerald-500');
-                    iconEvidencia.classList.replace('text-slate-300', 'text-white');
+                    iconEvidencia.classList.replace('bg-blue-500/20', 'bg-emerald-500');
+                    iconEvidencia.classList.replace('text-blue-400', 'text-white');
                     iconEvidencia.innerHTML = '<i class="fa-solid fa-check"></i>';
                 } else {
                     photoPosFile = compressedFile;
                     previewPos.src = blobUrl;
                     previewPos.classList.remove('hidden');
-                    // Style change
-                    btnUiPos.classList.replace('border-slate-600', 'border-emerald-500');
+                    // Style change (Success Purple)
+                    btnUiPos.classList.replace('border-purple-500/30', 'border-emerald-500');
                     btnUiPos.classList.replace('border-dashed', 'border-solid');
-                    iconPos.classList.replace('bg-slate-700', 'bg-emerald-500');
-                    iconPos.classList.replace('text-slate-300', 'text-white');
+                    iconPos.classList.replace('bg-purple-500/20', 'bg-emerald-500');
+                    iconPos.classList.replace('text-purple-400', 'text-white');
                     iconPos.innerHTML = '<i class="fa-solid fa-check"></i>';
                 }
 
