@@ -2497,30 +2497,6 @@ window.asignarMotorizadoDirecto = async (nro, driver) => {
     }
 };
 
-async function loadAllDrivers() {
-    try {
-        console.log("🛠️ Intentando obtener lista de motorizados desde el servidor...");
-        const res = await window.fetchAPI('obtenerNombresMotorizados');
-        console.log("📡 [DEBUG] Respuesta raw de motorizados:", JSON.stringify(res));
-
-        if (res.success && res.data) {
-            window.allDriversList = res.data;
-            console.log("✅ [REPARTIDOR] Lista completa de motorizados cargada:", window.allDriversList.length, window.allDriversList);
-
-            // Refrescar si estamos en modo Admin para ver la lista en los selects
-            if (currentUser && currentUser.toLowerCase() === 'admin') {
-                console.log("🔄 [REPARTIDOR] Refrescando vista para mostrar motorizados...");
-                if (typeof renderOrders === 'function') {
-                    renderOrders();
-                }
-            }
-        } else {
-            console.error("❌ [REPARTIDOR] Fallo al cargar motorizados:", res.message || "Sin mensaje de error");
-        }
-    } catch (e) {
-        console.error("💥 [REPARTIDOR] Error crítico en loadAllDrivers:", e);
-    }
-}
 
 
 window.openValidateModalAdmin = (nro) => {
@@ -3316,16 +3292,29 @@ async function loadAllDrivers() {
             window.allDriversList = res.data;
             console.log("✅ Lista completa de motorizados cargada:", window.allDriversList.length);
             
-            // Poblar datalist id="drivers-list"
+            // Poblar datalist id="drivers-list" (para otros inputs)
             const dl = document.getElementById('drivers-list');
             if (dl) {
                 dl.innerHTML = '';
                 res.data.forEach(name => {
                     const opt = document.createElement('option');
                     opt.value = name;
-                    opt.textContent = name; // Mejor soporte para móviles
-                    opt.label = name;       // Mejor soporte para móviles
+                    opt.textContent = name;
+                    opt.label = name;
                     dl.appendChild(opt);
+                });
+            }
+
+            // Poblar select id="audit-driver" (específico para Auditoría PWA)
+            const selectAudit = document.getElementById('audit-driver');
+            if (selectAudit) {
+                // Conservar opción por defecto
+                selectAudit.innerHTML = '<option value="">Todos los Repartidores</option>';
+                res.data.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    selectAudit.appendChild(opt);
                 });
             }
 
@@ -3507,9 +3496,12 @@ function renderAuditTablesPWA() {
             );
             
             let statusIcon = '<i class="fa-solid fa-circle-xmark text-red-400"></i>';
+            let matchedVoucherTime = '';
             if (matchIdx !== -1) {
                 matchedSysIds.add(matchIdx);
-                auditSystemData[matchIdx].matchedTime = pos.hora;
+                const matchedSys = auditSystemData[matchIdx];
+                matchedSys.matchedTime = pos.hora;
+                matchedVoucherTime = matchedSys.horaVoucher || '';
                 statusIcon = '<i class="fa-solid fa-circle-check text-emerald-400"></i>';
             }
 
@@ -3522,7 +3514,7 @@ function renderAuditTablesPWA() {
                         <div class="font-bold flex items-center gap-2">
                             ${statusIcon} S/ ${pos.monto.toFixed(2)}
                         </div>
-                        <div class="text-[10px] text-slate-500 ml-5">${pos.hora || '--:--'}</div>
+                        <div class="text-[10px] text-emerald-400 font-bold ml-5">${matchedVoucherTime ? `<i class="fa-solid fa-receipt"></i> ${matchedVoucherTime}` : ''}</div>
                     </td>
                     <td class="p-3 text-right">
                         <div class="font-medium ${posDigitsCounts[pos.tarjeta]>1?'text-red-400':''}">
@@ -3557,7 +3549,7 @@ function renderAuditTablesPWA() {
                 <td class="p-3">
                     <div class="font-bold text-slate-200">${sys.llave}</div>
                     <div class="text-[9px] text-slate-500 font-medium"><i class="fa-solid fa-clock"></i> TADA: ${sys.hora || '--:--'}</div>
-                    ${sys.matchedTime ? `<div class="text-[9px] text-emerald-400 font-bold"><i class="fa-solid fa-receipt"></i> POS: ${sys.matchedTime}</div>` : ''}
+                    <div class="text-[9px] text-[#fbbf24] font-bold"><i class="fa-solid fa-clock"></i> PEDIDO: ${sys.horaPedido || '--:--'}</div>
                 </td>
                 <td class="p-3 text-right">
                     <div class="font-black ${isMatched ? 'text-emerald-400' : 'text-red-400'}">S/ ${montoFix}</div>

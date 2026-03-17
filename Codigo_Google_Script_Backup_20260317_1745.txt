@@ -405,61 +405,57 @@ function marcarEnCamino(nro) {
 }
 
 function crearViajeAutomatico(payload) {
-  // Lógica obsoleta: ahora el ID se genera inmediatamente en asignarMotorizado.
-  return { success: true, message: "ID ya asignado por lógica inmediata." };
-}
-
-function asignarMotorizado(data) {
-  const lock = LockService.getScriptLock();
   try {
-    // Esperar hasta 20 segundos por el candado para evitar colisiones entre robots
-    lock.waitLock(20000);
-    
+    const nro = payload.nro;
     const sheet = getSheet();
     const rows = sheet.getDataRange().getValues();
-    const nroPedido = data.nro;
-    const nuevoDriver = (data.envio || "").toString().trim();
-    
-    if (!nuevoDriver) return { success: false, message: "Nombre de repartidor vacío" };
+    let driverName = "";
+    let targetRowIndex = -1;
 
-    let rowIndex = -1;
-    let viajeIdExistente = "";
-
-    // 1. Buscar el pedido actual y ver si el repartidor ya tiene un viaje activo
+    // 1. Encontrar el pedido y su repartidor
     for (let i = 1; i < rows.length; i++) {
-      const rowDriver = (rows[i][9] || "").toString().trim();
-      const rowViajeId = (rows[i][19] || "").toString().trim();
-      const rowEstado = rows[i][6];
-      const horaEntrega = (rows[i][16] || "").toString().trim(); // Col Q
-
-      // Guardar índice de la fila que queremos actualizar
-      if (rows[i][0] == nroPedido) rowIndex = i + 1;
-
-      // Buscar si el repartidor tiene un viaje AUTO_ que todavía tenga pedidos pendientes de entrega
-      if (rowDriver.toLowerCase() === nuevoDriver.toLowerCase() && 
-          rowViajeId.startsWith("AUTO_") &&
-          !horaEntrega) {
-        viajeIdExistente = rowViajeId;
+      if (rows[i][0] == nro) {
+        targetRowIndex = i + 1;
+        driverName = (rows[i][9] || "").toString().trim(); // Col J: Responsable EnvÃ­o
+        break;
       }
     }
 
-    if (rowIndex === -1) return { success: false, message: "Pedido no encontrado" };
+    if (targetRowIndex === -1) return { success: false, message: "Pedido no encontrado" };
 
-    // 2. Definir el ID Final: Reusar el activo o crear uno nuevo con milisegundos
-    const finalViajeId = viajeIdExistente || ("AUTO_" + Date.now().toString().substring(3));
+    // 2. AUTOMATIZACIÃ“N DE VIAJE (v5.1 - Solo vÃ­a Monitor)
+    const newViajeId = "AUTO_" + Date.now().toString().substring(5);
+    let autoGroupCount = 0;
 
-    // 3. Aplicar cambios
-    sheet.getRange(rowIndex, 10).setValue(nuevoDriver); // Col J: Repartidor
-    sheet.getRange(rowIndex, 20).setValue(finalViajeId); // Col T: Viaje ID
-    
-    SpreadsheetApp.flush();
-    return { success: true, viajeId: finalViajeId };
+    for (let i = 1; i < rows.length; i++) {
+      const rowDriver = (rows[i][9] || "").toString().trim();
+      const rowEstado = rows[i][6];
+      const rowViajeId = (rows[i][19] || "").toString().trim();
 
-  } catch (e) {
-    return { success: false, message: "Error Lock: " + e.toString() };
-  } finally {
-    lock.releaseLock();
+      if (rowDriver.toLowerCase() === driverName.toLowerCase() && 
+          (rowEstado === 'Pendiente' || rowEstado === 'En Camino' || rowEstado === 'Por Validar') &&
+          (rowViajeId === "" || rowViajeId === "null" || rowViajeId === "undefined")) {
+            
+        sheet.getRange(i + 1, 20).setValue(newViajeId); // Col T: Viaje ID
+        autoGroupCount++;
+      }
+    }
+    return { success: true, message: "Viaje auto-creado con " + autoGroupCount + " pedidos." };
+  } catch(e) {
+    return { success: false, message: e.toString() };
   }
+}
+
+function asignarMotorizado(data) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == data.nro) {
+      sheet.getRange(i + 1, 10).setValue(data.envio || ""); // Columna J: Responsable EnvÃ­o
+      return { success: true };
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
 }
 
 function validarPedido(data) {

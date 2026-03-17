@@ -1703,9 +1703,9 @@ window.openValidateModal = (nro) => {
 
             if (order.validado_por === 'Robot (Auto)' || order.estado === 'Validado AG') {
                 text = isCritical ? 'ALERTA ROBOT' : 'VAL. AUTO';
-                bgStr = isCritical ? 'rgba(248, 113, 113, 0.2)' : 'rgba(52, 211, 153, 0.2)';
+                bgStr = isCritical ? 'rgba(248, 113, 113, 0.2)' : 'rgba(16, 185, 129, 0.25)';
                 colorStr = isCritical ? '#F87171' : '#34d399';
-                borderStr = isCritical ? 'rgba(248, 113, 113, 0.5)' : 'rgba(52, 211, 153, 0.5)';
+                borderStr = isCritical ? 'rgba(248, 113, 113, 0.5)' : 'rgba(16, 185, 129, 0.5)';
             } else {
                 bgStr = 'rgba(74, 222, 128, 0.2)';
                 colorStr = '#4ADE80';
@@ -1729,7 +1729,7 @@ window.openValidateModal = (nro) => {
             borderStr = 'rgba(251, 191, 36, 0.5)';
         }
 
-        statusBadge.textContent = text.toUpperCase();
+        statusBadge.textContent = text;
         statusBadge.style.background = bgStr;
         statusBadge.style.color = colorStr;
         statusBadge.style.border = `1px solid ${borderStr}`;
@@ -1737,12 +1737,13 @@ window.openValidateModal = (nro) => {
 
     console.log(`[Diagnostic] Abriendo modal para pedido #${order.nro}, estado: ${order.estado}, hallazgoRobot:`, order.hallazgoRobot);
 
-    // --- Lógica para mostrar Hallazgos del Robot ---
+    // --- Lógica para mostrar Hallazgos del Robot (v7.1 Permanent) ---
     const robotContainer = document.getElementById('val-robot-findings-container');
     if (robotContainer) {
+        robotContainer.classList.remove('hidden'); // Siempre visible
         const fullVal = (order.validado_por || '').toString();
         const columnZFindings = (order.minutosReales || '').toString();
-        const columnAFBox = (order.hallazgoRobot || '').toString(); // Nueva Columna AF
+        const columnAFBox = (order.hallazgoRobot || '').toString();
         
         // Prioridad: 1. Columna AF, 2. Columna Z (si no es num), 3. Texto en H
         let findingMsg = '';
@@ -1754,20 +1755,27 @@ window.openValidateModal = (nro) => {
             findingMsg = fullVal.split(':').slice(1).join(':').trim();
         }
 
-        if (findingMsg) {
-            robotContainer.classList.remove('hidden');
-            const isError = findingMsg.toLowerCase().includes('novalidado') || 
-                            findingMsg.toLowerCase().includes('err:') || 
-                            findingMsg.toLowerCase().includes('duplicado');
-            robotContainer.className = `robot-findings-box ${isError ? 'error' : 'info'}`;
-            robotContainer.innerHTML = `
-                <strong><i class="fa-solid fa-circle-info"></i> Hallazgos</strong>
-                ${findingMsg}
-            `;
-        } else {
-            robotContainer.classList.add('hidden');
-            robotContainer.innerHTML = '';
-        }
+        const isError = findingMsg.toLowerCase().includes('novalidado') || 
+                        findingMsg.toLowerCase().includes('err:') || 
+                        findingMsg.toLowerCase().includes('duplicado');
+        
+        // Asignar clase según contenido
+        robotContainer.className = `robot-findings-box ${findingMsg ? (isError ? 'error' : 'info') : 'empty'}`;
+        
+        robotContainer.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%;">
+                <strong><i class="fa-solid fa-robot"></i> Hallazgos del Robot</strong>
+                ${findingMsg ? `
+                <button type="button" class="btn-icon-small" title="Limpiar visualmente" 
+                        onclick="document.getElementById('robot-msg-text').innerHTML='<span style-opacity:0.5; font-style:italic;>Hallazgos ignorados (visual).</span>'; this.style.display='none';"
+                        style="background:rgba(255,255,255,0.1); border:none; width:24px; height:24px;">
+                    <i class="fa-solid fa-eye-slash" style="font-size:0.8em;"></i>
+                </button>` : ''}
+            </div>
+            <div id="robot-msg-text" style="margin-top:5px; font-size: 0.95em;">
+                ${findingMsg || '<span style="opacity:0.5; font-style:italic;">No se reportaron hallazgos extra para este pedido.</span>'}
+            </div>
+        `;
     }
 
     const extraInfoDiv = document.getElementById('val-extra-info');
@@ -5070,41 +5078,39 @@ function closeAuditoriaModal() {
     document.getElementById('modal-auditoria').classList.remove('active');
 }
 
-function loadAuditData() {
+async function loadAuditData() {
     const driver = document.getElementById('audit-driver').value;
-    const dateInput = document.getElementById('audit-date').value; // YYYY-MM-DD
+    const dateInput = document.getElementById('audit-date').value;
     
     if (!driver || !dateInput) {
-        Swal.fire('Error', 'Debe seleccionar Repartidor y Fecha.', 'warning');
+        Swal.fire('Atención', 'Seleccione Repartidor y Fecha primero.', 'warning');
         return;
     }
     
-    const [y, m, d] = dateInput.split('-').map(Number);
+    Swal.fire({ title: 'Consultando Sistema...', didOpen: () => Swal.showLoading() });
     
-    auditSystemData = orders.filter(o => {
-        if (!o.fecha) return false;
-        const oDate = new Date(o.fecha);
-        // Comparación de fecha exacta (Lima)
-        const matchDate = oDate.getFullYear() === y && (oDate.getMonth() + 1) === m && oDate.getDate() === d;
+    try {
+        const res = await fetchAPI('obtenerDataSistemaAudit', { 
+            fecha: dateInput, 
+            motorizado: driver 
+        });
         
-        const p = (o.pago || '').trim();
-        const metodosFiltro = [
-            'Código QR de Plin',
-            'Código QR de Yape',
-            'Tarjeta de crédito / débito'
-        ];
-        
-        const esDigital = metodosFiltro.some(met => p.toLowerCase().includes(met.toLowerCase()));
-        
-        return o.envio === driver && matchDate && esDigital && o.estado !== 'Cancelado' && o.estado !== 'Rechazado';
-    });
-    
-    if (auditSystemData.length === 0) {
-        Swal.fire('Atención', 'No se encontraron pedidos con tarjeta/QR para este repartidor en la fecha seleccionada.', 'info');
+        if (res.success) {
+            auditSystemData = res.data || [];
+            if (auditSystemData.length === 0) {
+                Swal.fire('Atención', 'No se encontraron pedidos con tarjeta/QR para este repartidor en la fecha seleccionada.', 'info');
+            } else {
+                Swal.close();
+            }
+            document.getElementById('audit-upload-zone').classList.remove('hidden');
+            document.getElementById('audit-comparison-zone').classList.add('hidden'); // Resetear vista previa
+        } else {
+            Swal.fire('Error', res.message || 'Error al consultar sistema', 'error');
+        }
+    } catch (e) {
+        console.error("Error en loadAuditData:", e);
+        Swal.fire('Error', 'Fallo de conexión al consultar sistema', 'error');
     }
-    
-    document.getElementById('audit-upload-zone').classList.remove('hidden');
-    document.getElementById('audit-comparison-zone').classList.add('hidden'); // Resetear vista previa
 }
 
 async function handleAuditFiles(input) {
@@ -5222,9 +5228,12 @@ function renderAuditTables() {
             );
             
             let statusHtml = '<span style="color:#f87171;"><i class="fa-solid fa-xmark"></i> No en Sistema</span>';
+            let matchedVoucherTime = '';
             if (matchIdx !== -1) {
                 matchedSysIds.add(matchIdx);
-                auditSystemData[matchIdx].matchedTime = pos.hora; // Guardar hora vinculada
+                const matchedSys = auditSystemData[matchIdx];
+                matchedSys.matchedTime = pos.hora; // Guardar hora vinculada
+                matchedVoucherTime = matchedSys.horaVoucher || '';
                 statusHtml = '<span style="color:#4ade80;"><i class="fa-solid fa-check"></i> Conciliado</span>';
             }
 
@@ -5232,7 +5241,7 @@ function renderAuditTables() {
             const posIdDiff = (allPosIds.length > 1) ? 'color: #fbbf24; border-bottom: 1px dashed;' : '';
             
             posTbody.innerHTML += `<tr>
-                <td style="${montoDupe}">S/ ${pos.monto.toFixed(2)}<br><small style="opacity:0.6;">${pos.hora || ''}</small></td>
+                <td style="${montoDupe}">S/ ${pos.monto.toFixed(2)}<br><small style="color:#4ade80; font-weight:bold;">${matchedVoucherTime ? `<i class="fa-solid fa-receipt"></i> ${matchedVoucherTime}` : ''}</small></td>
                 <td>
                     <span style="${posDigitsCounts[pos.tarjeta]>1?'color:#f87171;':''}">${pos.tarjeta ? '*' + pos.tarjeta : ''}</span>
                     <br><small style="${posIdDiff} opacity:0.7;">${pos.posId || 'POS-?'}</small>
@@ -5249,10 +5258,12 @@ function renderAuditTables() {
         const isMatched = matchedSysIds.has(idx);
 
         const montoDupe = sysMontoCounts[montoFix] > 1 ? 'background: rgba(245, 158, 11, 0.4);' : '';
-        const matchTimeHtml = sys.matchedTime ? `<br><small style="color:#4ade80; font-size:0.8em;"><i class="fa-solid fa-clock"></i> ${sys.matchedTime}</small>` : '';
-
         sysTbody.innerHTML += `<tr>
-            <td style="font-weight: bold;">${sys.llave}${matchTimeHtml}</td>
+            <td style="font-weight: bold;">
+                ${sys.llave}
+                <br><small style="opacity:0.6; font-size:0.8em;"><i class="fa-solid fa-clock"></i> TADA: ${sys.hora || ''}</small>
+                <br><small style="color:#fbbf24; font-size:0.8em; font-weight:bold;"><i class="fa-solid fa-clock"></i> PEDIDO: ${sys.horaPedido || ''}</small>
+            </td>
             <td style="${montoDupe}">S/ ${montoFix}</td>
             <td>${isMatched ? '<span style="color:#4ade80;">✅ SÍ</span>' : '<span style="color:#f87171;">❌ NO</span>'}</td>
         </tr>`;
