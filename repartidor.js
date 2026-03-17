@@ -3323,6 +3323,8 @@ async function loadAllDrivers() {
                 res.data.forEach(name => {
                     const opt = document.createElement('option');
                     opt.value = name;
+                    opt.textContent = name; // Mejor soporte para móviles
+                    opt.label = name;       // Mejor soporte para móviles
                     dl.appendChild(opt);
                 });
             }
