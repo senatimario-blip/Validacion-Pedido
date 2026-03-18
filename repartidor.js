@@ -3703,7 +3703,7 @@ async function saveAuditReportPWA() {
             detalleSys: JSON.stringify(auditSystemData)
         };
 
-        const res = await window.fetchAPI('guardarReporteAuditoria', payload);
+        const res = await window.fetchAPI('guardarAuditoriaPOS', payload);
         if (res.success) {
             Swal.fire('¡Éxito!', 'El reporte ha sido guardado en Google Sheets.', 'success');
             switchTab('ruta'); // Volver a la ruta
