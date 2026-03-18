@@ -3692,15 +3692,29 @@ async function saveAuditReportPWA() {
     Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
 
     try {
+        // Preparar imágenes para subir a Drive (opcional pero recomendado)
+        const base64Images = [];
+        for (const file of auditFilesQueue) {
+            const b64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+            base64Images.push(b64);
+        }
+
         const payload = {
-            fecha: auditDate,
-            motorizado: auditDriver,
-            totalPos: currentAuditPosTotal,
-            totalSys: currentAuditSysTotal,
-            diferencia: currentAuditPosTotal - currentAuditSysTotal,
-            notas: notes,
-            detallePos: JSON.stringify(auditPosData),
-            detalleSys: JSON.stringify(auditSystemData)
+            fechaReporte: auditDate,
+            repartidor: auditDriver || 'TODOS',
+            montoPOS: currentAuditPosTotal,
+            montoSistema: currentAuditSysTotal,
+            conciliadosCount: matchedSysIds.size,
+            faltantesPOS: auditPosData.length - matchedSysIds.size,
+            faltantesSistema: auditSystemData.length - matchedSysIds.size,
+            usuario: currentUser || 'Admin',
+            imagenes: base64Images, // Para la columna L de fotos
+            notas: notes // No se usa directamente en appendRow pero es útil registrarlo
         };
 
         const res = await window.fetchAPI('guardarAuditoriaPOS', payload);
