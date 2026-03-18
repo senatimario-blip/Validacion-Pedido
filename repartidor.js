@@ -3544,6 +3544,7 @@ function renderAuditTablesPWA() {
     // Detección de duplicados simple para UI
     const posMontoCounts = {};
     const posDigitsCounts = {};
+    const uniqueVoucherKeys = new Set(); // Para deduplicación real por traslape físico
     (auditPosData || []).forEach(p => {
         posMontoCounts[p.monto] = (posMontoCounts[p.monto] || 0) + 1;
         if (p.tarjeta) posDigitsCounts[p.tarjeta] = (posDigitsCounts[p.tarjeta] || 0) + 1;
@@ -3581,19 +3582,33 @@ function renderAuditTablesPWA() {
         `;
 
         items.forEach(pos => {
-            totalPOS += pos.monto;
-            const matchIdx = auditSystemData.findIndex((sys, idx) => 
+            // Llave única para detectar si es el mismo voucher físico en la misma página (Traslape)
+            const vKey = `${pos.monto}-${pos.tarjeta || 'N/A'}-${pos.hora || '--:--'}-${pagNum}`;
+            const isTraslape = uniqueVoucherKeys.has(vKey);
+            
+            if (!isTraslape) {
+                totalPOS += pos.monto;
+                uniqueVoucherKeys.add(vKey);
+            }
+
+            const matchIdx = isTraslape ? -1 : auditSystemData.findIndex((sys, idx) => 
                 !matchedSysIds.has(idx) && Math.abs(parseFloat(sys.monto) - pos.monto) < 0.01
             );
             
-            let statusIcon = '<i class="fa-solid fa-circle-xmark text-red-400"></i>';
+            let statusIcon = isTraslape 
+                ? '<i class="fa-solid fa-copy text-amber-500" title="Traslape detectado"></i>' 
+                : '<i class="fa-solid fa-circle-xmark text-red-400"></i>';
+            
             let matchedVoucherTime = '';
+            let subStatusText = isTraslape ? '<span class="text-amber-500 text-[9px] uppercase font-bold">Traslape</span>' : '';
+
             if (matchIdx !== -1) {
                 matchedSysIds.add(matchIdx);
                 const matchedSys = auditSystemData[matchIdx];
                 matchedSys.matchedTime = pos.hora;
                 matchedVoucherTime = matchedSys.horaVoucher || '';
                 statusIcon = '<i class="fa-solid fa-circle-check text-emerald-400"></i>';
+                subStatusText = '<span class="text-emerald-400 text-[9px] uppercase font-bold">Conciliado</span>';
             }
 
             const montoDupe = posMontoCounts[pos.monto] > 1 ? 'bg-amber-500/20' : '';
@@ -3605,7 +3620,10 @@ function renderAuditTablesPWA() {
                         <div class="font-bold flex items-center gap-2">
                             ${statusIcon} S/ ${pos.monto.toFixed(2)}
                         </div>
-                        <div class="text-[10px] text-emerald-400 font-bold ml-5">${matchedVoucherTime ? `<i class="fa-solid fa-receipt"></i> ${matchedVoucherTime}` : ''}</div>
+                        <div class="flex items-center gap-2 mt-1 ml-5">
+                            ${matchedVoucherTime ? `<span class="text-[10px] text-emerald-400 font-bold"><i class="fa-solid fa-receipt"></i> ${matchedVoucherTime}</span>` : ''}
+                            ${subStatusText}
+                        </div>
                     </td>
                     <td class="p-3 text-right">
                         <div class="font-medium ${posDigitsCounts[pos.tarjeta]>1?'text-red-400':''}">
@@ -3620,10 +3638,11 @@ function renderAuditTablesPWA() {
 
     // Row de Resumen POS
     if ((auditPosData || []).length > 0) {
+        const uniqueCount = uniqueVoucherKeys.size;
         posTbody.innerHTML += `
             <tr class="bg-blue-500/20 font-black border-t-2 border-blue-500">
                 <td class="p-4 text-white font-bold">S/ ${totalPOS.toFixed(2)}</td>
-                <td class="p-4 text-right text-white font-bold">${auditPosData.length} VOUCHERS</td>
+                <td class="p-4 text-right text-white font-bold">${uniqueCount} VOUCHERS ÚNICOS</td>
             </tr>
         `;
     }
