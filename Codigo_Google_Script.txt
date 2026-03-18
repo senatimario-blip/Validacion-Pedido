@@ -532,12 +532,13 @@ function validarPedido(data) {
         });
       }
       
-      // 2. Registrar INGRESO por el Cobro del Pedido
-      if (montoPedido > 0) {
+      // 2. Registrar INGRESO por el Cobro Total (Pedido + Vuelto)
+      const montoIngresoTotal = montoPedido + montoVuelto;
+      if (montoIngresoTotal > 0) {
         registrarMovimientoCaja({
           tipo: "INGRESO",
-          concepto: "Cobro Pedido #" + data.nro,
-          monto: montoPedido,
+          concepto: "Recibido Pedido #" + data.nro + (montoVuelto > 0 ? " (Inc. Vuelto)" : ""),
+          monto: montoIngresoTotal,
           pedidoNro: data.nro,
           repartidor: repartidor,
           usuario: data.usuario,
