@@ -3481,7 +3481,18 @@ async function processAuditQueue() {
         if (!resSys.success) throw new Error(resSys.message || 'Error al obtener data del sistema');
 
         auditPosData = resPos.data || [];
-        auditSystemData = resSys.data || [];
+        
+        const rawSysData = resSys.data || [];
+        const allowedStatuses = ['validado', 'validado ag'];
+        const allowedPayments = ['yape', 'plin', 'tarjeta'];
+        
+        auditSystemData = rawSysData.filter(s => {
+            const est = (s.estado || '').toString().trim().toLowerCase();
+            const pg = (s.pago || '').toString().trim().toLowerCase();
+            const matchStatus = allowedStatuses.some(st => est === st);
+            const matchPayment = allowedPayments.some(met => pg.includes(met));
+            return matchStatus && matchPayment;
+        });
 
         renderAuditTablesPWA();
         Swal.close();
@@ -3515,7 +3526,18 @@ async function loadAuditDataPWA() {
         
         if (!resSys.success) throw new Error(resSys.message);
         
-        auditSystemData = resSys.data || [];
+        const rawSysData = resSys.data || [];
+        const allowedStatuses = ['validado', 'validado ag'];
+        const allowedPayments = ['yape', 'plin', 'tarjeta'];
+        
+        auditSystemData = rawSysData.filter(s => {
+            const est = (s.estado || '').toString().trim().toLowerCase();
+            const pg = (s.pago || '').toString().trim().toLowerCase();
+            const matchStatus = allowedStatuses.some(st => est === st);
+            const matchPayment = allowedPayments.some(met => pg.includes(met));
+            return matchStatus && matchPayment;
+        });
+
         renderAuditTablesPWA();
         
         document.getElementById('audit-summary-box').classList.remove('hidden');

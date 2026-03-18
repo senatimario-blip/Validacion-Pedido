@@ -1600,8 +1600,9 @@ function getUniqueDrivers(ordersArray = orders) {
 }
 
 function updateDriverFilterOptions(ordersArray = orders) {
-    if (!driverFilterSelect) return;
-    const currentSelection = driverFilterSelect.value;
+    const driverSelect = document.getElementById('driver-filter');
+    if (!driverSelect) return;
+    const currentSelection = driverSelect.value;
     const drivers = getUniqueDrivers(ordersArray);
 
     let options = '<option value="all">Todos los Repartidores</option>';
@@ -1609,8 +1610,100 @@ function updateDriverFilterOptions(ordersArray = orders) {
         options += `<option value="${driver}" ${driver === currentSelection ? 'selected' : ''}>${driver}</option>`;
     });
 
-    driverFilterSelect.innerHTML = options;
+    driverSelect.innerHTML = options;
 }
+
+// v24: Poblado dinámico Genérico para filtros de multi-selección
+function updateDynamicFiltersGeneric(ordersArray, config) {
+    const { statusDropdownId, paymentDropdownId, statusPrefix, paymentPrefix, onFilterChange } = config;
+    const statusDropdown = document.getElementById(statusDropdownId);
+    const paymentDropdown = document.getElementById(paymentDropdownId);
+    if (!statusDropdown || !paymentDropdown) return;
+
+    const getSelected = (dropdown) => Array.from(dropdown.querySelectorAll('input:checked')).map(cb => cb.value);
+    const prevSelectedStatus = getSelected(statusDropdown);
+    const prevSelectedPayment = getSelected(paymentDropdown);
+
+    const statuses = new Set();
+    const payments = new Set();
+
+    ordersArray.forEach(o => {
+        if (o.estado) statuses.add(String(o.estado).trim());
+        if (o.pago) payments.add(String(o.pago).trim());
+    });
+
+    const renderOptions = (items, dropdown, prevSelected, groupClass) => {
+        let html = `
+            <label class="multi-select-option" style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 5px; padding-bottom: 10px;">
+                <input type="checkbox" id="${groupClass}-select-all" checked>
+                <span style="font-weight: bold; color: white;">(Seleccionar todo)</span>
+            </label>
+        `;
+        
+        [...items].sort().forEach(item => {
+            const isChecked = prevSelected.length === 0 || prevSelected.includes(item);
+            html += `
+                <label class="multi-select-option">
+                    <input type="checkbox" value="${item}" ${isChecked ? 'checked' : ''} class="${groupClass}">
+                    <span>${item}</span>
+                </label>
+            `;
+        });
+        dropdown.innerHTML = html;
+
+        const selectAll = dropdown.querySelector(`#${groupClass}-select-all`);
+        const groupCbs = dropdown.querySelectorAll(`.${groupClass}`);
+        
+        selectAll?.addEventListener('change', () => {
+            groupCbs.forEach(cb => cb.checked = selectAll.checked);
+            onFilterChange();
+        });
+
+        groupCbs.forEach(cb => {
+            cb.addEventListener('change', () => {
+                const allChecked = Array.from(groupCbs).every(c => c.checked);
+                if (selectAll) selectAll.checked = allChecked;
+                onFilterChange();
+            });
+        });
+    };
+
+    renderOptions(statuses, statusDropdown, prevSelectedStatus, `${statusPrefix}-cb`);
+    renderOptions(payments, paymentDropdown, prevSelectedPayment, `${paymentPrefix}-cb`);
+
+    updateMultiSelectLabelGeneric(`${statusPrefix}-cb`, `${statusPrefix}-filter-label`);
+    updateMultiSelectLabelGeneric(`${paymentPrefix}-cb`, `${paymentPrefix}-filter-label`);
+}
+
+// v24.1: Wrapper para pestaña principal
+function updateDynamicFilters(ordersArray = orders) {
+    updateDynamicFiltersGeneric(ordersArray, {
+        statusDropdownId: 'main-status-filter-dropdown',
+        paymentDropdownId: 'main-payment-filter-dropdown',
+        statusPrefix: 'main-status',
+        paymentPrefix: 'main-payment',
+        onFilterChange: applyFilters
+    });
+}
+
+function updateMultiSelectLabelGeneric(groupClass, labelId) {
+    const btnLabel = document.getElementById(labelId);
+    const cbs = document.querySelectorAll(`.${groupClass}`);
+    if (!btnLabel) return;
+    const checked = Array.from(cbs).filter(cb => cb.checked);
+    
+    const baseName = labelId.includes('status') ? 'Estados' : 'Pagos';
+    
+    if (checked.length === 0) {
+        btnLabel.textContent = `${baseName}: Ninguno`;
+    } else if (checked.length === cbs.length) {
+        btnLabel.textContent = `${baseName}: Todos`;
+    } else {
+        btnLabel.textContent = `${baseName}: (${checked.length})`;
+    }
+}
+
+// (Eliminado updateMultiSelectLabel antiguo, favoreciendo la versión genérica v24.1)
 
 function updateDriversDatalist() {
     const datalist = document.getElementById('drivers-list');
@@ -3780,43 +3873,7 @@ function applyFilters() {
     const filterDate = document.getElementById('date-filter').value;
     const hasRange = dateRange.start && dateRange.end;
 
-    // --- NUEVA LÓGICA FILTRO DETALLE (v22) ---
-    const detailCheckboxes = document.querySelectorAll('.detail-cb');
-    const selectedCategories = Array.from(detailCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
-    const detailLabel = document.getElementById('detail-filter-label');
-    const selectAllCb = document.getElementById('detail-select-all');
-
-    if (detailLabel) {
-        if (selectedCategories.length === 0) {
-            detailLabel.textContent = 'Detalle: Ninguno';
-        } else if (selectedCategories.length === detailCheckboxes.length) {
-            detailLabel.textContent = 'Detalle: Todos';
-            if (selectAllCb) selectAllCb.checked = true;
-        } else {
-            detailLabel.textContent = `Detalle: ${selectedCategories.length} sel.`;
-            if (selectAllCb) selectAllCb.checked = false;
-        }
-    }
-
-    const getOrderCategory = (o) => {
-        if (o.estado === 'Cancelado' || o.estado === 'Rechazado') {
-            const motivo = (o.motivo_cancelacion || '').toLowerCase();
-            if (motivo.includes('consumidor')) return 'CANCELADO_CONSUMIDOR';
-            if (motivo.includes('venta')) return 'CANCELADO_PTO_VENTA';
-            if (motivo.includes('repartidor')) return 'CANCELADO_REPARTIDOR';
-            return 'PENDIENTE'; // Fallback
-        }
-        
-        let tipo = (o.tipo_pago_val || o.tipo_pago || o.pago || '').toString().toUpperCase();
-        
-        if (tipo.includes('EFECTIVO')) return 'EFECTIVO';
-        if (tipo.includes('ONLINE')) return 'ONLINE';
-        if (tipo.includes('TARJETA')) return 'TARJETA';
-        if (tipo.includes('QR') || tipo.includes('YAPE') || tipo.includes('PLIN')) return 'QR';
-        
-        return 'PENDIENTE';
-    };
-    // ------------------------------------------
+    // (Lógica de Detalle v22 eliminada para favorecer multi-selección v24 de Estado y Pago)
 
     // 1. Primer paso: Filtrar solo por Estado y Fecha para determinar los repartidores disponibles (v18.1)
     const contextOrders = orders.filter(o => {
@@ -3843,28 +3900,33 @@ function applyFilters() {
             }
         }
         
-        // v22: Integrar el filtro de detalle aquí también para que el podio/stats se actualicen
-        const category = getOrderCategory(o);
-        const detailMatch = selectedCategories.includes(category);
-
-        return statusMatch && dateMatch && detailMatch;
+        return statusMatch && dateMatch;
     });
 
     // 2. Actualizar el selector de repartidores con los nombres relevantes del contexto (v18.1)
     updateDriverFilterOptions(contextOrders);
 
-    // 3. Obtener el repartidor seleccionado del selector recién actualizado
-    const selectedDriver = driverFilterSelect ? driverFilterSelect.value : 'all';
+    // 3. Actualizar filtros de Estado y Pago basados en Fecha (Cascada básica)
+    const selectedDriver = document.getElementById('driver-filter')?.value || 'all';
+    const driverContextOrders = contextOrders.filter(o => (selectedDriver === 'all' || (o.envio && o.envio.trim() === selectedDriver)));
+    
+    updateDynamicFilters(driverContextOrders);
 
-    // 4. Filtrar la lista final aplicando Buscador y Seleccion de Repartidor
-    const filtered = contextOrders.filter(o => {
+    // 4. Obtener colecciones seleccionadas (Multi-select v24.1 con prefijo main)
+    const getCheckedValues = (cls) => Array.from(document.querySelectorAll(`.${cls}:checked`)).map(cb => cb.value);
+    const activeStatuses = getCheckedValues('main-status-cb');
+    const activePayments = getCheckedValues('main-payment-cb');
+
+    // 5. Filtrar la lista final aplicando Buscador, Repartidor, Estado y Pago
+    const filtered = driverContextOrders.filter(o => {
         const searchMatch = o.llave.toLowerCase().includes(term) ||
             o.nro.toString().includes(term) ||
             o.estado.toLowerCase().includes(term);
 
-        const driverMatch = (selectedDriver === 'all' || (o.envio && o.envio.trim() === selectedDriver));
+        const statusMatch = activeStatuses.length === 0 || activeStatuses.includes(String(o.estado).trim());
+        const paymentMatch = activePayments.length === 0 || activePayments.includes(String(o.pago).trim());
 
-        return searchMatch && driverMatch;
+        return searchMatch && statusMatch && paymentMatch;
     });
 
     currentFilteredOrders = filtered;
@@ -3911,49 +3973,46 @@ document.getElementById('date-filter').addEventListener('change', (e) => {
     applyFilters();
 });
 
-// Listener para filtro de repartidor (v18)
+// Listeners para filtros (v18 y v24)
 if (driverFilterSelect) {
     driverFilterSelect.addEventListener('change', applyFilters);
 }
+// --- LÓGICA DE UI PARA FILTROS MULTI-SELECCIÓN (v24: Estado y Pago) ---
+function initMultiSelect(prefix) {
+    const btn = document.getElementById(`${prefix}-filter-btn`);
+    const dropdown = document.getElementById(`${prefix}-filter-dropdown`);
+    if (!btn || !dropdown) return;
 
-// --- LÓGICA DE UI PARA FILTRO DETALLE (v22) ---
-const detailFilterBtn = document.getElementById('detail-filter-btn');
-const detailFilterDropdown = document.getElementById('detail-filter-dropdown');
-
-if (detailFilterBtn && detailFilterDropdown) {
-    // Toggle dropdown
-    detailFilterBtn.addEventListener('click', (e) => {
+    btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        detailFilterDropdown.classList.toggle('active');
+        // Cerrar otros dropdowns si estuvieran abiertos
+        document.querySelectorAll('.multi-select-dropdown').forEach(d => {
+            if (d !== dropdown) d.classList.remove('active');
+        });
+        dropdown.classList.toggle('active');
     });
 
     // Cerrar al hacer clic fuera
     document.addEventListener('click', (e) => {
-        if (!detailFilterDropdown.contains(e.target) && e.target !== detailFilterBtn) {
-            detailFilterDropdown.classList.remove('active');
+        if (!dropdown.contains(e.target) && !btn.contains(e.target)) {
+            dropdown.classList.remove('active');
         }
     });
-
-    // Re-filtrar cuando cambie cualquier casilla
-    const detailCheckboxes = detailFilterDropdown.querySelectorAll('.detail-cb');
-    detailCheckboxes.forEach(cb => {
-        cb.addEventListener('change', () => {
-            applyFilters();
-        });
-    });
-
-    // Lógica (Seleccionar todo)
-    const selectAllCb = document.getElementById('detail-select-all');
-    if (selectAllCb) {
-        selectAllCb.addEventListener('change', () => {
-            const isChecked = selectAllCb.checked;
-            detailCheckboxes.forEach(cb => {
-                cb.checked = isChecked;
-            });
-            applyFilters();
-        });
-    }
 }
+
+function initAllFilters() {
+    initMultiSelect('main-status');
+    initMultiSelect('main-payment');
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAllFilters);
+} else {
+    initAllFilters();
+}
+
+// (Filtros de auditoría ahora se manejan automáticamente v24.2)
+// -----------------------------------------------------------------------
 // ----------------------------------------------
 
 // v19.2: Auto-refresco automático cada 5 minutos (300,000ms)
@@ -5096,11 +5155,27 @@ async function loadAuditData() {
         });
         
         if (res.success) {
-            auditSystemData = res.data || [];
+            const rawData = res.data || [];
+            
+            // --- NUEVO: FILTRO ESTRICTO AUDITORÍA (v24.2) ---
+            const allowedStatuses = ['validado', 'validado ag'];
+            const allowedPayments = ['yape', 'plin', 'tarjeta'];
+            
+            auditSystemData = rawData.filter(s => {
+                const est = (s.estado || '').toString().trim().toLowerCase();
+                const pg = (s.pago || '').toString().trim().toLowerCase();
+                
+                const matchStatus = allowedStatuses.some(st => est === st);
+                const matchPayment = allowedPayments.some(met => pg.includes(met));
+                
+                return matchStatus && matchPayment;
+            });
+
             if (auditSystemData.length === 0) {
-                Swal.fire('Atención', 'No se encontraron pedidos con tarjeta/QR para este repartidor en la fecha seleccionada.', 'info');
+                Swal.fire('Atención', 'No se encontraron pedidos VALIDADOS con Tarjeta/QR para este repartidor.', 'info');
             } else {
                 Swal.close();
+                renderAuditTables();
             }
             document.getElementById('audit-upload-zone').classList.remove('hidden');
             document.getElementById('audit-comparison-zone').classList.add('hidden'); // Resetear vista previa
@@ -5189,9 +5264,14 @@ function renderAuditTables() {
         if (p.tarjeta) posDigitsCounts[p.tarjeta] = (posDigitsCounts[p.tarjeta] || 0) + 1;
     });
 
+    // -- Filtros Multi-selección Auditoría (Ahora AUTO v24.2) --
+    // Ya vienen filtrados desde loadAuditData por ahorro de procesamiento
+    const filteredSystemData = auditSystemData;
+
     const sysMontoCounts = {};
     const sysLlaveCounts = {};
-    auditSystemData.forEach(s => {
+
+    filteredSystemData.forEach(s => {
         const m = parseFloat(s.monto).toFixed(2);
         sysMontoCounts[m] = (sysMontoCounts[m] || 0) + 1;
         sysLlaveCounts[s.llave] = (sysLlaveCounts[s.llave] || 0) + 1;
@@ -5223,7 +5303,7 @@ function renderAuditTables() {
 
         items.forEach(pos => {
             totalPOS += pos.monto;
-            const matchIdx = auditSystemData.findIndex((sys, idx) => 
+            const matchIdx = filteredSystemData.findIndex((sys, idx) => 
                 !matchedSysIds.has(idx) && Math.abs(parseFloat(sys.monto) - pos.monto) < 0.01
             );
             
@@ -5231,7 +5311,7 @@ function renderAuditTables() {
             let matchedVoucherTime = '';
             if (matchIdx !== -1) {
                 matchedSysIds.add(matchIdx);
-                const matchedSys = auditSystemData[matchIdx];
+                const matchedSys = filteredSystemData[matchIdx];
                 matchedSys.matchedTime = pos.hora; // Guardar hora vinculada
                 matchedVoucherTime = matchedSys.horaVoucher || '';
                 statusHtml = '<span style="color:#4ade80;"><i class="fa-solid fa-check"></i> Conciliado</span>';
@@ -5251,8 +5331,8 @@ function renderAuditTables() {
         });
     });
     
-    // 2. Mostrar lo que dice el Sistema
-    auditSystemData.forEach((sys, idx) => {
+    // 2. Mostrar lo que dice el Sistema (Filtrado)
+    filteredSystemData.forEach((sys, idx) => {
         const montoFix = parseFloat(sys.monto).toFixed(2);
         totalSys += parseFloat(sys.monto);
         const isMatched = matchedSysIds.has(idx);
@@ -5280,13 +5360,13 @@ function renderAuditTables() {
     </tr>`;
 
     sysTbody.innerHTML += `<tr style="background: rgba(74, 222, 128, 0.2); font-weight: bold; border-top: 2px solid #4ade80;">
-        <td style="color:#fff;">${auditSystemData.length} REGISTROS (SISTEMA)</td>
+        <td style="color:#fff;">${filteredSystemData.length} REGISTROS (SISTEMA)</td>
         <td style="color:#fff;">S/ ${totalSys.toFixed(2)}</td>
         <td>-</td>
     </tr>`;
 
     document.getElementById('summary-pos-total').textContent = `POS: S/ ${totalPOS.toFixed(2)} (${auditPosData.length} items)`;
-    document.getElementById('summary-sys-total').textContent = `TADA: S/ ${totalSys.toFixed(2)} (${auditSystemData.length} items)`;
+    document.getElementById('summary-sys-total').textContent = `TADA: S/ ${totalSys.toFixed(2)} (${filteredSystemData.length} items)`;
     const diff = totalPOS - totalSys;
     const diffEl = document.getElementById('summary-diff-total');
     diffEl.textContent = `Diferencia: S/ ${diff.toFixed(2)}`;

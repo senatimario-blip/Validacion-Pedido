@@ -20,7 +20,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="styles.css?v=2.0">
+    <link rel="stylesheet" href="styles.css?v=3.1">
 
     <!-- Alerts -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -149,51 +149,26 @@
                             <option value="all">Todos los Repartidores</option>
                         </select>
 
-                        <!-- NUEVO: FILTRO POR DETALLE MULTI-SELECCIÓN (v22) -->
-                        <div class="multi-select-container" id="detail-filter-container">
-                            <button class="multi-select-button" id="detail-filter-btn">
-                                <i class="fa-solid fa-filter"></i>
-                                <span id="detail-filter-label">Detalle: Todos</span>
+                        <!-- NUEVO: FILTROS DINÁMICOS ESTADO Y PAGO (Multi-selección v24) -->
+                        <div class="multi-select-container" id="main-status-filter-container">
+                            <button class="multi-select-button" id="main-status-filter-btn">
+                                <i class="fa-solid fa-list-check"></i>
+                                <span id="main-status-filter-label">Estados: Todos</span>
                                 <i class="fa-solid fa-chevron-down" style="font-size: 0.7em; margin-left: auto;"></i>
                             </button>
-                            <div class="multi-select-dropdown" id="detail-filter-dropdown">
-                                <label class="multi-select-option" style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 5px; padding-bottom: 10px;">
-                                    <input type="checkbox" id="detail-select-all" checked>
-                                    <span style="font-weight: bold; color: white;">(Seleccionar todo)</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="EFECTIVO" checked class="detail-cb">
-                                    <span>💵 Efectivo</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="ONLINE" checked class="detail-cb">
-                                    <span>🌐 Online</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="TARJETA" checked class="detail-cb">
-                                    <span>💳 Tarjeta</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="QR" checked class="detail-cb">
-                                    <span>📱 QR</span>
-                                </label>
-                                <hr style="margin: 8px 0; border: none; border-top: 1px solid rgba(255,255,255,0.05);">
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="PENDIENTE" checked class="detail-cb">
-                                    <span>⏳ Contado</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="CANCELADO_CONSUMIDOR" checked class="detail-cb">
-                                    <span>🙋‍♂️ Consumidor</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="CANCELADO_PTO_VENTA" checked class="detail-cb">
-                                    <span>🏪 Pto de Venta</span>
-                                </label>
-                                <label class="multi-select-option">
-                                    <input type="checkbox" value="CANCELADO_REPARTIDOR" checked class="detail-cb">
-                                    <span>🚴 Repartidor</span>
-                                </label>
+                            <div class="multi-select-dropdown" id="main-status-filter-dropdown">
+                                <!-- Se puebla dinámicamente -->
+                            </div>
+                        </div>
+
+                        <div class="multi-select-container" id="main-payment-filter-container">
+                            <button class="multi-select-button" id="main-payment-filter-btn">
+                                <i class="fa-solid fa-credit-card"></i>
+                                <span id="main-payment-filter-label">Pagos: Todos</span>
+                                <i class="fa-solid fa-chevron-down" style="font-size: 0.7em; margin-left: auto;"></i>
+                            </button>
+                            <div class="multi-select-dropdown" id="main-payment-filter-dropdown">
+                                <!-- Se puebla dinámicamente -->
                             </div>
                         </div>
                     </div>
@@ -1247,7 +1222,7 @@
     <!-- Datalist for Driver Suggestions -->
     <datalist id="drivers-list"></datalist>
 
-    <script src="app.js?v=36"></script>
+    <script src="app.js?v=40"></script>
     <script src="dashboard.js?v=29"></script>
     <script src="mapa.js?v=24"></script>
     <script src="horarios.js"></script>
@@ -1288,10 +1263,12 @@
                     </div>
                     <div class="input-group" style="display: flex; align-items: flex-end;">
                         <button class="btn-primary" onclick="loadAuditData()">
-                            <i class="fa-solid fa-magnifying-glass"></i> Cargar Datos
+                            <i class="fa-solid fa-cloud-arrow-down"></i> 1. Cargar Sistema
                         </button>
                     </div>
                 </div>
+
+                <!-- Filtros columna SISTEMA automáticos (v24.2) -->
 
                 <div id="audit-upload-zone" class="hidden">
                     <div class="upload-box glass-panel" style="border: 2px dashed rgba(255,255,255,0.2); padding: 30px; text-align: center; border-radius: 12px; cursor: pointer;" onclick="document.getElementById('audit-files').click()">
