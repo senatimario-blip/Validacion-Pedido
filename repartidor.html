@@ -340,6 +340,7 @@
 
         <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-24">
             <!-- Selector de Fecha y Chofer (Reutilizado) -->
+            <!-- Filtros y Captura -->
             <div class="bg-cardDark p-4 rounded-2xl border border-slate-700/50 space-y-4">
                 <div class="grid grid-cols-2 gap-3">
                     <div class="space-y-1">
@@ -349,17 +350,45 @@
                     <div class="space-y-1">
                         <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Repartidor</label>
                         <select id="audit-driver" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold outline-none focus:ring-1 focus:ring-primary">
-                            <option value="">Cargando...</option>
+                            <option value="">Todos los Repartidores</option>
                         </select>
                     </div>
                 </div>
+
+                <!-- COLA DE FOTOS (PREVIEW) -->
+                <div id="audit-queue-container" class="hidden space-y-2">
+                    <div class="flex items-center justify-between px-1">
+                        <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Fotos en cola: <span id="audit-queue-count">0</span></span>
+                        <button onclick="clearAuditQueue()" class="text-[10px] font-bold text-red-400 uppercase tracking-widest">Limpiar todo</button>
+                    </div>
+                    <div id="audit-queue-preview" class="flex gap-2 overflow-x-auto no-scrollbar pb-2 min-h-[80px]">
+                        <!-- Miniaturas dinámicas -->
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3">
-                    <button onclick="loadAuditDataPWA()" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded-xl py-3 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all">
-                        <i class="fa-solid fa-magnifying-glass"></i> Consultar
+                    <!-- Botón Cámara (Directo) -->
+                    <button onclick="document.getElementById('audit-camera-input').click()" class="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl py-3 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+                        <i class="fa-solid fa-camera text-lg"></i>
+                        <span class="text-[10px] uppercase">Tomar Foto</span>
+                        <input type="file" id="audit-camera-input" accept="image/*" capture="environment" class="hidden" onchange="addToAuditQueue(event)">
                     </button>
-                    <button onclick="document.getElementById('audit-photo-input').click()" class="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl py-3 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all">
-                        <i class="fa-solid fa-camera"></i> Subir POS
-                        <input type="file" id="audit-photo-input" accept="image/*" multiple class="hidden" onchange="processAuditPhotos(event)">
+
+                    <!-- Botón Galería -->
+                    <button onclick="document.getElementById('audit-gallery-input').click()" class="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl py-3 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+                        <i class="fa-solid fa-images text-lg"></i>
+                        <span class="text-[10px] uppercase">Galería</span>
+                        <input type="file" id="audit-gallery-input" accept="image/*" multiple class="hidden" onchange="addToAuditQueue(event)">
+                    </button>
+
+                    <!-- Botón Consultar (Procesar) -->
+                    <button onclick="processAuditQueue()" id="btn-audit-process" class="col-span-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl py-4 font-black flex items-center justify-center gap-3 active:scale-95 transition-all opacity-50 cursor-not-allowed" disabled>
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> PROCESAR Y CONSULTAR
+                    </button>
+                    
+                    <!-- Botón Solo Consultar Sistema (Sin fotos) -->
+                    <button onclick="loadAuditDataPWA()" class="col-span-2 text-slate-500 text-[10px] font-bold uppercase tracking-widest py-2 hover:text-slate-300">
+                        O solo consultar sistema (sin fotos)
                     </button>
                 </div>
             </div>

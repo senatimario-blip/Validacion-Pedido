@@ -3362,14 +3362,12 @@ async function loadAllDrivers() {
     }
 }
 
-// ==========================================
-// 🛡️ LÓGICA DE AUDITORÍA POS (ADMIN MOBILE)
-// ==========================================
 let auditPosData = [];
 let auditSystemData = [];
 let matchedSysIds = new Set();
 let currentAuditPosTotal = 0;
 let currentAuditSysTotal = 0;
+let auditFilesQueue = []; // v6.2: Cola de archivos para procesamiento múltiple
 
 function initAuditTabPWA() {
     const auditDate = document.getElementById('audit-date');
@@ -3380,13 +3378,69 @@ function initAuditTabPWA() {
         auditDate.value = getYMDLima(new Date());
     }
     
-    // Fill driver datalist if needed (already should be filled by drivers-list global)
-    // No specific initialization needed for results until photos are uploaded
+    clearAuditQueue(); // Limpiar cola al entrar
 }
 
-async function processAuditPhotos(event) {
+function addToAuditQueue(event) {
     const files = event.target.files;
     if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+        auditFilesQueue.push(files[i]);
+    }
+
+    // Reset inputs para permitir disparar fotos seguidas
+    document.getElementById('audit-camera-input').value = "";
+    document.getElementById('audit-gallery-input').value = "";
+
+    renderAuditQueue();
+}
+
+function renderAuditQueue() {
+    const container = document.getElementById('audit-queue-container');
+    const preview = document.getElementById('audit-queue-preview');
+    const count = document.getElementById('audit-queue-count');
+    const btnProcess = document.getElementById('btn-audit-process');
+
+    if (auditFilesQueue.length === 0) {
+        container.classList.add('hidden');
+        btnProcess.classList.add('opacity-50', 'cursor-not-allowed');
+        btnProcess.disabled = true;
+        return;
+    }
+
+    container.classList.remove('hidden');
+    count.textContent = auditFilesQueue.length;
+    btnProcess.classList.remove('opacity-50', 'cursor-not-allowed');
+    btnProcess.disabled = false;
+
+    preview.innerHTML = '';
+    auditFilesQueue.forEach((file, index) => {
+        const url = URL.createObjectURL(file);
+        const div = document.createElement('div');
+        div.className = 'relative shrink-0 w-20 h-20 bg-slate-800 rounded-lg border border-slate-700 overflow-hidden';
+        div.innerHTML = `
+            <img src="${url}" class="w-full h-full object-cover">
+            <button onclick="removeFromAuditQueue(${index})" class="absolute top-0 right-0 bg-red-500 text-white w-6 h-6 flex items-center justify-center rounded-bl-lg shadow-lg">
+                <i class="fa-solid fa-xmark text-[10px]"></i>
+            </button>
+        `;
+        preview.appendChild(div);
+    });
+}
+
+function removeFromAuditQueue(index) {
+    auditFilesQueue.splice(index, 1);
+    renderAuditQueue();
+}
+
+function clearAuditQueue() {
+    auditFilesQueue = [];
+    renderAuditQueue();
+}
+
+async function processAuditQueue() {
+    if (auditFilesQueue.length === 0) return;
 
     const auditDate = document.getElementById('audit-date').value;
     const auditDriver = document.getElementById('audit-driver').value;
@@ -3398,14 +3452,14 @@ async function processAuditPhotos(event) {
 
     Swal.fire({
         title: 'Procesando Imágenes',
-        text: 'Gemini está leyendo los vouchers del POS...',
+        text: `Gemini está leyendo ${auditFilesQueue.length} voucher(s)...`,
         allowOutsideClick: false,
         didOpen: () => { Swal.showLoading(); }
     });
 
     try {
         const base64Images = [];
-        for (const file of files) {
+        for (const file of auditFilesQueue) {
             const b64 = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result); // Data URI completo
@@ -3415,14 +3469,14 @@ async function processAuditPhotos(event) {
             base64Images.push(b64);
         }
 
-        // 1. Extraer data del POS via Gemini (Backend espera 'imageBase64Array')
+        // 1. Extraer data del POS via Gemini
         const resPos = await window.fetchAPI('extraerListaPOS', { imageBase64Array: base64Images });
         if (!resPos.success) throw new Error(resPos.message || 'Error en Gemini');
 
         // 2. Obtener data del Sistema (TADA)
         const resSys = await window.fetchAPI('obtenerDataSistemaAudit', { 
             fecha: auditDate, 
-            motorizado: auditDriver // Opcional, si está vacío trae todos
+            motorizado: auditDriver
         });
         if (!resSys.success) throw new Error(resSys.message || 'Error al obtener data del sistema');
 
