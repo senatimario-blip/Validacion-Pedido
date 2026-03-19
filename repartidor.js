@@ -3658,7 +3658,7 @@ function renderAuditTablesPWA() {
         });
     });
 
-    // Row de Resumen POS
+    // Row de Resumen POS (v25)
     if ((auditPosData || []).length > 0) {
         const uniqueCount = uniqueVoucherKeys.size;
         posTbody.innerHTML += `
@@ -3701,17 +3701,40 @@ function renderAuditTablesPWA() {
         `;
     }
 
-    // Actualizar Totales del Sub-Header
+    // Actualizar Totales del Sub-Header (v25)
     currentAuditPosTotal = totalPOS;
     currentAuditSysTotal = totalSys;
     const diff = totalPOS - totalSys;
 
-    document.getElementById('summary-pos-total').textContent = `S/ ${totalPOS.toFixed(2)}`;
-    document.getElementById('summary-sys-total').textContent = `S/ ${totalSys.toFixed(2)}`;
+    // Calcular suma de montos conciliados
+    let sumMatched = 0;
+    matchedSysIds.forEach(idx => {
+        sumMatched += (parseFloat(auditSystemData[idx].monto) || 0);
+    });
+
+    const posSummary = document.getElementById('summary-pos-total');
+    if (posSummary) {
+        posSummary.innerHTML = `
+            S/ ${totalPOS.toFixed(2)} 
+            <div class="text-[10px] text-blue-400 font-bold mt-1" style="white-space:nowrap;">
+                [Conc: S/ ${sumMatched.toFixed(2)} (${matchedSysIds.size})]
+            </div>`;
+    }
+
+    const sysSummary = document.getElementById('summary-sys-total');
+    if (sysSummary) {
+        sysSummary.innerHTML = `
+            S/ ${totalSys.toFixed(2)}
+            <div class="text-[10px] text-emerald-400 font-bold mt-1" style="white-space:nowrap;">
+                [Conc: S/ ${sumMatched.toFixed(2)} (${matchedSysIds.size})]
+            </div>`;
+    }
     
     const diffElem = document.getElementById('summary-diff-total');
-    diffElem.textContent = `S/ ${diff.toFixed(2)}`;
-    diffElem.className = `text-xl font-black ${Math.abs(diff) < 0.1 ? 'text-emerald-400' : 'text-red-400'}`;
+    if (diffElem) {
+        diffElem.textContent = `S/ ${diff.toFixed(2)}`;
+        diffElem.className = `text-xl font-black ${Math.abs(diff) < 0.1 ? 'text-emerald-400' : 'text-red-400'}`;
+    }
 }
 
 async function saveAuditReportPWA() {

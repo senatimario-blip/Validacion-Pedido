@@ -192,6 +192,23 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
         if (fechaEntrega) sheet.getRange(i + 1, 16).setValue(fechaEntrega); // P
         if (horaEntrega) sheet.getRange(i + 1, 17).setValue(horaEntrega);   // Q
         
+        // --- NUEVA LÓGICA V25: GENERACIÓN DE AUTO ID ÚNICO AL MOMENTO DE LA PRIMERA ENTREGA ---
+        if (horaEntrega && !rows[i][19]) { 
+           const driverName = String(rows[i][9] || "").trim();
+           if (driverName && driverName !== "Sin Asignar") {
+              const newAutoId = "AUTO_" + Date.now().toString().substring(3);
+              const currentPFecha = String(rows[i][1]).split(' ')[0]; 
+              for (let j = 1; j < rows.length; j++) {
+                const rowDate = String(rows[j][1]).split(' ')[0];
+                // Si es el mismo repartidor, misma fecha y NO tiene ID aún
+                if (String(rows[j][9] || "").trim() === driverName && !rows[j][19] && rowDate === currentPFecha) {
+                  sheet.getRange(j + 1, 20).setValue(newAutoId);
+                }
+              }
+              logToSheet("V25: Generado " + newAutoId + " para pedidos de " + driverName);
+           }
+        }
+        
         if (fechaEntrega && horaEntrega) {
           try {
             const creationDate = new Date(rows[i][1]); // Col B
@@ -334,7 +351,7 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
                   finalStatus    = 'Validado AG';
                   validatorUser  = 'AG';
                   sheet.getRange(i + 1, 9).setValue(new Date());          // I: Fecha validación
-                  sheet.getRange(i + 1, 12).setValue(rows[i][10] || '');  // L: Pago Val = K
+                  sheet.getRange(i + 1, 12).setValue(ocr.tipoPago || rows[i][10] || '');  // L: Tipo Pago Limpio (IA) o Original K
                   // Guardar datos del voucher
                   if (ocr.fecha) sheet.getRange(i + 1, 28).setValue(ocr.fecha); // AB: Fecha voucher
                   if (horaVoucherStr) sheet.getRange(i + 1, 29).setValue(horaVoucherStr); // AC: Hora voucher
@@ -445,15 +462,11 @@ function asignarMotorizado(data) {
 
     if (rowIndex === -1) return { success: false, message: "Pedido no encontrado" };
 
-    // 2. Definir el ID Final: Reusar el activo o crear uno nuevo con milisegundos
-    const finalViajeId = viajeIdExistente || ("AUTO_" + Date.now().toString().substring(3));
-
-    // 3. Aplicar cambios
+    // 3. Aplicar cambios (Solo repartidor, el ID se genera al entregar el primero)
     sheet.getRange(rowIndex, 10).setValue(nuevoDriver); // Col J: Repartidor
-    sheet.getRange(rowIndex, 20).setValue(finalViajeId); // Col T: Viaje ID
     
     SpreadsheetApp.flush();
-    return { success: true, viajeId: finalViajeId };
+    return { success: true, message: "Repartidor asignado" };
 
   } catch (e) {
     return { success: false, message: "Error Lock: " + e.toString() };
@@ -1046,17 +1059,17 @@ function asignarViajePedido(payload) {
   try {
     const sheet = getSheet();
     const rows = sheet.getDataRange().getValues();
-    const nros = payload.nros || [];
+    const nros = (payload.nros || []).map(n => String(n).trim());
     const viajeId = payload.viajeId;
     
     if (viajeId === undefined || viajeId === null) return { success: false, message: 'Falta ID de Viaje' };
     
     let updates = 0;
     for (let i = 1; i < rows.length; i++) {
-      // Verificamos si el NRO del pedido estÃ¡ en la lista recibida
-      if (nros.indexOf(rows[i][0]) !== -1) {
+      // Verificamos si el NRO del pedido está en la lista recibida (comparación como String)
+      if (nros.indexOf(String(rows[i][0]).trim()) !== -1) {
         // Columna T es la 20 (Index 19)
-        sheet.getRange(i + 1, 20).setValue(viajeId);
+        sheet.getRange(i + 1, 20).setValue(String(viajeId));
         updates++;
       }
     }

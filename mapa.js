@@ -690,7 +690,14 @@ function renderActiveMonitor(motorizadosMap, container, counts) {
                         return `<div style="background: rgba(96, 165, 250, 0.2); color: #60a5fa; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-spinner fa-spin"></i> ASIGNANDO ID...</div>`;
                     }
 
-                    // --- DOBLE CANDADO: BOTON LIQUIDAR ---
+                    // --- PROPUESTA 1: AUTO-LIQUIDAR (v7.0: se cierra cuando TODOS están entregados físicamente) ---
+                    if (false && stats.llegaron) {
+                        console.log(`[AutoLiquidar v7] Ruta física completada para ${data.name}. Archivando automáticamente...`);
+                        // setTimeout(mKey), 100);
+                        return `<div style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 5px 10px; border-radius: 6px; font-size: 0.75em; font-weight: 900;"><i class="fa-solid fa-spinner fa-spin"></i> ARCHIVANDO RUTA...</div>`;
+                    }
+
+                    // --- DOBLE CANDADO: BOTON LIQUIDAR (Para casos manuales o remanentes) ---
                     if (stats.llegaron) {
                         if (stats.isLiquidable) {
                             return `<button onclick="liquidarViajeDefinitivo('${data.name.replace(/'/g, "\\'")}', null, '${data.tripId || ''}')" style="background: #10b981; color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 0.85em; font-weight: 800; cursor: pointer;"><i class="fa-solid fa-dollar-sign"></i> Liquidar</button>`;
@@ -988,10 +995,11 @@ function calculateOrderPayment(order, position) {
         }
         return 5.00;
     }
-    // Reglas: 1ero 7.5, 2do 7.0, 3ro+ 6.5
+    // Reglas: 1ero 7.5, 2do 7.0, 3ro 5.78, 4to+ 5.15 (Actualizado v25)
     if (position === 1) return 7.50;
     if (position === 2) return 7.00;
-    return 6.50;
+    if (position === 3) return 5.78;
+    return 5.15;
 }
 
 function initTripDropZone() {
@@ -1366,6 +1374,80 @@ window._asignarIdAuto = async function(driverKey) {
     } finally {
         // Liberar debounce después de 5 seg para permitir reintentos
         setTimeout(() => { if (window._autoIdInProgress) window._autoIdInProgress[dUpper] = false; }, 5000);
+    }
+};
+
+// --- NUEVO v7.0: Auto-Liquidar viaje al completar todas las entregas ---
+// Convierte el AUTO_ID en ID definitivo automáticamente para liberar el monitor.
+window._autoLiquidarViajeFisico = async function(driverKey) {
+    const dUpper = (driverKey || "").trim().toUpperCase();
+    
+    // --- PISTA DE DEPURACIÓN 1 ---
+    console.log(`[DEBUG-AutoArchivar] 1. Recibido driverKey completo: "${dUpper}"`);
+
+    if (!dUpper || typeof orders === 'undefined') return;
+
+    // Debounce: evitar llamadas simultáneas
+    if (!window._autoLiquidarInProgress) window._autoLiquidarInProgress = {};
+    if (window._autoLiquidarInProgress[dUpper]) return;
+    window._autoLiquidarInProgress[dUpper] = true;
+
+    // --- PISTA DE DEPURACIÓN 2 ---
+    // Limpiamos el nombre por si viene pegado al ID (ej: "LUIS C._AUTO_123")
+    const cleanDriverName = dUpper.split('_AUTO_')[0];
+    const targetIdFromKey = dUpper.includes('_AUTO_') ? dUpper.substring(dUpper.indexOf('_AUTO_') + 1) : null;
+    
+    console.log(`[DEBUG-AutoArchivar] 2. Buscando pedidos para repartidor: "${cleanDriverName}" | ID esperado: "${targetIdFromKey}"`);
+
+    // Pedidos activos del repartidor que coincidan con el nombre y el ID
+    const activeOrders = orders.filter(o => {
+        const matchName = (o.envio || "").trim().toUpperCase() === cleanDriverName;
+        const matchId = targetIdFromKey 
+            ? String(o.viaje_id).toUpperCase() === targetIdFromKey.toUpperCase() 
+            : String(o.viaje_id || "").startsWith('AUTO_');
+        return matchName && matchId;
+    });
+
+    if (activeOrders.length === 0) {
+        // --- PISTA DE DEPURACIÓN 3 ---
+        console.warn(`[DEBUG-AutoArchivar] 3. ¡ALERTA! No se encontró ningún pedido para esos criterios en la base. Terminando.`);
+        window._autoLiquidarInProgress[dUpper] = false;
+        return;
+    }
+
+    console.log(`[DEBUG-AutoArchivar] 4. ÉXITO: Encontrados ${activeOrders.length} pedidos. Iniciando archivado...`);
+
+    const currentAutoId = String(activeOrders[0].viaje_id);
+    const definitiveId = currentAutoId.replace('AUTO_', '');
+    const nros = activeOrders.map(o => Number(o.nro));
+
+    console.log(`[AutoLiquidar v7] Ruta física completada para ${dUpper}. Aplicando ID definitivo ${definitiveId} localmente...`);
+
+    // --- ACTUALIZACIÓN OPTIMISTA LOCAL ---
+    // Esto rompe el bucle de renderizado inmediatamente en el frontend
+    nros.forEach(n => {
+        const o = (typeof orders !== 'undefined' ? orders.find(x => x.nro == n) : null);
+        if (o) {
+            o.viaje_id = definitiveId;
+        }
+    });
+    
+    // Rerender inmediato para quitar el mensaje de "Archivando..."
+    renderMapaMotorizados();
+
+    try {
+        console.log(`[AutoLiquidar v7] Enviando confirmación a BD de ${nros.length} pedidos de ${dUpper}...`);
+        const res = await fetchAPI('asignarViajePedido', { nros, viajeId: definitiveId });
+        if (res.success) {
+            console.log(`[AutoLiquidar v7] Éxito en BD para ${dUpper}. (ID: ${definitiveId})`);
+        } else {
+            console.error(`[AutoLiquidar v7] El servidor regresó error:`, res.message || res.msg);
+        }
+    } catch(e) {
+        console.error('[AutoLiquidar v7] Error de red al intentar archivar:', e);
+    } finally {
+        // Liberar debounce después de 5 seg
+        setTimeout(() => { if (window._autoLiquidarInProgress) window._autoLiquidarInProgress[dUpper] = false; }, 5000);
     }
 };
 

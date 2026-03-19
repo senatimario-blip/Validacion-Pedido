@@ -3935,6 +3935,73 @@ function applyFilters() {
 }
 
 searchInput.addEventListener('input', applyFilters);
+
+// --- EXPORTAR A EXCEL (v25) ---
+const exportExcelBtn = document.getElementById('export-excel-btn');
+if (exportExcelBtn) {
+    exportExcelBtn.addEventListener('click', exportToExcel);
+}
+
+function exportToExcel() {
+    if (!currentFilteredOrders || currentFilteredOrders.length === 0) {
+        Swal.fire('Atención', 'No hay datos filtrados para exportar.', 'warning');
+        return;
+    }
+
+    // Configurar cabeceras
+    const headers = [
+        "Nro", "Llave", "Fecha/Hora", "Monto", "Vuelto", "Tipo Pago", "Estado", "Repartidor", 
+        "SLA (Min)", "SLA Real (Min)", "ID Viaje"
+    ];
+
+    // Procesar filas
+    const rows = currentFilteredOrders.map(o => [
+        o.nro,
+        `"${o.llave}"`, // Comillas para evitar formato científico en Excel
+        o.fecha,
+        parseFloat(o.monto || 0).toFixed(2),
+        parseFloat(o.vuelto || 0).toFixed(2),
+        `"${o.pago || '-'}"`,
+        o.estado,
+        `"${o.envio || '-'}"`,
+        `"${o.tiempo_transcurrido || '-'}"`,
+        o.minutosReales || '-',
+        `"${o.viaje_id || '-'}"`
+    ]);
+
+    // Crear contenido CSV (punto y coma es mejor para configuración regional de Excel en español)
+    let csvContent = "\uFEFF"; // BOM para asegurar UTF-8 en Excel
+    csvContent += headers.join(";") + "\r\n";
+    rows.forEach(r => {
+        csvContent += r.join(";") + "\r\n";
+    });
+
+    // Descargar archivo
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const dateStr = new Date().toLocaleDateString('es-PE').replace(/\//g, '-');
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Reporte_Validacion_${dateStr}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true
+    });
+    Toast.fire({
+        icon: 'success',
+        title: 'Excel generado con éxito'
+    });
+}
+
 document.getElementById('date-filter').addEventListener('change', (e) => {
     const newDate = e.target.value;
     dateRange = { start: null, end: null };
@@ -5349,7 +5416,7 @@ function renderAuditTables() {
         </tr>`;
     });
     
-    // 3. Totales resaltados con Conteo
+    // 3. Totales resaltados con Conteo y Conciliados (v25)
     currentAuditPosTotal = totalPOS;
     currentAuditSysTotal = totalSys;
     
@@ -5365,11 +5432,29 @@ function renderAuditTables() {
         <td>-</td>
     </tr>`;
 
-    document.getElementById('summary-pos-total').textContent = `POS: S/ ${totalPOS.toFixed(2)} (${auditPosData.length} items)`;
-    document.getElementById('summary-sys-total').textContent = `TADA: S/ ${totalSys.toFixed(2)} (${filteredSystemData.length} items)`;
+    // Calcular suma de montos conciliados
+    let sumMatched = 0;
+    matchedSysIds.forEach(idx => {
+        sumMatched += (parseFloat(filteredSystemData[idx].monto) || 0);
+    });
+
     const diff = totalPOS - totalSys;
+    
+    // Actualizar Pie de Resumen (v25)
+    document.getElementById('summary-pos-total').innerHTML = `
+        POS: S/ ${totalPOS.toFixed(2)} (${auditPosData.length} items) 
+        <span style="color:#60a5fa; font-size:0.85em; margin-left:10px; font-weight: bold;">
+            [Conc: S/ ${sumMatched.toFixed(2)} (${matchedSysIds.size})]
+        </span>`;
+    
+    document.getElementById('summary-sys-total').innerHTML = `
+        TADA: S/ ${totalSys.toFixed(2)} (${filteredSystemData.length} items)
+        <span style="color:#4ade80; font-size:0.85em; margin-left:10px; font-weight: bold;">
+            [Conc: S/ ${sumMatched.toFixed(2)} (${matchedSysIds.size})]
+        </span>`;
+
     const diffEl = document.getElementById('summary-diff-total');
-    diffEl.textContent = `Diferencia: S/ ${diff.toFixed(2)}`;
+    diffEl.innerHTML = `Diferencia: S/ ${diff.toFixed(2)}`;
     diffEl.style.color = Math.abs(diff) < 0.05 ? '#4ade80' : '#f87171';
 }
 
