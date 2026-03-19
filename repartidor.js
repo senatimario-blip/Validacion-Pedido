@@ -631,30 +631,39 @@ function autoLoginData(name) {
     // Admin Controls Check
     const adminControls = document.getElementById('admin-ruta-controls');
     const navBtnValidar = document.getElementById('nav-btn-validar');
+    const navBtnAuditoria = document.getElementById('nav-btn-auditoria');
 
-    if (name.toLowerCase() === 'admin') {
+    const isAdmin = (name.toLowerCase() === 'admin');
+    const isSpecialGallery = isAdmin || (name.toLowerCase() === 'dennys r.');
+
+    if (isAdmin) {
         if (adminControls) adminControls.classList.remove('hidden');
         if (navBtnValidar) navBtnValidar.classList.remove('hidden');
-        const navBtnAuditoria = document.getElementById('nav-btn-auditoria');
         if (navBtnAuditoria) navBtnAuditoria.classList.remove('hidden');
-        
-        // REGULARIZACIÓN: Permitir acceso a galería para el Admin en el modal de repartidor
-        const inputPos = document.getElementById('input-foto-pos');
-        const inputEvidencia = document.getElementById('input-foto-evidencia');
-        if (inputPos) inputPos.removeAttribute('capture');
-        if (inputEvidencia) inputEvidencia.removeAttribute('capture');
-        console.log("🔓 [ADMIN] Acceso a galería desbloqueado para regularización.");
     } else {
         if (adminControls) adminControls.classList.add('hidden');
         if (navBtnValidar) navBtnValidar.classList.add('hidden');
-        const navBtnAuditoria = document.getElementById('nav-btn-auditoria');
         if (navBtnAuditoria) navBtnAuditoria.classList.add('hidden');
-        
+    }
+
+    // REGULARIZACIÓN: Permitir acceso a galería para el Admin y Dennys R. (cámara malograda)
+    const inputPos = document.getElementById('input-foto-pos');
+    const inputEvidencia = document.getElementById('input-foto-evidencia');
+    const inputQuickShare = document.getElementById('input-quick-share');
+    const valAdminPhotoInput = document.getElementById('val-admin-photo-input');
+    
+    if (isSpecialGallery) {
+        if (inputPos) inputPos.removeAttribute('capture');
+        if (inputEvidencia) inputEvidencia.removeAttribute('capture');
+        if (inputQuickShare) inputQuickShare.removeAttribute('capture');
+        if (valAdminPhotoInput) valAdminPhotoInput.removeAttribute('capture');
+        console.log(`🔓 Acceso a galería desbloqueado para: ${name}`);
+    } else {
         // Restaurar modo cámara para repartidores normales
-        const inputPos = document.getElementById('input-foto-pos');
-        const inputEvidencia = document.getElementById('input-foto-evidencia');
         if (inputPos) inputPos.setAttribute('capture', 'environment');
         if (inputEvidencia) inputEvidencia.setAttribute('capture', 'environment');
+        if (inputQuickShare) inputQuickShare.setAttribute('capture', 'environment');
+        if (valAdminPhotoInput) valAdminPhotoInput.setAttribute('capture', 'environment');
     }
 
     fetchDriverOrders();
