@@ -51,7 +51,14 @@ function doPost(e) {
       case 'guardarAuditoriaPOS':       result = guardarAuditoriaPOS(payload); break;
       case 'obtenerAuditoriasPOS':      result = obtenerAuditoriasPOS(payload.filtro); break;
       case 'obtenerDataSistemaAudit':   result = obtenerDataSistemaAudit(payload); break;
-      default:                    result = { success: false, message: 'AcciÃ³n no encontrada' };
+      // ========== ASISTENCIA ==========
+      case 'registrarAsistencia':        result = registrarAsistencia(payload); break;
+      case 'obtenerAsistenciaSemana':    result = obtenerAsistenciaSemana(payload.semanaId); break;
+      case 'calcularPagoAsistencia':     result = calcularPagoAsistencia(payload); break;
+      case 'generarQRToken':             result = generarQRToken(); break;
+      case 'validarQRToken':             result = validarQRToken(payload.token); break;
+      case 'enviarEvidenciaGrupo':       result = enviarEvidenciaGrupo(payload); break;
+      default:                    result = { success: false, message: 'Acci\u00f3n no encontrada' };
     }
     return output.setContent(JSON.stringify(result));
   } catch (err) {
@@ -1765,3 +1772,346 @@ function obtenerDataSistemaAudit(payload) {
     return { success: false, message: e.toString() };
   }
 }
+
+// ============================================================
+// ===         MÓDULO DE ASISTENCIA + GREEN API             ===
+// ============================================================
+
+// --- Configuración Green API (se lee de Script Properties) ---
+function getGreenAPIConfig() {
+  const props = PropertiesService.getScriptProperties();
+  return {
+    idInstance:    props.getProperty('GREEN_API_INSTANCE') || '7107555446',
+    apiToken:      props.getProperty('GREEN_API_TOKEN')    || '42084b10a21b4d0194a4231508112e0b49abc8ffd7df41d59b',
+    groupId:       props.getProperty('WA_GROUP_ID')        || '120363423493069973@g.us',  // Tada ATE - CABIFY
+    apiUrl:        'https://7107.api.greenapi.com'
+  };
+}
+
+// --- Enviar mensaje de texto al grupo vía Green API ---
+function enviarWhatsAppGreenAPI(mensaje, chatIdOverride) {
+  try {
+    const cfg = getGreenAPIConfig();
+    const chatId = chatIdOverride || cfg.groupId;
+    if (!chatId) {
+      logToSheet('Green API: chatId del grupo no configurado');
+      return { success: false, message: 'chatId no configurado' };
+    }
+    const url = `${cfg.apiUrl}/waInstance${cfg.idInstance}/sendMessage/${cfg.apiToken}`;
+    const payload = JSON.stringify({ chatId: chatId, message: mensaje });
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: payload,
+      muteHttpExceptions: true
+    };
+    const response = UrlFetchApp.fetch(url, options);
+    const result = JSON.parse(response.getContentText());
+    logToSheet('Green API enviado: ' + JSON.stringify(result));
+    return { success: true, idMessage: result.idMessage };
+  } catch(e) {
+    logToSheet('Error Green API: ' + e.toString());
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- Registrar INGRESO o SALIDA de un repartidor ---
+function registrarAsistencia(payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName('Asistencia');
+    
+    // Crear hoja si no existe
+    if (!sheet) {
+      sheet = ss.insertSheet('Asistencia');
+      sheet.appendRow(['Fecha', 'SemanaId', 'Repartidor', 'Tipo', 'HoraServidor', 'GPS_Lat', 'GPS_Lng', 'TokenQR_Valido', 'DiaSemana', 'TipoDia']);
+      sheet.getRange(1, 1, 1, 10).setFontWeight('bold').setBackground('#1a1a2e').setFontColor('white');
+    }
+    
+    const now = new Date();
+    const fechaStr   = Utilities.formatDate(now, 'GMT-5', 'yyyy-MM-dd');
+    const horaStr    = Utilities.formatDate(now, 'GMT-5', 'HH:mm:ss');
+    const diaSemana  = Utilities.formatDate(now, 'GMT-5', 'EEEE'); // Lunes, Martes...
+    
+    // Determinar tipo de día para pago
+    const diaNum = now.getDay(); // 0=Dom, 1=Lun, ..., 6=Sab
+    const tipoDia = (diaNum >= 1 && diaNum <= 4) ? 'POR_HORA' : 'POR_PEDIDO';
+    
+    // Calcular semanaId
+    const semanaId = getSemanaId(now);
+    
+    // Validar token QR si viene
+    let tokenValido = 'N/A';
+    if (payload.qrToken) {
+      const validacion = validarQRToken(payload.qrToken);
+      tokenValido = validacion.valid ? 'SI' : 'NO';
+    }
+    
+    // Guardar registro
+    sheet.appendRow([
+      fechaStr,
+      semanaId,
+      payload.repartidor || '',
+      payload.tipo || 'INGRESO',  // INGRESO o SALIDA
+      horaStr,
+      payload.lat || '',
+      payload.lng || '',
+      tokenValido,
+      diaSemana,
+      tipoDia
+    ]);
+    
+    // Construir mensaje WhatsApp
+    const emoji = payload.tipo === 'SALIDA' ? '🔴' : '✅';
+    // 1. Construir el Link de Google Maps si hay coordenadas
+    const mapsLink = (payload.lat && payload.lng)
+      ? `https://www.google.com/maps?q=${payload.lat},${payload.lng}`
+      : null;
+
+    const ubicTxt = mapsLink 
+      ? `📍 [Ver Ubicación en Mapa](${mapsLink})`
+      : '📍 Ubicación no disponible';
+
+    // 2. Etiqueta "En Ruta" SOLO para SALIDA (según requerimiento)
+    const enRutaTxt = (payload.tipo === 'SALIDA' && payload.enRuta) ? ' *(En Ruta)*' : '';
+    
+    // 3. Construir mensaje final (Limpio, sin mención a tipo de pago)
+    const mensaje = `${emoji} *${payload.repartidor}* — ${payload.tipo}${enRutaTxt}\n` +
+                    `🕐 ${horaStr.substring(0,5)} | 📅 ${fechaStr}\n` +
+                    `${ubicTxt}`;
+    
+    // Enviar al grupo
+    enviarWhatsAppGreenAPI(mensaje);
+    
+    return { success: true, hora: horaStr, semanaId: semanaId, tipoDia: tipoDia };
+  } catch(e) {
+    logToSheet('Error registrarAsistencia: ' + e.toString());
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- Helper: calcular semanaId ISO (ej: 2026-W12) ---
+function getSemanaId(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return d.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
+}
+
+// --- Obtener todos los registros de asistencia de una semana ---
+function obtenerAsistenciaSemana(semanaId) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Asistencia');
+    if (!sheet) return { success: true, data: [] };
+    
+    const rows = sheet.getDataRange().getDisplayValues();
+    const result = {};
+    
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (String(row[1]).trim() !== String(semanaId).trim()) continue;
+      
+      const repartidor = String(row[2]).trim();
+      const tipo       = String(row[3]).trim();
+      const hora       = String(row[4]).trim();
+      const fecha      = String(row[0]).trim();
+      const diaSemana  = String(row[8]).trim();
+      const tipoDia    = String(row[9]).trim();
+      
+      if (!repartidor) continue;
+      if (!result[repartidor]) result[repartidor] = { registros: [], horasLuJu: 0, tipoDia: tipoDia };
+      result[repartidor].registros.push({ fecha, tipo, hora, diaSemana, tipoDia });
+    }
+    
+    // Calcular horas Lu-Ju por repartidor
+    Object.keys(result).forEach(rep => {
+      const regs = result[rep].registros;
+      // Agrupar por fecha
+      const porFecha = {};
+      regs.forEach(r => {
+        if (!porFecha[r.fecha]) porFecha[r.fecha] = {};
+        porFecha[r.fecha][r.tipo] = r.hora;
+        porFecha[r.fecha].tipoDia = r.tipoDia;
+      });
+      
+      let totalMinutos = 0;
+      Object.keys(porFecha).forEach(fecha => {
+        const dia = porFecha[fecha];
+        if (dia.tipoDia === 'POR_HORA' && dia.INGRESO && dia.SALIDA) {
+          const [hi, mi] = dia.INGRESO.split(':').map(Number);
+          const [hs, ms] = dia.SALIDA.split(':').map(Number);
+          let diff = (hs * 60 + ms) - (hi * 60 + mi);
+          if (diff < 0) diff += 1440; // cruce medianoche
+          totalMinutos += diff;
+        }
+      });
+      result[rep].horasLuJu = Math.round(totalMinutos / 60 * 10) / 10;
+      result[rep].porFecha = porFecha;
+    });
+    
+    return { success: true, data: result };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- Calcular pago semanal (horas Lu-Ju + pedidos Vi-Do) ---
+function calcularPagoAsistencia(payload) {
+  try {
+    const semanaId    = payload.semanaId;
+    const tarifaHora  = parseFloat(payload.tarifaHora  || 5);   // S/5 por hora por defecto
+    const tarifaPed   = parseFloat(payload.tarifaPedido || 3);  // S/3 por pedido por defecto
+    
+    // Obtener asistencia
+    const asistencia = obtenerAsistenciaSemana(semanaId);
+    if (!asistencia.success) return asistencia;
+    
+    // Obtener pedidos validados de la semana para Vi-Do
+    const sheet = getSheet();
+    const pedidos = sheet.getDataRange().getValues();
+    
+    const result = {};
+    Object.keys(asistencia.data).forEach(rep => {
+      const data = asistencia.data[rep];
+      
+      // Contar pedidos Vi-Do: buscar en hoja Pedidos
+      let pedidosFiDo = 0;
+      for (let i = 1; i < pedidos.length; i++) {
+        const envio  = String(pedidos[i][9] || '').trim().toLowerCase();
+        const estado = String(pedidos[i][6] || '').trim();
+        if (envio !== rep.toLowerCase()) continue;
+        if (!['Validado', 'Validado AG'].includes(estado)) continue;
+        
+        // Verificar si la fecha del pedido es Vi-Do de esa semana
+        const fechaPed = new Date(pedidos[i][1]);
+        if (!isNaN(fechaPed)) {
+          const semPed = getSemanaId(fechaPed);
+          const diaPed = fechaPed.getDay(); // 0=Dom, 5=Vie, 6=Sab
+          if (semPed === semanaId && (diaPed === 0 || diaPed === 5 || diaPed === 6)) {
+            pedidosFiDo++;
+          }
+        }
+      }
+      
+      const pagoHoras   = Math.round(data.horasLuJu * tarifaHora * 100) / 100;
+      const pagoPedidos = Math.round(pedidosFiDo   * tarifaPed  * 100) / 100;
+      
+      result[rep] = {
+        horasLuJu:    data.horasLuJu,
+        pedidosFiDo:  pedidosFiDo,
+        pagoHoras:    pagoHoras,
+        pagoPedidos:  pagoPedidos,
+        pagoTotal:    Math.round((pagoHoras + pagoPedidos) * 100) / 100,
+        porFecha:     data.porFecha
+      };
+    });
+    
+    return { success: true, data: result, tarifaHora, tarifaPed };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- Generar token QR temporal (válido 5 minutos) ---
+function generarQRToken() {
+  try {
+    const now     = Date.now();
+    const expira  = now + (5 * 60 * 1000); // 5 minutos
+    const token   = Utilities.base64Encode(now + ':' + expira + ':' + Math.random().toString(36).substr(2,9));
+    
+    // Guardar en Properties para validación
+    PropertiesService.getScriptProperties().setProperty('QR_TOKEN_ACTUAL', token + '|' + expira);
+    
+    return { success: true, token: token, expira: expira, ahora: now };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- Validar token QR (si no expiró) ---
+function validarQRToken(token) {
+  try {
+    const stored = PropertiesService.getScriptProperties().getProperty('QR_TOKEN_ACTUAL') || '';
+    const parts  = stored.split('|');
+    if (parts.length < 2) return { valid: false, reason: 'Sin token generado' };
+    
+    const storedToken = parts[0];
+    const expira      = parseInt(parts[1]);
+    const ahora       = Date.now();
+    
+    if (token !== storedToken)  return { valid: false, reason: 'Token incorrecto' };
+    if (ahora > expira)         return { valid: false, reason: 'Token expirado' };
+    
+    return { valid: true };
+  } catch(e) {
+    return { valid: false, reason: e.toString() };
+  }
+}
+
+/**
+ * Env\u00eda m\u00faltiples fotos y un texto al grupo v\u00eda Green API (Multipart)
+ * Bypassea la necesidad de una URL p\u00fablica al subir el archivo directamente.
+ * @param {Object} payload { texto, fotosBase64: [], chatId: "..." }
+ */
+function enviarEvidenciaGrupo(payload) {
+  try {
+    const config = getGreenAPIConfig();
+    const { texto, fotosBase64 } = payload;
+    const chatId = payload.chatId || config.groupId;
+
+    if (!fotosBase64 || fotosBase64.length === 0) {
+      return enviarWhatsAppGreenAPI(texto, chatId);
+    }
+
+    // Enviar la primera foto con el texto (caption)
+    let res = enviarFotoWhatsAppSync(chatId, fotosBase64[0], texto);
+    
+    // Si hay m\u00e1s fotos, enviarlas sin caption inmediatamente despu\u00e9s para que WhatsApp las agrupe
+    if (fotosBase64.length > 1) {
+      for (let i = 1; i < fotosBase64.length; i++) {
+        enviarFotoWhatsAppSync(chatId, fotosBase64[i], "");
+      }
+    }
+
+    return { success: true, message: "Evidencia enviada al grupo", lastResponse: res };
+  } catch (e) {
+    return { success: false, message: "Error enviando evidencia: " + e.toString() };
+  }
+}
+
+/**
+ * Helper para enviar una sola foto multipart a Green API (sendFileByUpload)
+ */
+function enviarFotoWhatsAppSync(chatId, base64Data, caption) {
+  try {
+    const config = getGreenAPIConfig();
+    const baseUrl = config.apiUrl || 'https://api.greenapi.com';
+    const url = `${baseUrl}/waInstance${config.idInstance}/sendFileByUpload/${config.apiToken}`;
+    
+    // Limpiar el base64 si trae el prefijo (ej: data:image/jpeg;base64,...)
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const decodedData = Utilities.base64Decode(cleanBase64);
+    const blob = Utilities.newBlob(decodedData, "image/jpeg", "evidencia.jpg");
+
+    const payload = {
+      chatId: chatId,
+      file: blob,
+      caption: caption || ""
+    };
+
+    const options = {
+      method: "post",
+      payload: payload,
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    return JSON.parse(response.getContentText());
+  } catch(e) {
+    return { success: false, error: e.toString() };
+  }
+}
+

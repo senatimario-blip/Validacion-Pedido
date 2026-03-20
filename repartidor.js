@@ -469,13 +469,15 @@ function switchTab(tab) {
     const btnAuditoria = document.getElementById('nav-btn-auditoria');
 
     // Reset all
-    [pantallaRuta, pantallaHistorial, pantallaValidar, pantallaAuditoria].forEach(p => {
+    [pantallaRuta, pantallaHistorial, pantallaValidar, pantallaAuditoria,
+     document.getElementById('pantalla-asistencia')].forEach(p => {
         if (p) {
             p.classList.add('hidden');
             p.classList.remove('flex');
         }
     });
-    [btnRuta, btnHistorial, btnValidar, btnAuditoria].forEach(b => {
+    [btnRuta, btnHistorial, btnValidar, btnAuditoria,
+     document.getElementById('nav-btn-asistencia')].forEach(b => {
         if (b) {
             b.classList.remove('text-primary');
             b.classList.add('text-slate-500');
@@ -506,6 +508,18 @@ function switchTab(tab) {
         btnAuditoria.classList.add('text-primary');
         btnAuditoria.classList.remove('text-slate-500');
         initAuditTabPWA();
+    } else if (tab === 'asistencia') {
+        const pantallaAsistencia = document.getElementById('pantalla-asistencia');
+        if (pantallaAsistencia) {
+            pantallaAsistencia.classList.remove('hidden');
+            pantallaAsistencia.classList.add('flex');
+        }
+        const btnAsistencia = document.getElementById('nav-btn-asistencia');
+        if (btnAsistencia) {
+            btnAsistencia.classList.add('text-primary');
+            btnAsistencia.classList.remove('text-slate-500');
+        }
+        cargarMiAsistencia();
     }
 }
 
@@ -1478,140 +1492,92 @@ async function uploadPosSilently(file, orderKey) {
     });
 }
 async function handleSendToWhatsApp() {
-    // Capturamos los datos actuales para que la tarea de fondo no se confunda si el usuario cambia de pedido
     const orderRef = { ...selectedOrderForCapture };
     const posFileRef = photoPosFile;
     const eviFileRef = photoEvidenciaFile;
-    const modeRef = selectedCaptureMode;
     const userRef = currentUser;
 
-    // 1. INICIAR TAREAS DE FONDO (SIN AWAIT)
-    console.log("🚀 Iniciando tareas de servidor en segundo plano para:", orderRef.llave);
+    Swal.fire({
+        title: 'Reportando Entrega...',
+        text: 'Enviando fotos al grupo de WhatsApp...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
 
-    const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
-    const strPagoOrig = String(orderRef.pago || '').toUpperCase();
+    try {
+        const [base64Pos, base64Evi] = await Promise.all([
+            fileToBase64(posFileRef),
+            fileToBase64(eviFileRef)
+        ]);
 
-    // Tarea B: Marcar como "Por Validar" en el Excel (o disparar OCR automático)
-    // CAMBIO: Ahora esperamos a que la subida a Drive termine para evitar que el OCR intente leer un pedido sin foto (Race Condition)
-    uploadPosSilently(posFileRef, orderRef.llave).then(res => {
-        if (!res) {
-            console.error("❌ Falló la subida a Drive, no se puede auto-validar.");
-            return;
-        }
-        console.log("✅ Foto guardada en Drive, disparando auto-validación...");
+        const numMoney = parseFloat(String(orderRef.monto || '0').replace(/[^0-9.-]+/g, ''));
+        const strPagoOrig = String(orderRef.pago || '').toUpperCase();
         
+        let posIcon = '\ud83d\udcb3';
+        if (strPagoOrig.includes('EFECTIVO')) posIcon = '\ud83d\udcb5';
+        else if (strPagoOrig.includes('ONLINE') || strPagoOrig.includes('L\u00cdNEA')) posIcon = '\ud83c\udf10';
+        else if (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN')) posIcon = '\ud83d\udd33';
+
+        const llave = orderRef.llave || `PED-${orderRef.nro}`;
+        const msgText = `PEDIDO ENTREGADO\n\ud83d\udce6 ${llave}\n${posIcon} S/ ${numMoney.toFixed(2)}\n\ud83c\udfcd\ufe0f ${userRef}`;
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'enviarEvidenciaGrupo',
+                texto: msgText,
+                fotosBase64: [base64Pos, base64Evi]
+            })
+        });
+
         const payloadValidar = { action: 'marcarPorValidar', nro: orderRef.nro };
-        
-        // Si el pago es POS (Tarjeta), QR o En Línea, solicitamos validación automática por OCR
-        // He mejorado el filtro para que acepte variaciones como "o débito", "/ débito" y pagos "en línea"
         const isAuto = (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN') || 
-                        strPagoOrig.includes('CRÉDITO') || strPagoOrig.includes('DÉBITO') || 
-                        strPagoOrig.includes('TARJETA') || strPagoOrig.includes('ONLINE') || strPagoOrig.includes('LÍNEA'));
+                        strPagoOrig.includes('CR\u00c9DITO') || strPagoOrig.includes('D\u00c9BITO') || 
+                        strPagoOrig.includes('TARJETA') || strPagoOrig.includes('ONLINE') || strPagoOrig.includes('L\u00cdNEA'));
         
-        console.log("🔍 Pago Detectado:", strPagoOrig, "-> ¿Disparar OCR?:", isAuto);
-        if (isAuto) {
-            payloadValidar.isAutoValidated = true;
-        }
-
-        // Siempre enviar fecha y hora de entrega (hora Lima) para todos los modos
+        if (isAuto) payloadValidar.isAutoValidated = true;
         const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
         const limaDate = new Date(nowLima);
         payloadValidar.fechaEntrega = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
         payloadValidar.horaEntrega = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-        // Incluir GPS en el registro (Anti-Cheat)
         payloadValidar.lat = currentLocation.lat;
-        payloadValidar.lng = currentLocation.lat;
-        payloadValidar.accuracy = currentLocation.accuracy;
-        payloadValidar.phoneTimestamp = currentLocation.timestamp;
+        payloadValidar.lng = currentLocation.lng;
 
-        fetch(API_URL, {
-            method: 'POST',
-            body: JSON.stringify(payloadValidar)
-        })
-        .then(r => r.json())
-        .then(resValid => {
-            if (resValid.success) {
-                console.log("✅ Servidor procesó marcarPorValidar con éxito:", resValid);
-                // Si es auto-validado pero el estado sigue siendo "Por Validar", avisar que el OCR falló
-                if (isAuto && resValid.status === 'Por Validar') {
-                    console.warn("⚠️ El OCR no pudo validar automáticamente (ver logs en Excel).");
-                    // Opcional: comentar si no quieres distraer al repartidor
-                    // alert("El OCR no pudo auto-validar. Se validará manual.");
-                }
-            } else {
-                console.error("❌ El servidor devolvió error en marcarPorValidar:", resValid.message);
-            }
-        })
-        .catch(e => console.error("📡 Error de Red en marcarPorValidar:", e));
-    });
+        fetch(API_URL, { method: 'POST', body: JSON.stringify(payloadValidar) });
+        uploadPosSilently(posFileRef, orderRef.llave); 
 
-    let posIcon = '💳'; // Default (e.g. Tarjeta física)
-    if (strPagoOrig.includes('CONTADO') || strPagoOrig.includes('EFECTIVO')) {
-        posIcon = '💵'; // Dólar
-    } else if (strPagoOrig.includes('LÍNEA') || strPagoOrig.includes('LINEA') || strPagoOrig.includes('ONLINE')) {
-        posIcon = '🌐'; // Mundo
-    } else if (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN')) {
-        posIcon = '🔳'; // Código QR
-    } else if (strPagoOrig.includes('CRÉDITO / DÉBITO') || strPagoOrig.includes('CREDITO / DEBITO')) {
-        posIcon = '💳'; // Tarjeta
-    }
+        Swal.fire({ title: '\u00a1Enviado!', text: 'Reporte enviado al grupo.', icon: 'success', timer: 1500, showConfirmButton: false });
 
-    const llave = orderRef.llave || `PED-${orderRef.nro}`;
-    const msgText = `PEDIDO ENTREGADO\n📦 ${llave}\n${posIcon} S/ ${numMoney.toFixed(2)}\n🏍️ ${userRef}`;
+        modalCaptura.classList.add('hidden');
+        modalCaptura.classList.remove('flex');
 
-    // Enviamos las fotos por separado (juntas en la acción de compartir) pero manteniendo el texto único
-    const filesToSend = [posFileRef, eviFileRef];
-
-    // Escondemos el modal de la cámara de inmediato
-    modalCaptura.classList.add('hidden');
-    modalCaptura.classList.remove('flex');
-
-    Swal.fire({
-        title: `¡Listo para enviar!`,
-        text: `La evidencia de ${llave} se está guardando. Ya puedes enviarla por WhatsApp.`,
-        icon: 'success',
-        confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Ir a WhatsApp',
-        confirmButtonColor: '#25D366',
-        allowOutsideClick: false
-    }).then(async (result) => {
-        if (result.isConfirmed) {
+        const order = currentOrders.find(o => o.nro === orderRef.nro);
+        if (order) {
+            order.esperandoDevolucion = true;
             try {
-                if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
-                    await navigator.share({
-                        title: 'Evidencia de Entrega',
-                        text: msgText,
-                        files: filesToSend
-                    });
-                } else {
-                    // Fallback si no soporta compartir archivos
-                    try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-                    // Envío directo a app nativa (Intento de saltar selector si hay chat reciente)
-                    window.location.href = `whatsapp://send?text=${encodeURIComponent(msgText)}`;
+                const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
+                if (!devPendientes.includes(orderRef.nro)) {
+                    devPendientes.push(orderRef.nro);
+                    localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes));
                 }
-
-                // 3. Auto-marcar como esperando devolución (sin popup)
-                const order = currentOrders.find(o => o.nro === orderRef.nro);
-                if (order) {
-                    order.esperandoDevolucion = true;
-                    try {
-                        const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
-                        if (!devPendientes.includes(orderRef.nro)) {
-                            devPendientes.push(orderRef.nro);
-                            localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes));
-                        }
-                    } catch (e) { }
-                    renderOrders();
-                }
-
-            } catch (shareError) {
-                if (shareError.name !== 'AbortError') {
-                    console.error('Error Compartiendo:', shareError);
-                }
-            }
+            } catch (e) { }
+            renderOrders();
         }
-    });
+    } catch (e) {
+        Swal.fire('\u00a1Procesado!', 'La evidencia se est\u00e1 guardando.', 'success');
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
 
 // =========================================================================
 // --- CANCEL MODAL LOGIC ---
@@ -1706,103 +1672,62 @@ function checkReadyToCancel() {
 }
 
 async function handleSendCancelToWhatsApp() {
-    // 1. Capturar referencias para evitar pérdida de datos si el modal se cierra
     const orderRef = { ...selectedOrderForCancel };
-    const filesToSend = [photoCancelEvidenciaFile, photoCancelFachadaFile];
     const evidenceFileRef = photoCancelEvidenciaFile;
+    const fachadaFileRef = photoCancelFachadaFile;
     const userRef = currentUser;
     const llave = orderRef.llave || `PED-${orderRef.nro}`;
-    const msgText = `PEDIDO CANCELADO\n📦 ${llave}\n🏍️ ${userRef}`;
-
-    console.log("🚀 Iniciando cancelación en segundo plano para:", llave);
-
-    // 2. TAREAS DE FONDO (SIN AWAIT)
-    // Tarea A: Subir la foto de evidencia a Google Drive
-    uploadPosSilently(evidenceFileRef, llave).then(res => {
-        if (!res) console.error("❌ Falló subida de cancelación a Drive");
-        else console.log("✅ Evidencia de cancelación guardada en Drive");
-    });
-
-    // Tarea B: Marcar el pedido como "Por Validar" con fecha/hora Lima
-    const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
-    const limaDate = new Date(nowLima);
-    const fechaCancel = limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const horaCancel = limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-    fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({
-            action: 'marcarPorValidar',
-            nro: orderRef.nro,
-            fechaEntrega: fechaCancel,
-            horaEntrega: horaCancel
-        })
-    }).catch(e => console.warn('⚠️ Error background marcando Cancelación', e));
-
-    // 3. FLUJO INMEDIATO DE WHATSAPP
-    // Cerrar el modal de cancelación de inmediato
-    modalCancelacion.classList.add('hidden');
-    modalCancelacion.classList.remove('flex');
+    const msgText = `PEDIDO CANCELADO\n\ud83d\udce6 ${llave}\n\ud83c\udfcd\ufe0f ${userRef}`;
 
     Swal.fire({
-        title: `¿Confirmar: ${llave}?`,
-        text: 'Se enviará el reporte de cancelación por WhatsApp mientras guardamos la evidencia.',
-        icon: 'warning',
-        iconColor: '#ef4444',
-        confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Enviar Cancelación',
-        confirmButtonColor: '#dc2626',
-        showCancelButton: true,
-        cancelButtonText: 'Volver',
-        cancelButtonColor: '#64748b',
-        allowOutsideClick: false
-    }).then(async (result) => {
-        if (result.isConfirmed) {
-            try {
-                if (navigator.canShare && navigator.canShare({ files: filesToSend })) {
-                    await navigator.share({
-                        title: 'Cancelación de Pedido',
-                        text: msgText,
-                        files: filesToSend
-                    });
-                } else {
-                    // Fallback
-                    try { await navigator.clipboard.writeText(msgText); } catch (e) { }
-
-                    // Descargas manuales si no soporta share múltiple
-                    const a1 = document.createElement('a');
-                    a1.href = URL.createObjectURL(filesToSend[0]);
-                    a1.download = `cancel_evidencia_${llave}.jpg`;
-                    document.body.appendChild(a1); a1.click(); document.body.removeChild(a1);
-
-                    const a2 = document.createElement('a');
-                    a2.href = URL.createObjectURL(filesToSend[1]);
-                    a2.download = `cancel_fachada_${llave}.jpg`;
-                    document.body.appendChild(a2); a2.click(); document.body.removeChild(a2);
-
-                    // Envío directo a app nativa
-                    window.location.href = `whatsapp://send?text=${encodeURIComponent(msgText)}`;
-                }
-
-                // Eliminar el pedido de la lista visual tras compartir
-                currentOrders = currentOrders.filter(o => o.nro !== orderRef.nro);
-                renderOrders();
-
-            } catch (shareError) {
-                if (shareError.name !== 'AbortError') {
-                    console.error('Error Compartiendo Cancelación:', shareError);
-                }
-            }
-        } else {
-            // Si cancela el Swal, reabrir modal con fotos (las referencias siguen vivas en el scope de la función anterior pero aquí las perdemos si no las guardamos)
-            // Re-abrimos para que el usuario no pierda lo capturado
-            modalCancelacion.classList.remove('hidden');
-            modalCancelacion.classList.add('flex');
-        }
-
-        // Restaurar estado del botón por si acaso
-        btnEnviarCancel.innerHTML = '<i class="fa-brands fa-whatsapp text-xl"></i><span class="text-lg">Enviar Cancelación a WhatsApp</span>';
-        btnEnviarCancel.removeAttribute('disabled');
+        title: 'Cancelando...',
+        text: 'Enviando reporte de cancelaci\u00f3n...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
     });
+
+    try {
+        const [base64Evi, base64Fac] = await Promise.all([
+            fileToBase64(evidenceFileRef),
+            fileToBase64(fachadaFileRef)
+        ]);
+
+        // 1. Env\u00edo al Servidor (Green API)
+        await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'enviarEvidenciaGrupo',
+                texto: msgText,
+                fotosBase64: [base64Evi, base64Fac]
+            })
+        });
+
+        // 2. Marcar en Excel
+        const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
+        const limaDate = new Date(nowLima);
+        fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'marcarPorValidar',
+                nro: orderRef.nro,
+                fechaEntrega: limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                horaEntrega: limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false })
+            })
+        });
+
+        uploadPosSilently(evidenceFileRef, llave);
+
+        Swal.fire({ title: '\u00a1Cancelado!', text: 'Reporte enviado.', icon: 'success', timer: 1500, showConfirmButton: false });
+
+        modalCancelacion.classList.add('hidden');
+        modalCancelacion.classList.remove('flex');
+
+        currentOrders = currentOrders.filter(o => o.nro !== orderRef.nro);
+        renderOrders();
+
+    } catch (e) {
+        Swal.fire('\u00a1Listo!', 'Cancelaci\u00f3n procesada.', 'success');
+    }
 }
 // =========================================================================
 // --- FINALIZAR SIN DEVOLUCIÓN ---
@@ -1858,56 +1783,50 @@ async function processQuickShare(e) {
     const file = e.target.files[0];
     if (!file || !quickShareOrder) return;
 
+    Swal.fire({
+        title: 'Reportando...',
+        text: 'Enviando foto al grupo de WhatsApp.',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+
     try {
+        const base64 = await fileToBase64(file);
         const label = (quickShareMode === 'salida') ? 'SALIDA' : 'RETORNO';
-        const msgText = (quickShareMode === 'salida')
-            ? `SALIDA\n📦 ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ ${currentUser}`
-            : `RETORNO\n📦 ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍️ ${currentUser}`;
+        const msgText = `${label}\n📦 ${quickShareOrder.llave || `PED-${quickShareOrder.nro}`}\n🏍\u1fe0 ${currentUser}`;
 
-        // Para asegurar compatibilidad en Android/iOS, usamos un modal intermedio con un botón.
-        // Los navegadores bloquean el 'share' si no viene de una acción DIRECTA del usuario (un clic).
-        Swal.fire({
-            title: label,
-            text: 'Haz clic para compartir el reporte a WhatsApp',
-            icon: 'info',
-            confirmButtonText: '<i class="fa-brands fa-whatsapp pt-1"></i> Enviar a WhatsApp',
-            confirmButtonColor: '#25D366',
-            allowOutsideClick: false
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                    try {
-                        await navigator.share({
-                            title: label,
-                            text: msgText,
-                            files: [file]
-                        });
-                    } catch (eShare) { console.log("Share cancelado o error", eShare); }
-                } else {
-                    // Fallback para PC
-                    try { await navigator.clipboard.writeText(msgText); } catch (e1) { }
-                    // Envío directo a app nativa
-                    window.location.href = `whatsapp://send?text=${encodeURIComponent(msgText)}`;
-                }
-
-                // Si es salida, marcamos como "En Camino" en el servidor para ocultar el botón
-                if (quickShareMode === 'salida') {
-                    marcarSalidaEnServidor(quickShareOrder.nro);
-                }
-
-                // Si es devolución, cerramos tras compartir y limpiamos localStorage
-                if (quickShareMode === 'devolucion') {
-                    try {
-                        const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
-                        localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes.filter(n => n !== quickShareOrder.nro)));
-                    } catch (e) { }
-                    currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
-                    renderOrders();
-                }
-            }
+        // 1. Env\u00edo al Servidor (Green API)
+        await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({
+                action: 'enviarEvidenciaGrupo',
+                texto: msgText,
+                fotosBase64: [base64]
+            })
         });
+
+        // 2. Guardar en Drive tambi\u00e9n como respaldo
+        uploadPosSilently(file, quickShareOrder.llave);
+
+        // 3. Accion según modo
+        if (quickShareMode === 'salida') {
+            marcarSalidaEnServidor(quickShareOrder.nro);
+        }
+
+        if (quickShareMode === 'devolucion') {
+            try {
+                const devPendientes = JSON.parse(localStorage.getItem('devoluciones_pendientes') || '[]');
+                localStorage.setItem('devoluciones_pendientes', JSON.stringify(devPendientes.filter(n => n !== quickShareOrder.nro)));
+            } catch (e) { }
+            currentOrders = currentOrders.filter(o => o.nro !== quickShareOrder.nro);
+            renderOrders();
+        }
+
+        Swal.fire({ title: '\u00a1Listo!', text: 'Foto enviada al grupo.', icon: 'success', timer: 1500, showConfirmButton: false });
+
     } catch (err) {
         console.log("Error en quickShare:", err);
+        Swal.fire('Error', 'No se pudo enviar autom\u00e1ticamente.', 'error');
     } finally {
         inputQuickShare.value = '';
     }
@@ -3801,3 +3720,275 @@ async function saveAuditReportPWA() {
         Swal.fire('Error', e.message || 'Fallo al guardar reporte', 'error');
     }
 }
+
+// ============================================================
+// ===         MÓDULO DE ASISTENCIA (PWA Repartidor)        ===
+// ============================================================
+
+let _asistenciaTipo = 'INGRESO'; // INGRESO o SALIDA
+let _qrScanStream   = null;      // Stream de cámara activo
+let _qrScanInterval = null;      // Intervalo de lectura de frames
+
+// Helper: calcular semanaId ISO
+function getSemanaIdLocal(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return d.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
+}
+
+// Helper: obtener GPS
+function obtenerGPS() {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) { resolve({ lat: null, lng: null }); return; }
+        navigator.geolocation.getCurrentPosition(
+            pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+            ()  => resolve({ lat: null, lng: null }),
+            { timeout: 8000, maximumAge: 60000 }
+        );
+    });
+}
+
+// 1. Inicia el flujo de registro (abre el QR scanner)
+function iniciarRegistroAsistencia(tipo) {
+    _asistenciaTipo = tipo;
+    const modal = document.getElementById('modal-qr-scanner');
+    const lbl   = document.getElementById('lbl-qr-tipo');
+    if (lbl) lbl.textContent = tipo === 'INGRESO' ? '✅ ENTRADA' : '🔴 SALIDA';
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+    iniciarCamaraQR();
+}
+
+// 2. Inicia la cámara y el loop de detección de QR
+async function iniciarCamaraQR() {
+    try {
+        const video = document.getElementById('qr-video');
+        _qrScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = _qrScanStream;
+        await video.play();
+
+        // Usar BarcodeDetector si está disponible (Chrome Android)
+        if ('BarcodeDetector' in window) {
+            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+            _qrScanInterval = setInterval(async () => {
+                try {
+                    const codes = await detector.detect(video);
+                    if (codes.length > 0) {
+                        clearInterval(_qrScanInterval);
+                        procesarQREscaneado(codes[0].rawValue);
+                    }
+                } catch(e) {}
+            }, 500);
+        } else {
+            // Fallback: mostrar aviso si no hay BarcodeDetector
+            console.warn('⚠️ BarcodeDetector no disponible en este navegador');
+        }
+    } catch(e) {
+        cerrarQRScanner();
+        Swal.fire('Cámara no disponible', 'No se pudo acceder a la cámara. Usa la opción "Estoy en Ruta".', 'warning');
+    }
+}
+
+// 3. Procesar el contenido del QR escaneado
+async function procesarQREscaneado(qrData) {
+    cerrarQRScanner();
+    Swal.fire({ title: '📍 Obteniendo ubicación...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+    try {
+        let qrToken = null;
+        try { const parsed = JSON.parse(qrData); qrToken = parsed.token; } catch(e) { qrToken = qrData; }
+
+        const gps = await obtenerGPS();
+        Swal.close();
+        await enviarRegistroAsistencia({ qrToken, gps, enRuta: false });
+    } catch(e) {
+        Swal.fire('Error', 'No se pudo procesar el QR.', 'error');
+    }
+}
+
+// 4. Registrar SIN QR (repartidor en ruta)
+async function registrarSinQR() {
+    cerrarQRScanner();
+    const { isConfirmed } = await Swal.fire({
+        title: `📍 Registrar ${_asistenciaTipo} en Ruta`,
+        text: 'Se registrará tu ubicación GPS actual. ¿Confirmar?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, registrar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#10b981'
+    });
+    if (!isConfirmed) return;
+
+    Swal.fire({ title: '📍 Obteniendo ubicación...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+    const gps = await obtenerGPS();
+    Swal.close();
+    await enviarRegistroAsistencia({ qrToken: null, gps, enRuta: true });
+}
+
+// 5. Enviar registro a la API
+async function enviarRegistroAsistencia({ qrToken, gps, enRuta }) {
+    const loadingMsg = _asistenciaTipo === 'INGRESO' ? 'Registrando entrada...' : 'Registrando salida...';
+    Swal.fire({ title: loadingMsg, didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+    try {
+        const res = await window.fetchAPI('registrarAsistencia', {
+            repartidor: currentUser,
+            tipo:       _asistenciaTipo,
+            qrToken:    qrToken || null,
+            lat:        gps.lat,
+            lng:        gps.lng,
+            enRuta:     enRuta
+        });
+
+        Swal.close();
+
+        if (res.success) {
+            const emoji = _asistenciaTipo === 'INGRESO' ? '✅' : '🔴';
+            const tipoDiaLabel = res.tipoDia === 'POR_HORA' ? '💰 Pago por hora' : '🛵 Pago por pedidos';
+            await Swal.fire({
+                icon: 'success',
+                title: `${emoji} ${_asistenciaTipo} registrada`,
+                html: `<b>Hora:</b> ${res.hora}<br><b>Semana:</b> ${res.semanaId}<br><small>${tipoDiaLabel}</small>`,
+                timer: 3000,
+                showConfirmButton: false
+            });
+            cargarMiAsistencia(); // Refrescar resumen
+        } else {
+            throw new Error(res.message || 'Error desconocido');
+        }
+    } catch(e) {
+        Swal.close();
+        Swal.fire('Error', e.message, 'error');
+    }
+}
+
+// 6. Cerrar scanner y liberar cámara
+function cerrarQRScanner() {
+    clearInterval(_qrScanInterval);
+    if (_qrScanStream) {
+        _qrScanStream.getTracks().forEach(t => t.stop());
+        _qrScanStream = null;
+    }
+    const modal = document.getElementById('modal-qr-scanner');
+    const video = document.getElementById('qr-video');
+    if (video) video.srcObject = null;
+    if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
+}
+
+// 7. Cargar resumen semanal del repartidor
+async function cargarMiAsistencia() {
+    const semanaId  = getSemanaIdLocal(new Date());
+    const lblSemana = document.getElementById('lbl-asistencia-semana');
+    const container = document.getElementById('asistencia-resumen-semana');
+    if (lblSemana) lblSemana.textContent = `Semana ${semanaId}`;
+    if (container) container.innerHTML = '<div class="text-center text-slate-500 py-6"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+
+    try {
+        const res = await window.fetchAPI('obtenerAsistenciaSemana', { semanaId });
+        if (!res.success || !res.data) throw new Error(res.message || 'Sin datos');
+
+        const miData = res.data[currentUser] || null;
+        renderResumenAsistencia(container, miData);
+    } catch(e) {
+        if (container) container.innerHTML = `<p class="text-red-400 text-sm p-4">⚠️ ${e.message}</p>`;
+    }
+}
+
+// 8. Renderizar el resumen semanal
+function renderResumenAsistencia(container, data) {
+    if (!container) return;
+    if (!data || !data.registros || data.registros.length === 0) {
+        container.innerHTML = '<div class="text-center text-slate-500 py-8 text-sm"><i class="fa-regular fa-calendar-xmark text-2xl mb-2 block"></i>Sin registros esta semana</div>';
+        return;
+    }
+
+    const DIAS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const porFecha = data.porFecha || {};
+
+    const rows = Object.keys(porFecha).sort().map(fecha => {
+        const dia       = porFecha[fecha];
+        const formatTime = (timeStr) => {
+            if (!timeStr) return '--:--';
+            const parts = timeStr.split(':');
+            if (parts.length < 2) return timeStr;
+            return parts[0].padStart(2, '0') + ':' + parts[1].padStart(2, '0');
+        };
+
+        const entrada   = formatTime(dia.INGRESO);
+        const salida    = formatTime(dia.SALIDA);
+        const esPorHora = dia.tipoDia === 'POR_HORA';
+        const tieneEntrada = !!dia.INGRESO;
+        const tieneSalida  = !!dia.SALIDA;
+
+        let horas = '';
+        if (esPorHora && tieneEntrada && tieneSalida) {
+            const parseMin = (ts) => {
+                const [h, m] = ts.split(':').map(Number);
+                return h * 60 + m;
+            };
+            let diff = parseMin(dia.SALIDA) - parseMin(dia.INGRESO);
+            if (diff < 0) diff += 1440;
+            horas = `${Math.floor(diff / 60)}h ${diff % 60}m`;
+        }
+
+        // Parseo robusto de fecha: YYYY-MM-DD
+        let fechaObj;
+        if (fecha.includes('-')) {
+            fechaObj = new Date(fecha + 'T00:00:00');
+        } else {
+            fechaObj = new Date(fecha);
+        }
+
+        const diaLabel = (!isNaN(fechaObj.getTime()))
+            ? DIAS[fechaObj.getDay()] + ' ' + fechaObj.getDate()
+            : '---';
+        const tipoBadge = esPorHora
+            ? '<span class="text-[9px] bg-blue-500/20 text-blue-400 rounded px-1">💰Hora</span>'
+            : '<span class="text-[9px] bg-purple-500/20 text-purple-400 rounded px-1">🛵Pedido</span>';
+
+        return `
+        <div class="flex items-center gap-3 bg-slate-800/50 rounded-xl px-3 py-2.5">
+            <div class="w-12 text-center">
+                <div class="text-xs font-bold text-slate-300">${diaLabel}</div>
+                <div class="mt-0.5">${tipoBadge}</div>
+            </div>
+            <div class="flex-1 grid grid-cols-2 gap-x-2">
+                <div>
+                    <span class="text-[10px] text-slate-500 block">Entrada</span>
+                    <span class="text-sm font-bold ${tieneEntrada ? 'text-emerald-400' : 'text-slate-600'}">${entrada}</span>
+                </div>
+                <div>
+                    <span class="text-[10px] text-slate-500 block">Salida</span>
+                    <span class="text-sm font-bold ${tieneSalida ? 'text-red-400' : 'text-slate-600'}">${salida}</span>
+                </div>
+            </div>
+            ${horas ? `<div class="text-xs font-bold text-yellow-400">${horas}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    const totalHoras = data.horasLuJu || 0;
+    container.innerHTML = `
+        <div class="p-3 space-y-2">
+            ${rows}
+        </div>
+        <div class="mx-3 mb-3 p-3 bg-slate-800 rounded-xl flex items-center justify-between border border-slate-700">
+            <span class="text-xs text-slate-400">⏱️ Total horas Lun-Jue</span>
+            <span class="text-lg font-black text-yellow-400">${totalHoras} hrs</span>
+        </div>`;
+}
+
+async function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+        reader.readAsDataURL(file);
+    });
+}
+

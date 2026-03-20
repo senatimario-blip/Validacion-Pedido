@@ -470,6 +470,12 @@
                 <i class="fa-solid fa-shield-check text-xl"></i>
                 <span class="text-[10px] font-bold uppercase tracking-wider">Validar</span>
             </button>
+            <!-- Botón Asistencia (Todos) -->
+            <button onclick="switchTab('asistencia')" id="nav-btn-asistencia"
+                class="flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-user-clock text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Asistencia</span>
+            </button>
             <button onclick="switchTab('historial')" id="nav-btn-historial"
                 class="flex flex-col items-center justify-center gap-1 text-slate-500">
                 <i class="fa-solid fa-clock-rotate-left text-xl"></i>
@@ -1039,6 +1045,107 @@
         }
     </style>
     <datalist id="drivers-list"></datalist>
-</body>
 
+    <!-- ================================================ -->
+    <!-- PANTALLA: ASISTENCIA (Entrada / Salida)          -->
+    <!-- ================================================ -->
+    <div id="pantalla-asistencia" class="hidden flex-col h-screen slide-up relative bg-bgDark">
+
+        <!-- Header -->
+        <header class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                    <i class="fa-solid fa-user-clock"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Mi Asistencia</h2>
+                    <p class="text-xs text-slate-400" id="lbl-asistencia-semana">Semana actual</p>
+                </div>
+            </div>
+            <button onclick="cargarMiAsistencia()" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-28">
+
+            <!-- BOTONES PRINCIPALES -->
+            <div class="grid grid-cols-1 gap-4">
+
+                <!-- ENTRADA -->
+                <button id="btn-registrar-entrada" onclick="iniciarRegistroAsistencia('INGRESO')"
+                    class="bg-emerald-500/10 hover:bg-emerald-500/20 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-3xl p-6 flex items-center gap-5 active:scale-[0.97] transition-all">
+                    <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                        <i class="fa-solid fa-right-to-bracket text-emerald-400 text-3xl"></i>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xl font-black text-emerald-400">REGISTRAR ENTRADA</div>
+                        <div class="text-sm text-slate-400 mt-1">Escanea el QR del local + GPS</div>
+                    </div>
+                </button>
+
+                <!-- SALIDA -->
+                <button id="btn-registrar-salida" onclick="iniciarRegistroAsistencia('SALIDA')"
+                    class="bg-red-500/10 hover:bg-red-500/20 border-2 border-red-500/40 hover:border-red-400 rounded-3xl p-6 flex items-center gap-5 active:scale-[0.97] transition-all">
+                    <div class="w-16 h-16 rounded-2xl bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                        <i class="fa-solid fa-right-from-bracket text-red-400 text-3xl"></i>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xl font-black text-red-400">REGISTRAR SALIDA</div>
+                        <div class="text-sm text-slate-400 mt-1">Con QR (local) o directo (ruta)</div>
+                    </div>
+                </button>
+            </div>
+
+            <!-- RESUMEN SEMANAL -->
+            <div class="bg-cardDark rounded-2xl border border-slate-700/50 overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">📊 Esta Semana</span>
+                </div>
+                <div id="asistencia-resumen-semana" class="p-3 space-y-2">
+                    <div class="text-center text-slate-500 py-6 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i>Cargando...
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL QR SCANNER (para escanear el QR de la tablet) -->
+    <div id="modal-qr-scanner" class="fixed inset-0 bg-black/95 z-[200] hidden flex-col">
+        <div class="flex items-center justify-between p-4 border-b border-slate-800">
+            <div>
+                <span class="text-xs text-slate-400 uppercase tracking-wider block">Escaneando QR</span>
+                <span class="text-xl font-bold" id="lbl-qr-tipo">ENTRADA</span>
+            </div>
+            <button onclick="cerrarQRScanner()" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 flex flex-col items-center justify-center gap-6 p-6">
+            <!-- Video stream para cámara -->
+            <div class="relative w-full max-w-sm">
+                <video id="qr-video" class="w-full rounded-2xl bg-slate-900" autoplay playsinline muted></video>
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <!-- Marco de escaneo -->
+                    <div class="w-52 h-52 relative">
+                        <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
+                        <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
+                        <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg"></div>
+                        <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-lg"></div>
+                        <div class="absolute top-0 left-0 right-0 h-0.5 bg-emerald-400/60 animate-ocr-scan"></div>
+                    </div>
+                </div>
+            </div>
+            <p class="text-slate-300 text-center text-sm">Apunta la cámara al código QR de la pantalla del local</p>
+
+            <!-- Opción alternativa: sin QR (en ruta) -->
+            <button onclick="registrarSinQR()" class="text-slate-500 text-xs font-bold uppercase tracking-widest py-3 hover:text-slate-300 border border-slate-700 rounded-xl px-6">
+                <i class="fa-solid fa-location-dot mr-2"></i>Estoy en Ruta — Registrar sin QR
+            </button>
+        </div>
+    </div>
+
+</body>
 </html>
