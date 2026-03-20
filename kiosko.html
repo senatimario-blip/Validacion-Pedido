@@ -315,16 +315,20 @@
     const urlParams = new URLSearchParams(window.location.search);
     let API_URL = urlParams.get('api') || '';
 
-    if (!API_URL) {
-        // Intentar desde localStorage como fallback
+    // Si viene por parámetro, lo guardamos permanentemente
+    if (API_URL) {
+        try { localStorage.setItem('kiosko_api_url', API_URL); } catch(e) {}
+    } else {
+        // Si no viene por parámetro, intentamos recuperar el guardado
         try { API_URL = localStorage.getItem('kiosko_api_url') || ''; } catch(e) {}
     }
 
     if (!API_URL) {
-        const url = prompt('Ingresa la URL del Google Apps Script (API):');
+        const url = prompt('⚠️ Por favor, ingresa la URL de tu Google Apps Script (API):');
         if (url && url.trim()) {
             API_URL = url.trim();
-            // Redirigir con la URL en el parámetro para evitar el prompt cada vez
+            try { localStorage.setItem('kiosko_api_url', API_URL); } catch(e) {}
+            // Recargar con el parámetro para confirmar
             window.location.href = 'kiosko.html?api=' + encodeURIComponent(API_URL);
         }
     }
