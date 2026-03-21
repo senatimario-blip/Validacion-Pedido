@@ -785,8 +785,16 @@ async function fetchDriverOrders() {
 
                     const sheetName = String(o.envio || '').trim().toLowerCase();
                     const loginName = String(currentUser || '').trim().toLowerCase();
-                    const nameMatch = sheetName === loginName || (sheetName.startsWith(loginName) && loginName.length > 2);
+                    
+                    // Mejor tolerancia en nombres (ej. "Juan C." vs "Juan Perez" vs "Juan")
+                    const loginBase = loginName.split(' ')[0].replace(/[^a-z0-9]/g, ''); // ej. "juan"
+                    const sheetBase = sheetName.split(' ')[0].replace(/[^a-z0-9]/g, ''); // ej. "juan"
 
+                    const nameMatch = (sheetName === loginName) || 
+                                      (sheetName.startsWith(loginName) && loginName.length > 2) ||
+                                      (loginName.startsWith(sheetName) && sheetName.length > 2) ||
+                                      (loginBase === sheetBase && loginBase.length > 2); // Coincide el primer nombre
+                    
                     return statusOk && nameMatch;
                 }).sort((a, b) => {
                     // Try to extract strict numbers, fallback to large number if not set or invalid
@@ -1929,11 +1937,20 @@ function renderHistory() {
 
     // 2. Filtrar pedidos por estado, fecha y repartidor
     const historyOrders = window.orders ? window.orders.filter(o => {
-        const stateMatch = (o.estado === 'Por Validar' || o.estado === 'Validado' || o.estado === 'Cancelado');
+        const stateMatch = (o.estado === 'Por Validar' || String(o.estado).includes('Validado') || o.estado === 'Cancelado');
 
         // Comparación robusta Multi-Formato unificada con Admin (Lima Time)
         const orderYMD = getYMDLima(o.fecha);
-        const dateMatch = (orderYMD === targetDateStr);
+        let dateMatch = (orderYMD === targetDateStr);
+
+        // Fallback: Si el parseo estricto falló por formato raro de Excel, validar si el string bruto contiene "DD/MM" o "YYYY-MM-DD"
+        if (!dateMatch && typeof o.fecha === 'string' && targetDateStr) {
+            const raw = o.fecha.trim();
+            const [y, m, d] = targetDateStr.split('-'); // 2024-03-21 -> y:2024, m:03, d:21
+            if (raw.includes(`${d}/${m}`) || raw.includes(`${y}-${m}-${d}`)) {
+                dateMatch = true;
+            }
+        }
 
         if (window.debugCount < 10 && dateMatch) {
             console.log(`PWA_MATCH: [${o.llave}] match con "${o.fecha}" -> YMD="${orderYMD}"`);
@@ -1942,7 +1959,15 @@ function renderHistory() {
 
         const sheetName = String(o.envio || '').trim().toLowerCase();
         const loginName = String(currentUser || '').trim().toLowerCase();
-        const nameMatch = sheetName === loginName || (sheetName.startsWith(loginName) && loginName.length > 2);
+        
+        // Mejor tolerancia en nombres en historial (ej. "Ivan n." vs "Ivan Navarro")
+        const loginBase = loginName.split(' ')[0].replace(/[^a-z0-9]/g, '');
+        const sheetBase = sheetName.split(' ')[0].replace(/[^a-z0-9]/g, '');
+
+        const nameMatch = (sheetName === loginName) || 
+                          (sheetName.startsWith(loginName) && loginName.length > 2) ||
+                          (loginName.startsWith(sheetName) && sheetName.length > 2) ||
+                          (loginBase === sheetBase && loginBase.length > 2);
 
         if (isUserAdmin) return stateMatch && dateMatch;
         return stateMatch && nameMatch && dateMatch;
@@ -1950,7 +1975,19 @@ function renderHistory() {
 
     console.log(`📜 Historial filtrado para ${currentUser} en ${targetDateStr}: ${historyOrders.length} pedidos found`);
 
-    lblSummary.textContent = `${historyOrders.length} entregas procesadas`;
+    const total = historyOrders.length;
+    const validados = historyOrders.filter(o => String(o.estado).includes('Validado')).length;
+    const porValidar = historyOrders.filter(o => o.estado === 'Por Validar').length;
+    const cancelados = historyOrders.filter(o => o.estado === 'Cancelado').length;
+
+    lblSummary.innerHTML = `
+        <div class="flex gap-2 flex-wrap mt-1">
+            <span class="bg-slate-700/40 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border border-slate-600/50">📦 Total: ${total}</span>
+            <span class="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border border-emerald-500/30">✅ Validados: ${validados}</span>
+            <span class="bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border border-amber-500/30">🕒 Por Validar: ${porValidar}</span>
+            <span class="bg-red-500/20 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border border-red-500/30">❌ Cancelados: ${cancelados}</span>
+        </div>
+    `;
 
     if (isUserAdmin) {
         if (!selectedDriverForHistoryAdmin) {
@@ -1977,10 +2014,10 @@ function renderHistory() {
 
     historyOrders.sort((a, b) => b.nro - a.nro).forEach(order => {
         const div = document.createElement('div');
-        const isDelivered = order.estado === 'Validado' || order.estado === 'Por Validar';
-        const statusColor = order.estado === 'Validado' ? 'text-emerald-400 bg-emerald-500/10' :
+        const isDelivered = String(order.estado).includes('Validado') || order.estado === 'Por Validar';
+        const statusColor = String(order.estado).includes('Validado') ? 'text-emerald-400 bg-emerald-500/10' :
             (order.estado === 'Cancelado' ? 'text-red-400 bg-red-500/10' : 'text-orange-400 bg-orange-500/10');
-        const statusLabel = order.estado === 'Validado' ? 'VALIDADO' : (order.estado === 'Cancelado' ? 'CANCELADO' : 'POR VALIDAR');
+        const statusLabel = String(order.estado).includes('Validado') ? 'VALIDADO' : (order.estado === 'Cancelado' ? 'CANCELADO' : 'POR VALIDAR');
 
         const withinSLA = isWithinSLA(order);
         const isCancelled = order.estado === 'Cancelado';
@@ -2259,9 +2296,9 @@ function renderAdminHistoryDriverDetail(orders, driverName) {
 
     driverOrders.sort((a, b) => b.nro - a.nro).forEach(order => {
         const div = document.createElement('div');
-        const statusColor = order.estado === 'Validado' ? 'text-emerald-400 bg-emerald-500/10' :
+        const statusColor = String(order.estado).includes('Validado') ? 'text-emerald-400 bg-emerald-500/10' :
             (order.estado === 'Cancelado' ? 'text-red-400 bg-red-500/10' : 'text-orange-400 bg-orange-500/10');
-        const statusLabel = order.estado === 'Validado' ? 'VALIDADO' : (order.estado === 'Cancelado' ? 'CANCELADO' : 'POR VALIDAR');
+        const statusLabel = String(order.estado).includes('Validado') ? 'VALIDADO' : (order.estado === 'Cancelado' ? 'CANCELADO' : 'POR VALIDAR');
         const withinSLA = isWithinSLA(order);
         const isCancelled = order.estado === 'Cancelado';
 
@@ -2485,7 +2522,7 @@ window.openValidateModalAdmin = (nro) => {
 
     // --- PHOTO LOADING (PRE-CARGA) ---
     const cleanUrl = extractPhotoUrl(order.foto);
-    if (cleanUrl && (order.estado === 'Validado' || order.estado === 'Por Validar')) {
+    if (cleanUrl && (String(order.estado).includes('Validado') || order.estado === 'Por Validar')) {
         valAdminPreview.setAttribute('data-nro', order.nro);
         valAdminPreview.src = getDirectPhotoUrl(order.foto);
         valAdminPreview.classList.remove('hidden');
