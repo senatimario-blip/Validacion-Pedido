@@ -2967,6 +2967,7 @@ async function runOCR(file, rotation = 0) {
                         hora: d.hora || '',
                         tipoPago: d.tipoPago || 'TARJETA',
                         esOnlineValido: !!d.esOnlineValido,
+                        esVoucherValido: !!d.esVoucherValido,
                         // NUEVO v6.1: Almacenar toda la metadata inteligente
                         idOperacion: d.idOperacion || '',
                         fechaPOS: d.fecha || '',
@@ -3110,6 +3111,28 @@ async function runOCR(file, rotation = 0) {
     }
 
     ocrOverlay.classList.add('hidden');
+    
+    // --- NUEVO v7.2: Mostrar Hallazgos del Robot en tiempo real en el modal ---
+    const robotContainer = document.getElementById('val-robot-findings-container');
+    if (robotContainer && bestOCRData.hallazgo) {
+        robotContainer.classList.remove('hidden');
+        const findingMsg = bestOCRData.hallazgo;
+        const isError = findingMsg.toLowerCase().includes('no es') || 
+                        findingMsg.toLowerCase().includes('err:') || 
+                        findingMsg.toLowerCase().includes('duplicado') ||
+                        (bestOCRData.esVoucherValido === false);
+
+        robotContainer.className = `robot-findings-box ${isError ? 'error' : 'info'}`;
+        robotContainer.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%;">
+                <strong><i class="fa-solid fa-robot"></i> Hallazgo IA (Recién Escaneado)</strong>
+            </div>
+            <div id="robot-msg-text" style="margin-top:5px; font-size: 0.95em;">
+                ${findingMsg}
+            </div>
+        `;
+    }
+
     validateAmounts();
 }
 

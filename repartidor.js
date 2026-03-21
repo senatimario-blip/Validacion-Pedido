@@ -1805,8 +1805,10 @@ async function processQuickShare(e) {
             })
         });
 
-        // 2. Guardar en Drive tambi\u00e9n como respaldo
-        uploadPosSilently(file, quickShareOrder.llave);
+        // 2. NO guardar en Drive para salida ni devolución: solo el voucher POS
+        //    necesita quedar en Drive para que el robot haga el OCR.
+        //    Para salida/devolucion, la foto ya fue al grupo via WhatsApp, es suficiente.
+        // (uploadPosSilently solo se usaría aquí si fuera el flujo del voucher)
 
         // 3. Accion según modo
         if (quickShareMode === 'salida') {

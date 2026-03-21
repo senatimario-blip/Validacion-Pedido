@@ -265,8 +265,12 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
 
               if (ocrResult.success && ocrResult.data && ocrResult.data.total) {
                 const ocr = ocrResult.data;
+                
+                // --- NUEVO v7.2: VERIFICAR SI LA IA IDENTIFICÓ UN VOUCHER VÁLIDO ---
+                const esVoucherValidoIA = ocr.esVoucherValido !== false; 
+
                 const montoOCR = parseFloat(ocr.total) || 0;
-                const horaVoucherStr = ocr.hora || ''; // Disponible desde aquí
+                const horaVoucherStr = ocr.hora || '';
                 logToSheet("OCR: monto=" + montoOCR + " fecha=" + ocr.fecha + " hora=" + horaVoucherStr + " id=" + ocr.idOperacion);
 
                 // --- 1. GUARDAR SIEMPRE: Monto foto, ID operación, Fecha POS, Hora POS ---
@@ -309,6 +313,9 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
 
                 // --- 2. VALIDAR MONTO ---
                 const montoOK = Math.abs(montoOCR - montoEsperado) < 0.02;
+
+                // --- NUEVO v7.2: DECISIÓN DE VALIDACIÓN (Debe ser voucher válido por IA + Monto) ---
+                const validacionIAPasada = esVoucherValidoIA;
 
                 // --- 3. VALIDAR FECHA (voucher vs fecha del pedido Col B) ---
                 let fechaOK = false;
@@ -354,7 +361,7 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
                 } catch(eh) { logToSheet("Err validando hora: " + eh); horaOK = true; }
 
                 // --- 5. DECISIÓN FINAL ---
-                if (montoOK && fechaOK && horaOK) {
+                if (montoOK && fechaOK && horaOK && validacionIAPasada) {
                   finalStatus    = 'Validado AG';
                   validatorUser  = 'AG';
                   sheet.getRange(i + 1, 9).setValue(new Date());          // I: Fecha validación
@@ -367,8 +374,9 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
                   // Construir motivo de rechazo para el log y para la columna de Hallazgos
                   const motivos = [];
                   if (!montoOK)  motivos.push('Monto:' + montoOCR + '≠' + montoEsperado);
-                  if (!fechaOK)  motivos.push('Fecha:' + ocr.fecha);
-                  if (!horaOK)   motivos.push('Hora:' + horaVoucherStr);
+                  if (!fechaOK)  motivos.push('Fecha:' + (ocr.fecha || 'N/A'));
+                  if (!horaOK)   motivos.push('Hora:' + (horaVoucherStr || 'N/A'));
+                  if (!validacionIAPasada) motivos.push('No es voucher (IA)');
                   
                   const internalAlert = motivos.join(', ');
                   validatorUser = 'Robot (NoValidado: ' + internalAlert + ')';
@@ -899,16 +907,17 @@ function processVoucherOCR(data) {
     return { success: false, message: "Faltan datos de imagen (imageBase64, mimeType)" };
   }
 
-  var prompt = 'Extract data from this payment voucher image (POS or Online). '
-    + 'JSON keys: {"fecha":"DD/MM/YY", "hora":"HH:MM", "total":0.00, "tipoPago":"QR|TARJETA", "idOperacion":"", "idCompras":"", "esDuplicado":boolean, "hallazgo":""} '
-    + 'Rules: '
-    + '1. total: extraction of the final amount paid. '
-    + '2. idOperacion: number in parentheses after establishment name (usually 7 digits). '
-    + '3. idCompras: numeric ID usually starting with 0000 after "COMPRAS" or "ID:" (up to 16 digits). '
-    + "4. 'esDuplicado': booleano (true si el voucher ya fue usado o es una copia).\n"
-    + "5. 'hallazgo': string BREVE en ESPAÑOL (ej: 'Foto borrosa', 'Monto no legible', 'Imagen cortada'). Si todo está perfecto, pon 'Todo conforme'.\n\n"
-    + "IMPORTANTE: Toda la respuesta debe estar en ESPAÑOL. Si 'esDuplicado' es true, 'hallazgo' DEBE incluir 'Voucher DUPLICADO'. No respondas en inglés."
-    + 'RETURN ONLY A JSON OBJECT.';
+  var prompt = "Analiza esta imagen de COMPROBANTE DE PAGO (POS u Online). "
+    + "REGLAS CRÍTICAS: "
+    + "1. Si la foto es de los PRODUCTOS, una BOLSA, o solo un recibo de entrega SIN datos de pago (tarjeta, banco, QR), marca 'esVoucherValido': false. "
+    + "2. Si es un voucher real, marca 'esVoucherValido': true. "
+    + "3. total: monto final pagado. "
+    + "4. idOperacion: número de operación (7 dígitos); suele estar entre paréntesis ( ) después del nombre del establecimiento. "
+    + "5. idCompras: ID numérico después de 'COMPRAS' o 'ID:'. "
+    + "6. 'esDuplicado': booleano. "
+    + "7. 'hallazgo': BREVE EXPLICACIÓN EN ESPAÑOL. Si no es un voucher válido, explica por qué. Si es perfecto, pon 'Todo conforme'. "
+    + "JSON keys: {'esVoucherValido':boolean, 'fecha':'DD/MM/YY', 'hora':'HH:MM', 'total':0.00, 'tipoPago':'QR|TARJETA', 'idOperacion':'', 'idCompras':'', 'esDuplicado':boolean, 'hallazgo':''} "
+    + "IMPORTANTE: Respuesta solo en JSON y en ESPAÑOL. No respondas en inglés.";
 
   // Descubrimiento de Modelos (Simplificado para mayor estabilidad)
   var attempts = [
