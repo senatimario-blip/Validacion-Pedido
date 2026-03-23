@@ -2072,20 +2072,11 @@ function renderHistory() {
 }
 
 function isWithinSLA(order) {
-    if (!order.fecha || !order.hora_entrega) return false;
-    try {
-        const start = new Date(order.fecha);
-        // La hora_entrega viene como HH:mm. La combinamos con la fecha del pedido.
-        const [h, m] = order.hora_entrega.split(':');
-        const end = new Date(order.fecha);
-        end.setHours(parseInt(h), parseInt(m), 0);
-
-        const diffMs = end - start;
-        const diffMins = diffMs / 60000;
-        return diffMins <= 35 && diffMins >= 0;
-    } catch (e) {
+    if (order.minutosReales === "" || order.minutosReales === null || order.minutosReales === undefined) {
         return false;
     }
+    const diffMins = parseFloat(order.minutosReales);
+    return diffMins <= 35 && diffMins >= 0;
 }
 
 // --- Admin Profile Summary Functions ---
