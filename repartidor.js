@@ -1522,7 +1522,7 @@ async function handleSendToWhatsApp() {
         const strPagoOrig = String(orderRef.pago || '').toUpperCase();
         
         let posIcon = '\ud83d\udcb3';
-        if (strPagoOrig.includes('EFECTIVO') || strPagoOrig.includes('CONTADO')) posIcon = '\ud83d\udcb5';
+        if (strPagoOrig.includes('EFECTIVO') || strPagoOrig.includes('CONTADO')) posIcon = '\ud83d\udcb2';
         else if (strPagoOrig.includes('ONLINE') || strPagoOrig.includes('L\u00cdNEA')) posIcon = '\ud83c\udf10';
         else if (strPagoOrig.includes('QR') || strPagoOrig.includes('YAPE') || strPagoOrig.includes('PLIN')) posIcon = '\ud83d\udd33';
 
