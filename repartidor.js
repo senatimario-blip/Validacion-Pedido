@@ -1946,7 +1946,7 @@ function renderHistory() {
         let dateMatch = (orderYMD === targetDateStr);
 
         // Fallback: Si el parseo estricto falló por formato raro de Excel, validar si el string bruto contiene "DD/MM" o "YYYY-MM-DD"
-        if (!dateMatch && typeof o.fecha === 'string' && targetDateStr) {
+        if (!orderYMD && typeof o.fecha === 'string' && targetDateStr) {
             const raw = o.fecha.trim();
             const [y, m, d] = targetDateStr.split('-'); // 2024-03-21 -> y:2024, m:03, d:21
             if (raw.includes(`${d}/${m}`) || raw.includes(`${y}-${m}-${d}`)) {
