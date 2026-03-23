@@ -1620,7 +1620,11 @@ function updateDynamicFiltersGeneric(ordersArray, config) {
     const paymentDropdown = document.getElementById(paymentDropdownId);
     if (!statusDropdown || !paymentDropdown) return;
 
-    const getSelected = (dropdown) => Array.from(dropdown.querySelectorAll('input:checked')).map(cb => cb.value);
+    const getSelected = (dropdown) => {
+        const cbs = dropdown.querySelectorAll('input[type="checkbox"]:not([id$="-select-all"])');
+        if (cbs.length === 0) return null; // Primera carga (no existen elementos aún)
+        return Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+    };
     const prevSelectedStatus = getSelected(statusDropdown);
     const prevSelectedPayment = getSelected(paymentDropdown);
 
@@ -1633,15 +1637,25 @@ function updateDynamicFiltersGeneric(ordersArray, config) {
     });
 
     const renderOptions = (items, dropdown, prevSelected, groupClass) => {
+        const isFirstLoad = prevSelected === null;
+        let selectAllChecked = true;
+        
+        if (!isFirstLoad) {
+            selectAllChecked = prevSelected.length === items.size && items.size > 0;
+        }
+
         let html = `
             <label class="multi-select-option" style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 5px; padding-bottom: 10px;">
-                <input type="checkbox" id="${groupClass}-select-all" checked>
+                <input type="checkbox" id="${groupClass}-select-all" ${selectAllChecked ? 'checked' : ''}>
                 <span style="font-weight: bold; color: white;">(Seleccionar todo)</span>
             </label>
         `;
         
         [...items].sort().forEach(item => {
-            const isChecked = prevSelected.length === 0 || prevSelected.includes(item);
+            let isChecked = true;
+            if (!isFirstLoad) {
+                isChecked = prevSelected.includes(item);
+            }
             html += `
                 <label class="multi-select-option">
                     <input type="checkbox" value="${item}" ${isChecked ? 'checked' : ''} class="${groupClass}">

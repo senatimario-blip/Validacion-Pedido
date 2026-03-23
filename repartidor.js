@@ -1710,22 +1710,24 @@ async function handleSendCancelToWhatsApp() {
             })
         });
 
-        // 2. Marcar en Excel
+        // 2. Marcar en Excel (Cancelar directamente)
         const nowLima = new Date().toLocaleString('en-US', { timeZone: 'America/Lima' });
         const limaDate = new Date(nowLima);
-        fetch(API_URL, {
+        await fetch(API_URL, {
             method: 'POST',
             body: JSON.stringify({
-                action: 'marcarPorValidar',
+                action: 'rechazarPedido',
                 nro: orderRef.nro,
+                usuario: 'Auto',
+                envio: userRef,
+                motivo: 'Por Repartidor',
                 fechaEntrega: limaDate.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-                horaEntrega: limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false })
+                horaEntrega: limaDate.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false }),
+                tiempoTranscurrido: ''
             })
         });
 
-        uploadPosSilently(evidenceFileRef, llave);
-
-        Swal.fire({ title: '\u00a1Cancelado!', text: 'Reporte enviado.', icon: 'success', timer: 1500, showConfirmButton: false });
+        Swal.fire({ title: '\u00a1Cancelado!', text: 'Reporte y cancelaci\u00f3n directos completados.', icon: 'success', timer: 1500, showConfirmButton: false });
 
         modalCancelacion.classList.add('hidden');
         modalCancelacion.classList.remove('flex');
