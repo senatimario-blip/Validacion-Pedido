@@ -877,7 +877,30 @@ function rechazarPedido(data) {
       if (data.horaEntrega) sheet.getRange(i + 1, 17).setValue(data.horaEntrega);   // Q
 
       // Guardar tiempo transcurrido (R)
-      if (data.tiempoTranscurrido) sheet.getRange(i + 1, 18).setValue(data.tiempoTranscurrido);
+      if (data.tiempoTranscurrido) {
+        sheet.getRange(i + 1, 18).setValue(data.tiempoTranscurrido);
+      } else if (data.fechaEntrega && data.horaEntrega) {
+        try {
+          const creationDate = new Date(rows[i][1]); // Col B
+          const [h, m] = data.horaEntrega.split(':').map(Number);
+          const FE = new Date(data.fechaEntrega);
+          const deliveryDate = new Date(FE.getFullYear(), FE.getMonth(), FE.getDate(), h, m, 0);
+          
+          let diffMs = deliveryDate.getTime() - creationDate.getTime();
+          if (diffMs < -43200000) {
+             deliveryDate.setDate(deliveryDate.getDate() + 1);
+             diffMs = deliveryDate.getTime() - creationDate.getTime();
+          }
+          
+          const diffMins = Math.floor(diffMs / 60000);
+          const slaHours = Math.floor(diffMins / 60);
+          const slaMins = diffMins % 60;
+          const slaText = slaHours + ":" + String(slaMins).padStart(2,'0') + ":00";
+          sheet.getRange(i + 1, 18).setValue(slaText); // R
+        } catch(e_sla) {
+          logToSheet("Error calculando SLA en rechazo: " + e_sla.toString());
+        }
+      }
       
       return { success: true };
     }
