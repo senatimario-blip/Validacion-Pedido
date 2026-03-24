@@ -1506,8 +1506,13 @@ async function handleSendToWhatsApp() {
     const userRef = currentUser;
 
     Swal.fire({
-        title: 'Reportando Entrega...',
-        text: 'Enviando fotos al grupo de WhatsApp...',
+        title: 'Enviando...',
+        html: `
+            <div style="font-size: 1.25em; color: #f87171; font-weight: 900; animation: pulse 1.5s infinite;">
+                🚨 ¡CIERRA TU TADA! 🚨
+            </div>
+            <p style="margin-top: 10px; font-size: 0.9em; opacity: 0.8;">Reportando fotos al grupo...</p>
+        `,
         allowOutsideClick: false,
         didOpen: () => { Swal.showLoading(); }
     });
@@ -1554,7 +1559,13 @@ async function handleSendToWhatsApp() {
         fetch(API_URL, { method: 'POST', body: JSON.stringify(payloadValidar) });
         uploadPosSilently(posFileRef, orderRef.llave); 
 
-        Swal.fire({ title: '\u00a1Enviado!', text: 'Reporte enviado al grupo.', icon: 'success', timer: 1500, showConfirmButton: false });
+        Swal.fire({ 
+            title: '¡Enviado!', 
+            text: 'Reporte listo. ¡NO OLVIDES CERRAR TU TADA!', 
+            icon: 'success', 
+            timer: 3000, 
+            showConfirmButton: false 
+        });
 
         modalCaptura.classList.add('hidden');
         modalCaptura.classList.remove('flex');
