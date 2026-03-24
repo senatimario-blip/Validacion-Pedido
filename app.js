@@ -3971,6 +3971,29 @@ function applyFilters() {
     updateStats(filtered);
 }
 
+// v26: Función centralizada para limpiar todos los criterios de búsqueda y selección
+function resetFilters() {
+    // 1. Limpiar Buscador
+    if (searchInput) searchInput.value = '';
+    
+    // 2. Resetear Repartidor
+    const driverSelect = document.getElementById('driver-filter');
+    if (driverSelect) driverSelect.value = 'all';
+    
+    // 3. Resetear Pestañas (Estados)
+    currentFilter = 'all';
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    const tabAll = document.querySelector('.filter-tab[data-filter="all"]');
+    if (tabAll) tabAll.classList.add('active');
+
+    // 4. Resetear Multi-selects (Estado y Pago)
+    document.querySelectorAll('.main-status-cb, .main-payment-cb').forEach(cb => cb.checked = false);
+    const lblStatus = document.getElementById('main-status-filter-label');
+    const lblPayment = document.getElementById('main-payment-filter-label');
+    if (lblStatus) lblStatus.textContent = 'Estados: Todos';
+    if (lblPayment) lblPayment.textContent = 'Pagos: Todos';
+}
+
 searchInput.addEventListener('input', applyFilters);
 
 // --- EXPORTAR A EXCEL (v25) ---
@@ -4043,6 +4066,9 @@ document.getElementById('date-filter').addEventListener('change', (e) => {
     const newDate = e.target.value;
     dateRange = { start: null, end: null };
     document.getElementById('range-display-text').textContent = '';
+
+    // REINICIO DE FILTROS (v26)
+    resetFilters();
 
     // Sincronizar con Reportes
     const reportDateInput = document.getElementById('report-date-filter');
@@ -4158,6 +4184,9 @@ document.getElementById('range-form').addEventListener('submit', (e) => {
 
         document.getElementById('range-display-text').textContent = `${fmt(start)} - ${fmt(end)}`;
         modalRange.classList.remove('active');
+
+        // v26: Resetear otros filtros al entrar en modo rango
+        resetFilters();
         applyFilters();
     }
 });
@@ -4174,6 +4203,9 @@ document.getElementById('btn-clear-range').addEventListener('click', () => {
     document.getElementById('range-display-text').textContent = '';
 
     modalRange.classList.remove('active');
+    
+    // v26: Resetear otros filtros al limpiar rango
+    resetFilters();
     applyFilters();
 });
 
