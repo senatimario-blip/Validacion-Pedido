@@ -34,6 +34,7 @@ let notifiedPorValidar = new Set();
 let notifiedContado = new Set(); // v5.1: Alerta para pedidos al contado
 let notifiedRobotFindings = new Set(); // v5.5: Alerta para hallazgos del robot
 let currentRobotAlerts = []; // v5.5: Lista actual de alertas del robot
+let mutedRobotFindings = new Set(JSON.parse(localStorage.getItem('mutedRobotFindings') || '[]')); // v8.1: Hallazgos ignorados localmente
 let audioCtx = null;
 
 // Initialize
@@ -187,30 +188,30 @@ const clearRobotFindingsBtn = document.getElementById('clear-robot-findings-btn'
 if (clearRobotFindingsBtn) {
     clearRobotFindingsBtn.addEventListener('click', async () => {
         const { isConfirmed } = await Swal.fire({
-            title: '¿Limpiar historial de hallazgos?',
-            text: 'Se borrarán todos los hallazgos y alertas del robot en la base de datos.',
-            icon: 'warning',
+            title: '¿Ignorar hallazgos actuales?',
+            text: 'Se ocultarán de la vista principal sin borrarlos del Excel. Volverán a aparecer si cambias de equipo o limpias caché.',
+            icon: 'info',
             showCancelButton: true,
-            confirmButtonText: 'Sí, limpiar todo',
+            confirmButtonText: 'Sí, ocultar visualmente',
             cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#ef4444'
+            confirmButtonColor: '#78350f'
         });
 
         if (isConfirmed) {
-            setLoading(true);
-            try {
-                const res = await fetchAPI('limpiarHallazgosRobot', { fecha: document.getElementById('date-filter').value });
-                if (res.success) {
-                    Swal.fire('¡Limpiado!', `Se han borrado ${res.count} hallazgos.`, 'success');
-                    loadOrders(); // Recargar para limpiar localmente
-                } else {
-                    Swal.fire('Error', res.message, 'error');
-                }
-            } catch (e) {
-                console.error(e);
-                Swal.fire('Error', 'Error de red al limpiar hallazgos', 'error');
-            }
-            setLoading(false);
+            // Agregar todos los hallazgos actuales a la lista de "silenciados"
+            currentRobotAlerts.forEach(o => {
+                mutedRobotFindings.add(String(o.nro) + String(o.hallazgoRobot));
+            });
+            // Guardar en persistencia local
+            localStorage.setItem('mutedRobotFindings', JSON.stringify(Array.from(mutedRobotFindings)));
+            
+            Swal.fire({
+                toast: true, position: 'top-end', icon: 'success',
+                title: `Hallazgos ocultados visualmente`,
+                showConfirmButton: false, timer: 2000
+            });
+            
+            refreshRobotAlerts(); // Refrescar UI de inmediato
         }
     });
 }
@@ -719,8 +720,15 @@ async function loadOrdersSilent() {
 }
 
 function refreshRobotAlerts() {
-    // --- DECTECTAR HALLAZGOS DEL ROBOT (v5.5) ---
-    const findings = orders.filter(o => o.hallazgoRobot && o.hallazgoRobot.trim() !== "" && !o.hallazgoRobot.toLowerCase().includes('todo conforme'));
+    // --- DECTECTAR HALLAZGOS DEL ROBOT (v5.5 / v8.1 Local Mute) ---
+    const findings = orders.filter(o => {
+        const hasFinding = o.hallazgoRobot && o.hallazgoRobot.trim() !== "" && !o.hallazgoRobot.toLowerCase().includes('todo conforme');
+        if (!hasFinding) return false;
+        
+        // Excluir si está en la lista de ignorados localmente
+        const findingId = String(o.nro) + String(o.hallazgoRobot);
+        return !mutedRobotFindings.has(findingId);
+    });
     currentRobotAlerts = findings;
 
     const robotBtn = document.getElementById('robot-alerts-btn');
@@ -1054,14 +1062,14 @@ function renderOrders(data) {
                 ${(order.estado === 'Cancelado' || order.estado === 'Rechazado') ? '<span class="text-muted" title="Pedido Cancelado"><i class="fa-solid fa-lock"></i></span>' : `
                 <button class="btn-secondary small" onclick="openValidateModal(${order.nro})" title="${currentUser.rol === 'Admin' ? 'Validar/Ver' : 'Solo Lectura'}">
                     ${currentUser.rol === 'Admin' ?
-                    `<i class="fa-solid ${order.estado === 'Validado' ? 'fa-eye' : 'fa-pen-to-square'}"></i>` :
+                    `<i class="fa-solid ${(order.estado === 'Validado' || order.estado === 'Validado AG') ? 'fa-eye' : 'fa-pen-to-square'}"></i>` :
                     `<i class="fa-solid fa-eye"></i> <i class="fa-solid fa-lock" style="font-size:0.7em"></i>`}
                 </button>
-                ${currentUser.rol === 'Admin' && order.estado !== 'Validado' ? `
+                ${currentUser.rol === 'Admin' && order.estado !== 'Validado' && order.estado !== 'Validado AG' ? `
                 <button class="btn-icon-small danger" onclick="rejectOrder(${order.nro})" title="Cancelar">
                     <i class="fa-solid fa-ban"></i>
                 </button>` : ''}
-                ${currentUser.rol === 'Admin' && order.estado === 'Validado' ? `
+                ${currentUser.rol === 'Admin' && (order.estado === 'Validado' || order.estado === 'Validado AG') ? `
                 <button class="btn-icon-small ${order.sla_fuera ? 'danger' : ''}"
                     onclick="toggleSLA(${order.nro})"
                     title="${order.sla_fuera ? 'Fuera de SLA ⏱️ — Clic para desmarcar' : 'Marcar como fuera de SLA (>35 min)'}"
@@ -1527,17 +1535,19 @@ if (newOrderBtn) {
     });
 }
 
-document.querySelectorAll('.close-modal').forEach(btn => {
-    btn.addEventListener('click', () => {
+// Delegation for all close-modal buttons (robust for dynamic/re-rendered content)
+document.addEventListener('click', (e) => {
+    if (e.target.closest('.close-modal')) {
         document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('active'));
-    });
+    }
 });
 
+// Robust Escape key handler
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const swalOpen = typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible();
         if (!swalOpen) {
-            document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('active'));
+            document.querySelectorAll('.modal-backdrop.active').forEach(m => m.classList.remove('active'));
         }
     }
 });

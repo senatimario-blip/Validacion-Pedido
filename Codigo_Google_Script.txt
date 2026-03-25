@@ -243,8 +243,22 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
         let finalStatus = 'Por Validar';
         let validatorUser = '';
 
-        // --- VALIDACIÓN AUTOMÁTICA OCR (Solo si el medio de pago lo requiere) ---
         const pagoOriginal = String(rows[i][10] || "").trim(); // Col K
+
+        // --- AUTO-VALIDACIÓN ONLINE v8.1 (Prioridad) ---
+        // Si es pago en línea, lo validamos de inmediato ya que no requiere auditoría de cobro físico.
+        if (pagoOriginal.toLowerCase().includes('línea') || pagoOriginal.toLowerCase().includes('linea')) {
+           finalStatus = 'Validado';
+           validatorUser = 'Auto';
+           
+           sheet.getRange(i + 1, 12).setValue('ONLINE');      // L: Tipo Pago Val.
+           sheet.getRange(i + 1, 6).setValue(rows[i][3]);      // F: Monto Foto (Igual al Pedido)
+           sheet.getRange(i + 1, 9).setValue(new Date());      // I: Fecha Validación
+           
+           logToSheet("V8.1: Pedido #" + nro + " Auto-Validado por ser Pago en Línea.");
+        }
+
+        // --- VALIDACIÓN AUTOMÁTICA OCR (Para otros medios que sí requieren voucher) ---
         const mediosConVoucher = ['Código QR de Plin', 'Tarjeta de crédito / débito', 'Código QR de Yape'];
         const esPagoEfectivo = !mediosConVoucher.includes(pagoOriginal);
 

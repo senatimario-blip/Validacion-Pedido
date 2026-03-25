@@ -42,7 +42,40 @@
     const weekPicker = document.getElementById('horario-semana-picker');
 
     if (weekPicker) {
-        weekPicker.addEventListener('change', () => window.loadHorarioSemana({ force: true }));
+        weekPicker.addEventListener('change', () => {
+            updateDateHeaders(weekPicker.value);
+            window.loadHorarioSemana({ force: true });
+        });
+    }
+
+    function updateDateHeaders(semanaId) {
+        if (!semanaId || !semanaId.includes('-W')) return;
+        const [year, week] = semanaId.split('-W').map(Number);
+
+        // Calcular el lunes de la semana ISO-8601
+        const getMonday = (y, w) => {
+            const ISOweekStart = new Date(y, 0, 1 + (w - 1) * 7);
+            const dow = ISOweekStart.getDay();
+            if (dow <= 4)
+                ISOweekStart.setDate(ISOweekStart.getDate() - ISOweekStart.getDay() + 1);
+            else
+                ISOweekStart.setDate(ISOweekStart.getDate() + 8 - ISOweekStart.getDay());
+            return ISOweekStart;
+        };
+
+        const monday = getMonday(year, week);
+        const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+        const dayKeys = ['l', 'm', 'x', 'j', 'v', 's', 'd'];
+
+        dayKeys.forEach((key, index) => {
+            const th = document.getElementById(`th-${key}`);
+            if (th) {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + index);
+                const dateStr = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' });
+                th.innerHTML = `${dayNames[index]}<br><span style="font-size: 0.8em; opacity: 0.7; font-weight: normal;">${dateStr}</span>`;
+            }
+        });
     }
 
     if (btnAdd) {
@@ -381,6 +414,8 @@
         if (!weekPicker || !tbody) return;
         const semanaId = weekPicker.value;
         if (!semanaId) return;
+
+        updateDateHeaders(semanaId);
 
         // Caché: Evitar recargas si ya pintamos esta misma semana y no es un force-reload
         if (!opts.force && window.lastLoadedWeek === semanaId) {
