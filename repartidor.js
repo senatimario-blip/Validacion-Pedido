@@ -430,6 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- New Features Initialization ---
     initConnectivityMonitoring();
     initPullToRefresh();
+    initFloatingHub(); // v1.0: Asistente Flotante
+
 
     // Inicializar filtro de fecha de historial a hoy (Lima)
     const historyDateFilter = document.getElementById('history-date-filter');
@@ -919,6 +921,9 @@ function renderOrders() {
             }
         });
     }
+
+    // Actualizar el Asistente Flotante con la nueva lista
+    updateFloatingHub();
 }
 
 function renderSingleOrderCard(order, index) {
@@ -4033,5 +4038,342 @@ async function fileToBase64(file) {
         reader.onerror = error => reject(error);
         reader.readAsDataURL(file);
     });
+}
+
+/**
+ * --- ASISTENTE DE RUTA FLOTANTE (HUB) ---
+ * v1.0: Ventana móvil con info crítica y navegación rápida.
+ */
+let hubOrderIndex = 0; // Índice relativo en activeOrders (no-devolución)
+let isDraggingHub = false;
+let hubOffset = { x: 0, y: 0 };
+
+function initFloatingHub() {
+    const container = document.getElementById('floating-hub-container');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div id="floating-hub" class="floating-hub shadow-2xl">
+            <div class="hub-handle"></div>
+            <div class="hub-header">
+                <span id="hub-llave" class="hub-llave tracking-tighter">---</span>
+                <span id="hub-timer" class="hub-timer hub-timer-green font-mono">00:00</span>
+            </div>
+            <div class="hub-body cursor-pointer active:scale-95 transition-transform" id="hub-main-action">
+                <span id="hub-monto" class="hub-monto font-black">S/ 0.00</span>
+                <div class="flex items-center justify-between">
+                    <span id="hub-pago" class="hub-pago-label font-bold">---</span>
+                </div>
+            </div>
+            <div class="hub-nav">
+                <button class="hub-nav-btn" onclick="event.stopPropagation(); changeHubOrder(-1)">
+                    <i class="fa-solid fa-chevron-left text-[10px]"></i>
+                </button>
+                <div class="flex items-center gap-1">
+                    <button class="hub-nav-btn" onclick="event.stopPropagation(); togglePiPHub()" title="Ver sobre otras apps">
+                        <i class="fa-solid fa-window-restore text-[9px]"></i>
+                    </button>
+                    <div class="text-[9px] text-slate-500 font-bold" id="hub-counter">1/1</div>
+                </div>
+                <button class="hub-nav-btn" onclick="event.stopPropagation(); changeHubOrder(1)">
+                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+            </div>
+        </div>
+    `;
+
+    const hub = document.getElementById('floating-hub');
+    const mainAction = document.getElementById('hub-main-action');
+
+    // Click para abrir modal de fotos directamente (Sin pasar por el selector)
+    mainAction.addEventListener('click', (e) => {
+        const activeOrders = currentOrders.filter(o => !o.esperandoDevolucion);
+        if (activeOrders[hubOrderIndex]) {
+            const order = activeOrders[hubOrderIndex];
+            const originalIndex = window.orders.findIndex(o => (o.llave === order.llave || o.nro === order.nro));
+            if (originalIndex !== -1) {
+                openDirectCaptureFromHub(originalIndex);
+            }
+        }
+    });
+
+    // Función auxiliar para entrar directo a fotos
+    window.openDirectCaptureFromHub = function(index) {
+        const order = window.orders[index];
+        selectedOrderForCapture = order;
+
+        // Determinar modo automáticamente para saltar el selector
+        const pStr = (order.pago || '').toString().trim().toUpperCase();
+        let mode = 'pos'; // default
+
+        if (pStr.includes('CONTADO') || pStr.includes('EFECTIVO')) mode = 'efectivo';
+        else if (pStr.includes('LÍNEA') || pStr.includes('LINEA')) mode = 'online';
+
+        selectedCaptureMode = mode;
+        openCaptureModal(order);
+    };
+
+    // Función para saltar de Fotos a Cancelación
+    window.shortcutToCancel = function() {
+        if (!selectedOrderForCapture) return;
+        
+        // Cerrar modal de captura actual
+        const modalCaptura = document.getElementById('modal-captura');
+        modalCaptura.classList.add('hidden');
+        modalCaptura.classList.remove('flex');
+        
+        // Abrir modal de cancelación
+        openCancelModal(selectedOrderForCapture);
+    };
+
+    // --- Lógica de Drag & Drop ---
+    const handleDragStart = (e) => {
+        if (e.target.closest('.hub-nav-btn')) return; // No arrastrar si pulsa botones
+        
+        isDraggingHub = true;
+        hub.style.transition = 'none';
+        const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        
+        const rect = hub.getBoundingClientRect();
+        hubOffset.x = clientX - rect.left;
+        hubOffset.y = clientY - rect.top;
+    };
+
+    const handleDragMove = (e) => {
+        if (!isDraggingHub) return;
+        
+        // Evitar scroll mientras arrastra solo si está moviendo el hub
+        const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+        let x = clientX - hubOffset.x;
+        let y = clientY - hubOffset.y;
+
+        // Limites de pantalla (10px de margen)
+        const maxX = window.innerWidth - hub.offsetWidth - 10;
+        const maxY = window.innerHeight - hub.offsetHeight - 10;
+        x = Math.max(10, Math.min(x, maxX));
+        y = Math.max(10, Math.min(y, maxY));
+
+        hub.style.left = x + 'px';
+        hub.style.top = y + 'px';
+        hub.style.bottom = 'auto';
+        hub.style.right = 'auto';
+    };
+
+    const handleDragEnd = () => {
+        if (!isDraggingHub) return;
+        isDraggingHub = false;
+        hub.style.transition = 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s ease';
+    };
+
+    hub.addEventListener('mousedown', handleDragStart);
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+
+    hub.addEventListener('touchstart', handleDragStart, { passive: false });
+    document.addEventListener('touchmove', (e) => { if(isDraggingHub) e.preventDefault(); handleDragMove(e); }, { passive: false });
+    document.addEventListener('touchend', handleDragEnd);
+
+    // Actualización recurrente del Hub (cada segundo para el timer)
+    setInterval(() => {
+        updateFloatingHub();
+        updateCanvasHub(); // Mantener el canvas al día para PiP
+    }, 1000);
+}
+
+// --- TRUCO HUB GLOBAL (PICTURE-IN-PICTURE) ---
+let isPiPActive = false;
+
+async function togglePiPHub() {
+    const video = document.getElementById('video-hub');
+    const canvas = document.getElementById('canvas-hub');
+
+    if (!document.pictureInPictureEnabled) {
+        Swal.fire('No soportado', 'Tu navegador no permite ventanas flotantes externas.', 'error');
+        return;
+    }
+
+    try {
+        if (!isPiPActive) {
+            // Iniciar Stream desde Canvas
+            const stream = canvas.captureStream(10); // 10 FPS es suficiente
+            video.srcObject = stream;
+            await video.play();
+            await video.requestPictureInPicture();
+            isPiPActive = true;
+            
+            video.addEventListener('leavepictureinpicture', () => {
+                isPiPActive = false;
+            }, { once: true });
+
+        } else {
+            await document.exitPictureInPicture();
+            isPiPActive = false;
+        }
+    } catch (err) {
+        console.error("PiP Error:", err);
+        Swal.fire('Error', 'No se pudo activar el Hub Externo. Intenta de nuevo.', 'error');
+    }
+}
+
+function updateCanvasHub() {
+    const canvas = document.getElementById('canvas-hub');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Obtener pedido actual
+    const activeOrders = currentOrders.filter(o => !o.esperandoDevolucion);
+    if (activeOrders.length === 0 || hubOrderIndex >= activeOrders.length) {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+    
+    const order = activeOrders[hubOrderIndex];
+    
+    // Fondo más oscuro premium
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Acento lateral
+    const pStr = (order.pago || '').toUpperCase();
+    let accentColor = '#60a5fa'; // Blue
+    let payLabel = 'OTRO';
+
+    if (pStr.includes('QR')) { accentColor = '#2dd4bf'; payLabel = 'QR'; }
+    else if (pStr.includes('TARJETA')) { accentColor = '#c084fc'; payLabel = 'TARJETA'; }
+    else if (pStr.includes('EFECTIVO')) { accentColor = '#34d399'; payLabel = 'EFECTIVO'; }
+    
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(0, 0, 10, canvas.height);
+
+    // Texto Llave (Arriba Izquierda)
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(order.llave || 'S/N', 20, 25);
+
+    // Label Pago (Arriba Derecha - Más grande)
+    ctx.font = 'black 16px Arial';
+    ctx.fillStyle = accentColor;
+    const labelWidth = ctx.measureText(payLabel).width;
+    ctx.fillText(payLabel, canvas.width - labelWidth - 10, 25);
+
+    // Texto Cronómetro (Debajo de QR - Muy Grande)
+    const registerDateStr = order.fecha;
+    let timeText = "--:--";
+    let timeColor = '#4ade80'; // Green
+
+    if (registerDateStr) {
+        const diffMs = new Date() - new Date(registerDateStr);
+        const mins = Math.floor(diffMs / 60000);
+        const secs = Math.floor((diffMs % 60000) / 1000);
+        timeText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        if (mins >= 30) timeColor = '#f87171'; // Red
+        else if (mins >= 20) timeColor = '#fb923c'; // Orange
+    }
+
+    ctx.font = 'bold 50px Helvetica';
+    ctx.fillStyle = timeColor;
+    const timeWidth = ctx.measureText(timeText).width;
+    ctx.fillText(timeText, canvas.width - timeWidth - 10, 75);
+
+    // Texto Monto (Abajo Izquierda)
+    const montoRaw = parseFloat(order.monto) || 0;
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(`S/ ${montoRaw.toFixed(2)}`, 20, 100);
+}
+
+function changeHubOrder(delta) {
+    const activeOrders = currentOrders.filter(o => !o.esperandoDevolucion);
+    if (activeOrders.length <= 1) return;
+    
+    hubOrderIndex = (hubOrderIndex + delta + activeOrders.length) % activeOrders.length;
+    updateFloatingHub();
+    
+    // Feedback táctico
+    const hub = document.getElementById('floating-hub');
+    hub.style.transform = 'scale(0.95)';
+    setTimeout(() => { hub.style.transform = 'scale(1)'; }, 100);
+}
+
+function updateFloatingHub() {
+    const hub = document.getElementById('floating-hub');
+    if (!hub) return;
+
+    // Solo mostrar si hay usuario logueado y hay pedidos activos (no devueltos)
+    const activeOrders = currentOrders.filter(o => !o.esperandoDevolucion);
+    
+    if (activeOrders.length === 0 || !currentUser) {
+        hub.classList.remove('active');
+        return;
+    }
+
+    hub.classList.add('active');
+
+    // Mantener índice dentro de límites si la lista cambió
+    if (hubOrderIndex >= activeOrders.length) hubOrderIndex = 0;
+
+    const order = activeOrders[hubOrderIndex];
+    
+    // 1. LLAVE
+    document.getElementById('hub-llave').textContent = order.llave || 'PED-' + order.nro;
+
+    // 2. MONTO
+    const monto = parseFloat(order.monto) || 0;
+    document.getElementById('hub-monto').textContent = 'S/ ' + monto.toFixed(2);
+
+    // 3. PAGOS (Mapeo Premium Columna K)
+    const pagoOriginal = (order.pago || 'CONTADO').toUpperCase();
+    let pagoLabel = 'OTROS';
+    let hubClass = 'hub-online';
+
+    if (pagoOriginal.includes('QR') || pagoOriginal.includes('YAPE') || pagoOriginal.includes('PLIN')) {
+        pagoLabel = 'QR';
+        hubClass = 'hub-qr';
+    } else if (pagoOriginal.includes('LÍNEA') || pagoOriginal.includes('LINEA')) {
+        pagoLabel = 'ONLINE';
+        hubClass = 'hub-online';
+    } else if (pagoOriginal.includes('TARJETA') || pagoOriginal.includes('DÉBITO') || pagoOriginal.includes('POS')) {
+        pagoLabel = 'TARJETA';
+        hubClass = 'hub-tarjeta';
+    } else if (pagoOriginal.includes('CONTADO') || pagoOriginal.includes('EFECTIVO')) {
+        pagoLabel = 'EFECTIVO';
+        hubClass = 'hub-efectivo';
+    }
+
+    document.getElementById('hub-pago').textContent = pagoLabel;
+    document.getElementById('hub-counter').textContent = (hubOrderIndex + 1) + '/' + activeOrders.length;
+    
+    // Actualizar clase visual (manteniendo la base)
+    hub.className = 'floating-hub active shadow-2xl ' + hubClass;
+
+    // 4. CRONÓMETRO (Sincronizado con lista principal)
+    const timerElem = document.getElementById('hub-timer');
+    const registerDateStr = order.fecha;
+    
+    if (registerDateStr) {
+        const now = new Date();
+        const start = new Date(registerDateStr);
+        
+        if (!isNaN(start)) {
+            const diffMs = now - start;
+            const diffMin = Math.floor(diffMs / 60000);
+            const diffSec = Math.floor((diffMs % 60000) / 1000);
+            
+            // Mostrar Minutos y Segundos para que se vea que avanza
+            timerElem.textContent = `${String(diffMin).padStart(2, '0')}:${String(diffSec).padStart(2, '0')}`;
+            
+            // Niveles de Urgencia en Colores
+            timerElem.className = 'hub-timer font-mono';
+            if (diffMin >= 30) timerElem.classList.add('hub-timer-red');
+            else if (diffMin >= 20) timerElem.classList.add('hub-timer-orange');
+            else timerElem.classList.add('hub-timer-green');
+        } else {
+            timerElem.textContent = "--:--";
+        }
+    }
 }
 

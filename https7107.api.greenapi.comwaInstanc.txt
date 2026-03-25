@@ -1,0 +1,3 @@
+https://7107.api.greenapi.com/waInstance7107555446/getChats/42084b10a21b4d0194a4231508112e0b49abc8ffd7df41d59b
+
+http://localhost:8000/kiosko.html?api=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FAKfycbwHcoS-lpxyMDE4SC6PKlGMLyc8bv279gDZOZ2SDqw5NoHn_RTQHUWHNdI4puLQfM0F%2Fexec

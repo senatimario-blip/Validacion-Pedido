@@ -17,6 +17,9 @@
     <!-- FontAwesome para Íconos -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
+    <!-- Estilos Personalizados del Hub y App -->
+    <link rel="stylesheet" href="styles.css?v=1.0">
+
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
@@ -558,10 +561,16 @@
     <!-- MODAL DE CAPTURA (Cámara 1 y 2) -->
     <div id="modal-captura" class="fixed inset-0 bg-black/95 z-50 hidden flex-col transition-opacity">
         <div class="flex items-center justify-between p-4 border-b border-slate-800">
-            <div>
-                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block">Realizando
-                    Entrega</span>
-                <span class="text-xl font-bold" id="lbl-modal-llave">PED-000</span>
+            <div class="flex items-center gap-3">
+                <button onclick="shortcutToCancel()"
+                    class="h-10 px-4 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center gap-2 text-red-500 active:scale-95 transition-all">
+                    <i class="fa-solid fa-ban text-lg"></i>
+                    <span class="font-black text-xs">CANCELAR</span>
+                </button>
+                <div>
+                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">Realizando Entrega</span>
+                    <span class="text-xl font-black text-white tracking-tighter" id="lbl-modal-llave">PED-000</span>
+                </div>
             </div>
             <button id="btn-cerrar-modal"
                 class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-white">
@@ -805,6 +814,13 @@
             <i class="fa-solid fa-spinner fa-spin text-4xl text-primary mb-4"></i>
             <p class="text-slate-300 text-lg font-medium">Cargando rutas...</p>
         </div>
+    </div>
+
+    <!-- Contenedor para el Hub Flotante -->
+    <div id="floating-hub-container"></div>
+    <div style="display:none; position:fixed; pointer-events:none;">
+        <canvas id="canvas-hub" width="220" height="110"></canvas>
+        <video id="video-hub" autoplay muted playsinline></video>
     </div>
 
     <!-- Quick Share Input (Step 1 & 3) -->

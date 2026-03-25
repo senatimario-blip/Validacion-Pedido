@@ -1862,3 +1862,149 @@ body {
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* --- ASISTENTE DE RUTA FLOTANTE --- */
+.floating-hub {
+    position: fixed;
+    bottom: 100px;
+    right: 20px;
+    width: 160px;
+    z-index: 9999;
+    padding: 12px;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    cursor: move;
+    user-select: none;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s ease;
+    display: none; /* Activación vía JS */
+    flex-direction: column;
+    gap: 8px;
+}
+
+.floating-hub.active {
+    display: flex;
+    animation: slideInHub 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.hub-handle {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 30px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.hub-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 5px;
+}
+
+.hub-llave {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: white;
+    letter-spacing: 0.5px;
+}
+
+.hub-timer {
+    font-size: 1.5rem; /* Máxima visibilidad */
+    font-weight: 900;
+    padding: 2px 10px;
+    border-radius: 8px;
+    font-family: 'Outfit', 'Inter', monospace;
+    letter-spacing: -0.5px;
+}
+
+.hub-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 0;
+}
+
+.hub-monto {
+    font-size: 0.8rem; /* Más pequeño */
+    font-weight: 700;
+    color: rgba(251, 191, 36, 0.9);
+}
+
+.hub-pago-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 10px;
+    align-self: flex-start;
+}
+
+.hub-nav {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 8px;
+}
+
+.hub-nav-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.hub-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+}
+
+/* Cronómetro Colores */
+.hub-timer-green { background: rgba(52, 211, 153, 0.1); color: #34d399; }
+.hub-timer-orange { background: rgba(251, 146, 60, 0.1); color: #fb923c; }
+.hub-timer-red { background: rgba(248, 113, 113, 0.2); color: #f87171; animation: pulseHub 1s infinite; }
+
+/* Mapeo Colores de Pago */
+.hub-efectivo { border-color: rgba(52, 211, 153, 0.3); border-left: 4px solid #34d399; }
+.hub-efectivo .hub-pago-label { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+
+.hub-tarjeta { border-color: rgba(192, 132, 252, 0.3); border-left: 4px solid #c084fc; }
+.hub-tarjeta .hub-pago-label { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+
+.hub-qr { border-color: rgba(45, 212, 191, 0.3); border-left: 4px solid #2dd4bf; }
+.hub-qr .hub-pago-label { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; }
+
+.hub-online { border-color: rgba(96, 165, 250, 0.3); border-left: 4px solid #60a5fa; }
+.hub-online .hub-pago-label { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
+
+@keyframes slideInHub {
+    from { opacity: 0; transform: translateX(50px) scale(0.9); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes pulseHub {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+}
