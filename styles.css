@@ -779,8 +779,10 @@ body {
     backdrop-filter: blur(5px);
     display: none;
     justify-content: center;
-    align-items: center;
-    z-index: 1000;
+    align-items: center; /* Se mantiene para centrar modales cortos */
+    z-index: 2000;
+    overflow-y: auto; /* IMPORTANTE: Permitir scroll si el modal es gigante */
+    padding: 20px 0;   /* Margen para que no pegue a los bordes */
 }
 
 .modal-backdrop.active {

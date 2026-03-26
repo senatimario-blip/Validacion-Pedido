@@ -5192,7 +5192,7 @@ function makeDraggable(modalId) {
 
 // Initialize draggability for all modals
 document.addEventListener('DOMContentLoaded', () => {
-    ['modal-validate', 'modal-new-order', 'modal-import', 'modal-import-text', 'modal-date-range', 'modal-manage-drivers'].forEach(makeDraggable);
+    ['modal-validate', 'modal-new-order', 'modal-import', 'modal-import-text', 'modal-date-range', 'modal-manage-drivers', 'modal-auditoria'].forEach(makeDraggable);
 });
 
 // Helper para calcular minutos reales desde Hora TADA
