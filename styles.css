@@ -780,9 +780,14 @@ body {
     display: none;
     justify-content: center;
     align-items: center; /* Se mantiene para centrar modales cortos */
-    z-index: 2000;
+    z-index: 1000;      /* ¡CORREGIDO! Antes era 2000, tapando las alertas */
     overflow-y: auto; /* IMPORTANTE: Permitir scroll si el modal es gigante */
     padding: 20px 0;   /* Margen para que no pegue a los bordes */
+}
+
+/* REGLA MAESTRA: Asegurar que las alertas (como cargando...) siempre floten arriba de todo */
+.swal2-container {
+    z-index: 10000 !important;
 }
 
 .modal-backdrop.active {
