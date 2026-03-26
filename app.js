@@ -3925,6 +3925,11 @@ function applyFilters() {
     // 1. Primer paso: Filtrar solo por Estado y Fecha para determinar los repartidores disponibles (v18.1)
     const contextOrders = orders.filter(o => {
         let statusMatch = currentFilter === 'all' || o.estado === currentFilter;
+        // v27: Soporte para Validado AG en la pestaña de Validados
+        if (currentFilter === 'Validado' && o.estado === 'Validado AG') {
+            statusMatch = true;
+        }
+
         if (currentFilter === 'Cancelado') {
             statusMatch = o.estado === 'Cancelado' || o.estado === 'Rechazado';
         }
@@ -5051,7 +5056,8 @@ document.getElementById('card-validated')?.addEventListener('click', () => {
     if (!currentFilteredOrders) return;
 
     currentFilteredOrders.forEach(o => {
-        if (o.estado === 'Validado') {
+        if (o.estado === 'Validado' || o.estado === 'Validado AG') {
+
             const m = parseFloat(o.monto) || 0;
             const t = (o.tipo_pago || '').toString().trim().toUpperCase();
 

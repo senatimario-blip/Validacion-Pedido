@@ -258,8 +258,9 @@ function renderDashboard() {
     // dashOrders: aplicar filtro de pago para gráficos y KPIs
     dashOrders = baseOrders.filter(o => {
         if (esCancelado(o)) return activePagos.has('CANCELADO');
-        if (o.estado === 'Validado') return activePagos.has(clasificarPago(o)) || clasificarPago(o) === 'OTROS';
+        if (o.estado === 'Validado' || o.estado === 'Validado AG') return activePagos.has(clasificarPago(o)) || clasificarPago(o) === 'OTROS';
         return true; // pendientes siempre
+
     });
 
     // Poblar select repartidores (solo la primera vez)
@@ -289,7 +290,8 @@ function renderDashboard() {
 // ============================================================
 function renderPagoChips(baseOrders) {
     ['TARJETA', 'QR', 'ONLINE', 'EFECTIVO'].forEach(tipo => {
-        const vals = baseOrders.filter(o => o.estado === 'Validado' && clasificarPago(o) === tipo);
+        const vals = baseOrders.filter(o => (o.estado === 'Validado' || o.estado === 'Validado AG') && clasificarPago(o) === tipo);
+
         setText(`pago-count-${tipo}`, vals.length);
         setText(`pago-monto-${tipo}`, 'S/ ' + vals.reduce((s, o) => s + (parseFloat(o.monto) || 0), 0).toFixed(2));
     });
@@ -304,12 +306,14 @@ function renderPagoChips(baseOrders) {
 // ============================================================
 function renderKPIs() {
     const total = dashOrders.length;
-    const validados = dashOrders.filter(o => o.estado === 'Validado').length;
+    const validados = dashOrders.filter(o => o.estado === 'Validado' || o.estado === 'Validado AG').length;
+
     const cancelados = dashOrders.filter(o => esCancelado(o)).length;
     const pendientes = dashOrders.filter(o => o.estado === 'Pendiente').length;
     const porValidar = dashOrders.filter(o => o.estado === 'Por Validar').length;
     const enCamino = dashOrders.filter(o => o.estado === 'En Camino').length;
-    const montoVal = dashOrders.filter(o => o.estado === 'Validado').reduce((s, o) => s + (parseFloat(o.monto) || 0), 0);
+    const montoVal = dashOrders.filter(o => o.estado === 'Validado' || o.estado === 'Validado AG').reduce((s, o) => s + (parseFloat(o.monto) || 0), 0);
+
     const fillRate = total > 0 ? (validados / total * 100).toFixed(1) : '0.0';
     const slaFuera = dashOrders.filter(o => o.sla_fuera && String(o.sla_fuera).trim() !== '').length;
     const slaBase = total - cancelados;
@@ -317,7 +321,8 @@ function renderKPIs() {
 
     let tpeTotalMins = 0, tpeCount = 0;
     dashOrders.forEach(o => {
-        if (o.estado === 'Validado' && o.hora_entrega && o.fecha) {
+        if ((o.estado === 'Validado' || o.estado === 'Validado AG') && o.hora_entrega && o.fecha) {
+
             try {
                 const orderDate = dashParseDate(o.fecha); if (!orderDate) return;
                 let deliveryDate = (o.fecha_entrega && String(o.fecha_entrega).trim() !== '')
@@ -367,8 +372,9 @@ function renderChartPorDia() {
         const key = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' });
         if (!byDay[key]) byDay[key] = { count: 0, monto: 0 };
         byDay[key].count++;
-        if (o.estado === 'Validado') byDay[key].monto += parseFloat(o.monto) || 0;
+        if (o.estado === 'Validado' || o.estado === 'Validado AG') byDay[key].monto += parseFloat(o.monto) || 0;
     });
+
     const labels = Object.keys(byDay).sort();
     const ctx = document.getElementById('chart-por-dia').getContext('2d');
     dashCharts.porDia = new Chart(ctx, {
@@ -381,7 +387,8 @@ function renderChartPorDia() {
 function renderChartPagos() {
     destroyChart('pagos');
     const agrupado = { TARJETA: 0, QR: 0, EFECTIVO: 0, ONLINE: 0, Otros: 0 };
-    dashOrders.filter(o => o.estado === 'Validado').forEach(o => {
+    dashOrders.filter(o => o.estado === 'Validado' || o.estado === 'Validado AG').forEach(o => {
+
         const tipo = clasificarPago(o);
         agrupado[tipo] !== undefined ? agrupado[tipo]++ : agrupado.Otros++;
     });
@@ -401,8 +408,9 @@ function renderChartRepartidores() {
     dashOrders.forEach(o => {
         const name = (o.envio || '').trim(); if (!name) return;
         if (!stats[name]) stats[name] = { val: 0, can: 0 };
-        if (o.estado === 'Validado') stats[name].val++;
+        if (o.estado === 'Validado' || o.estado === 'Validado AG') stats[name].val++;
         else if (esCancelado(o)) stats[name].can++;
+
     });
     const sorted = Object.keys(stats).sort((a, b) => stats[b].val - stats[a].val).slice(0, 10);
     const ctx = document.getElementById('chart-repartidores').getContext('2d');
@@ -473,7 +481,8 @@ function renderListado() {
 
     // Filtrar por hora correspondiente (entrega para válidos, pedido para cancelados)
     const pedidos = dashOrders.filter(o => {
-        if (o.estado === 'Validado') {
+        if (o.estado === 'Validado' || o.estado === 'Validado AG') {
+
             if (!activePagos.has(clasificarPago(o))) return false;
             const h = getHoraEntrega(o); // Hora de entrega para válidos
             if (h === null) return false;
@@ -578,7 +587,8 @@ function renderListado() {
         const tipo = isCan ? 'CANCELADO' : clasificarPago(o);
         const col = PAGO_COLORS[tipo]?.text || COLORS.gris;
         const estCol = isCan ? COLORS.rojo : COLORS.verde;
-        const estLabel = isCan ? (o.estado || 'Cancelado') : 'Validado';
+        const estLabel = isCan ? (o.estado || 'Cancelado') : o.estado; // Mostrar estado real (Validado o Validado AG)
+
 
         // Indicador visual para cancelados (hora de pedido)
         const horaDisplay = isCan

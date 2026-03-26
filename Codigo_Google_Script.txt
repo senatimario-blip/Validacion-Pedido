@@ -218,25 +218,67 @@ function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, ph
         
         if (fechaEntrega && horaEntrega) {
           try {
-            const creationDate = new Date(rows[i][1]); // Col B
-            const [h, m] = horaEntrega.split(':').map(Number);
-            const FE = new Date(fechaEntrega);
-            const deliveryDate = new Date(FE.getFullYear(), FE.getMonth(), FE.getDate(), h, m, 0);
-            
-            // Si la entrega es antes de la creación, asumimos cruce de medianoche
-            let diffMs = deliveryDate.getTime() - creationDate.getTime();
-            if (diffMs < -43200000) { // Si es más de 12h antes, es el día siguiente
-               deliveryDate.setDate(deliveryDate.getDate() + 1);
-               diffMs = deliveryDate.getTime() - creationDate.getTime();
+            // --- PROTECCIÃ“N ANTIESTRES (Vâ€‹3.1) ---
+            // 1. Obtener Fecha de CreaciÃ³n (Col B) de forma robusta
+            let creationDate = (rows[i][1] instanceof Date) ? rows[i][1] : new Date(rows[i][1]);
+            // Si el motor de JS no entiende DD/MM/YYYY, forzamos parseo manual
+            if (isNaN(creationDate.getTime()) && String(rows[i][1]).includes('/')) {
+              const [d_c, m_c, y_c] = String(rows[i][1]).split(' ')[0].split('/').map(Number);
+              const t_c = String(rows[i][1]).split(' ')[1] || "00:00:00";
+              const [h_c, min_c, s_c] = t_c.split(':').map(Number);
+              creationDate = new Date(y_c, m_c - 1, d_c, h_c, min_c, s_c || 0);
             }
+
+            // 2. Limpiar Hora de Entrega (quitar puntos, espacios y manejar AM/PM)
+            let rawTime = String(horaEntrega).replace(/\./g, "").trim().toLowerCase();
+            let isPM = rawTime.includes('p') || rawTime.includes('m');
+            let isAM = rawTime.includes('a');
             
-            const diffMins = Math.floor(diffMs / 60000);
-            const slaHours = Math.floor(diffMins / 60);
-            const slaMins = diffMins % 60;
-            const slaText = slaHours + ":" + String(slaMins).padStart(2,'0') + ":00";
-            sheet.getRange(i + 1, 18).setValue(slaText); // R
+            // Extraer solo los nÃºmeros de la hora (soporta HH:mm o HH:mm:ss)
+            let timeMatch = rawTime.match(/(\d{1,2}):(\d{2})/);
+            if (timeMatch && !isNaN(creationDate.getTime())) {
+              let h = parseInt(timeMatch[1]);
+              let m = parseInt(timeMatch[2]);
+              
+              // Ajustar segÃºn AM/PM si existe
+              if (isPM && h < 12) h += 12;
+              if (isAM && h === 12) h = 0;
+
+              // 3. Crear Fecha de Entrega real
+              const FE = (fechaEntrega instanceof Date) ? fechaEntrega : new Date(fechaEntrega);
+              // Si falla el parseo de P (Fecha Entrega), intentar manual DD/MM/YYYY
+              let deliveryDate;
+              if (!isNaN(FE.getTime())) {
+                deliveryDate = new Date(FE.getFullYear(), FE.getMonth(), FE.getDate(), h, m, 0);
+              } else {
+                const [d_e, m_e, y_e] = String(fechaEntrega).split('/').map(Number);
+                deliveryDate = new Date(y_e, m_e - 1, d_e, h, m, 0);
+              }
+
+              // 4. Calcular Diferencia y formatear
+              let diffMs = deliveryDate.getTime() - creationDate.getTime();
+              // Corregir cruce de medianoche (Tada a veces registra 23:50 y entrega 00:10)
+              if (diffMs < -43200000) { 
+                deliveryDate.setDate(deliveryDate.getDate() + 1);
+                diffMs = deliveryDate.getTime() - creationDate.getTime();
+              }
+              
+              const diffMinsTotal = Math.floor(diffMs / 60000);
+              if (!isNaN(diffMinsTotal)) {
+                const slaHs = Math.floor(Math.abs(diffMinsTotal) / 60);
+                const slaMs = Math.abs(diffMinsTotal) % 60;
+                const sign = diffMinsTotal < 0 ? "-" : "";
+                const slaText = sign + slaHs + ":" + String(slaMs).padStart(2,'0') + ":00";
+                sheet.getRange(i + 1, 18).setValue(slaText); // R
+              } else {
+                sheet.getRange(i + 1, 18).setValue("0:00:00");
+              }
+            } else {
+              sheet.getRange(i + 1, 18).setValue("---");
+            }
           } catch(e_sla) {
             logToSheet("Error calculando SLA: " + e_sla.toString());
+            sheet.getRange(i + 1, 18).setValue("Err:Date");
           }
         }
 
@@ -832,24 +874,36 @@ function actualizarHorasTada(updates) {
           const horaLimpia = upd.hora_tada.replace(/\./g, "").toLowerCase();
           const fullDateTimeStr = datePrefix + " " + horaLimpia;
           
-          // 2. Calcular Diferencia (Z = Y - B)
-          const fechaRegistro = new Date(data[rowIdx - 1][1]); // B: Fecha registro
+          // 2. Calcular Diferencia (Z = Y - B) de forma segura
+          let fechaRegistro = (data[rowIdx - 1][1] instanceof Date) ? data[rowIdx - 1][1] : new Date(data[rowIdx - 1][1]);
+          if (isNaN(fechaRegistro.getTime()) && String(data[rowIdx - 1][1]).includes('/')) {
+             const [d_r, m_r, y_r] = String(data[rowIdx - 1][1]).split(' ')[0].split('/').map(Number);
+             const t_r = String(data[rowIdx - 1][1]).split(' ')[1] || "00:00:00";
+             const [h_r, min_r] = t_r.split(':').map(Number);
+             fechaRegistro = new Date(y_r, m_r - 1, d_r, h_r, min_r, 0);
+          }
           
-          // Parseo manual para asegurar compatibilidad
-          const [h, m] = horaLimpia.split(' ')[0].split(':').map(Number);
-          let hours = h;
-          if (horaLimpia.includes('p') && hours < 12) hours += 12;
-          if (horaLimpia.includes('a') && hours === 12) hours = 0;
+          // Limpiar hora tada para cÃ¡lculo
+          let hL = horaLimpia.trim();
+          let isPM = hL.includes('p') || hL.includes('m');
+          let isAM = hL.includes('a');
+          let tM = hL.match(/(\d{1,2}):(\d{2})/);
           
-          const fechaReal = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, m, 0);
-          
-          let diffMins = Math.floor((fechaReal - fechaRegistro) / 60000);
-          if (diffMins < -720) diffMins += 1440; // Cruce medianoche
-          
-          sheet.getRange(rowIdx, 25).setValue(fullDateTimeStr); // Y
-          sheet.getRange(rowIdx, 26).setValue(diffMins);         // Z
-          updatedCount++;
-        } catch(e) {}
+          if (tM && !isNaN(fechaRegistro.getTime())) {
+            let h = parseInt(tM[1]);
+            let m = parseInt(tM[2]);
+            if (isPM && h < 12) h += 12;
+            if (isAM && h === 12) h = 0;
+            
+            const fechaReal = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+            let diffMins = Math.floor((fechaReal - fechaRegistro) / 60000);
+            if (diffMins < -720) diffMins += 1440;
+            
+            sheet.getRange(rowIdx, 25).setValue(fullDateTimeStr); // Y
+            sheet.getRange(rowIdx, 26).setValue(isNaN(diffMins) ? 0 : diffMins); // Z
+            updatedCount++;
+          }
+        } catch(e) { logToSheet("Err Actualizar Horas: " + e.toString()); }
       }
     }
   });
@@ -895,22 +949,48 @@ function rechazarPedido(data) {
         sheet.getRange(i + 1, 18).setValue(data.tiempoTranscurrido);
       } else if (data.fechaEntrega && data.horaEntrega) {
         try {
-          const creationDate = new Date(rows[i][1]); // Col B
-          const [h, m] = data.horaEntrega.split(':').map(Number);
-          const FE = new Date(data.fechaEntrega);
-          const deliveryDate = new Date(FE.getFullYear(), FE.getMonth(), FE.getDate(), h, m, 0);
-          
-          let diffMs = deliveryDate.getTime() - creationDate.getTime();
-          if (diffMs < -43200000) {
-             deliveryDate.setDate(deliveryDate.getDate() + 1);
-             diffMs = deliveryDate.getTime() - creationDate.getTime();
+          // --- PROTECCIÃ“N SLA RECHAZO (Vâ€‹3.1) ---
+          let creationDate = (rows[i][1] instanceof Date) ? rows[i][1] : new Date(rows[i][1]);
+          if (isNaN(creationDate.getTime()) && String(rows[i][1]).includes('/')) {
+             const [d_c, m_c, y_c] = String(rows[i][1]).split(' ')[0].split('/').map(Number);
+             creationDate = new Date(y_c, m_c - 1, d_c, 12, 0, 0); // Asumimos mediodÃ­a si falla
           }
-          
-          const diffMins = Math.floor(diffMs / 60000);
-          const slaHours = Math.floor(diffMins / 60);
-          const slaMins = diffMins % 60;
-          const slaText = slaHours + ":" + String(slaMins).padStart(2,'0') + ":00";
-          sheet.getRange(i + 1, 18).setValue(slaText); // R
+
+          let rawTime = String(data.horaEntrega).replace(/\./g, "").trim().toLowerCase();
+          let isPM = rawTime.includes('p') || rawTime.includes('m');
+          let isAM = rawTime.includes('a');
+          let timeMatch = rawTime.match(/(\d{1,2}):(\d{2})/);
+
+          if (timeMatch && !isNaN(creationDate.getTime())) {
+            let h = parseInt(timeMatch[1]);
+            let m = parseInt(timeMatch[2]);
+            if (isPM && h < 12) h += 12;
+            if (isAM && h === 12) h = 0;
+
+            const FE = (data.fechaEntrega instanceof Date) ? data.fechaEntrega : new Date(data.fechaEntrega);
+            let deliveryDate;
+            if (!isNaN(FE.getTime())) {
+              deliveryDate = new Date(FE.getFullYear(), FE.getMonth(), FE.getDate(), h, m, 0);
+            } else {
+              const [d_e, m_e, y_e] = String(data.fechaEntrega).split('/').map(Number);
+              deliveryDate = new Date(y_e, m_e - 1, d_e, h, m, 0);
+            }
+
+            let diffMs = deliveryDate.getTime() - creationDate.getTime();
+            if (diffMs < -43200000) {
+               deliveryDate.setDate(deliveryDate.getDate() + 1);
+               diffMs = deliveryDate.getTime() - creationDate.getTime();
+            }
+            
+            const diffMins = Math.floor(diffMs / 60000);
+            if (!isNaN(diffMins)) {
+              const slaHours = Math.floor(Math.abs(diffMins) / 60);
+              const slaMins = Math.abs(diffMins) % 60;
+              const sign = diffMins < 0 ? "-" : "";
+              const slaText = sign + slaHours + ":" + String(slaMins).padStart(2,'0') + ":00";
+              sheet.getRange(i + 1, 18).setValue(slaText); // R
+            }
+          }
         } catch(e_sla) {
           logToSheet("Error calculando SLA en rechazo: " + e_sla.toString());
         }
@@ -1203,21 +1283,41 @@ function corregirEntrega(data) {
         const fechaRegistro = rows[i][1];
         if (fechaRegistro && data.fechaEntrega && data.horaEntrega) {
           try {
-            const [day, month, year] = data.fechaEntrega.split('/').map(Number);
-            const [h, m] = data.horaEntrega.split(':').map(Number);
-            const entregaDate = new Date(year, month - 1, day, h, m, 0);
-            const regDate = new Date(fechaRegistro);
-            
-            const diffMs = entregaDate - regDate;
-            const diffSecs = Math.floor(diffMs / 1000);
-            
-            if (diffSecs >= 0) {
-              const hours = Math.floor(diffSecs / 3600);
-              const minutes = Math.floor((diffSecs % 3600) / 60);
-              const seconds = diffSecs % 60;
-              const durationStr = [hours, minutes, seconds].map(v => String(v).padStart(2, '0')).join(':');
+            // --- PROTECCIÃ“N CORRECCIÃ“N (Vâ€‹3.1) ---
+            let regDate = (fechaRegistro instanceof Date) ? fechaRegistro : new Date(fechaRegistro);
+            if (isNaN(regDate.getTime()) && String(fechaRegistro).includes('/')) {
+               const [d_r, m_r, y_r] = String(fechaRegistro).split(' ')[0].split('/').map(Number);
+               regDate = new Date(y_r, m_r - 1, d_r, 12, 0, 0);
+            }
+
+            let rawTime = String(data.horaEntrega).replace(/\./g, "").trim().toLowerCase();
+            let isPM = rawTime.includes('p') || rawTime.includes('m');
+            let isAM = rawTime.includes('a');
+            let tMatch = rawTime.match(/(\d{1,2}):(\d{2})/);
+
+            if (tMatch && !isNaN(regDate.getTime())) {
+              let h = parseInt(tMatch[1]);
+              let m = parseInt(tMatch[2]);
+              if (isPM && h < 12) h += 12;
+              if (isAM && h === 12) h = 0;
+
+              const [day_e, month_e, year_e] = data.fechaEntrega.split('/').map(Number);
+              const entregaDate = new Date(year_e, month_e - 1, day_e, h, m, 0);
+              
+              let diffMs = entregaDate - regDate;
+              if (diffMs < -43200000 && diffMs > -90000000) { 
+                entregaDate.setDate(entregaDate.getDate() + 1);
+                diffMs = entregaDate - regDate;
+              }
+
+              const diffSecs = Math.floor(diffMs / 1000);
+              const absSecs = Math.abs(diffSecs);
+              const hours = Math.floor(absSecs / 3600);
+              const minutes = Math.floor((absSecs % 3600) / 60);
+              const seconds = absSecs % 60;
+              const sign = diffSecs < 0 ? "-" : "";
+              const durationStr = sign + [hours, minutes, seconds].map(v => String(v).padStart(2, '0')).join(':');
               sheet.getRange(rowIndex, 18).setValue(durationStr);
-              console.log("SLA Recalculado:", durationStr);
             }
           } catch (errRecalc) {
             console.error("Error recalcuando SLA:", errRecalc);
