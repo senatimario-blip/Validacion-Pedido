@@ -1,0 +1,74 @@
+// --- CÓDIGO SUGERIDO PARA GOOGLE APPS SCRIPT (TRÁZABILIDAD) ---
+// Copiar y pegar estas funciones en tu Editor de Script cuando decidas sincronizar.
+
+/** 
+ * Registra un hito en la nueva hoja 'Trazabilidad'.
+ * Si la hoja no existe, la crea con los encabezados correspondientes.
+ */
+function registrarEvento(nro, evento, driver = "", user = "", detalle = "") {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('Trazabilidad');
+  
+  // Crear hoja si no existe
+  if (!sheet) {
+    sheet = ss.insertSheet('Trazabilidad');
+    sheet.appendRow(['ID Pedido', 'Fecha', 'Hora', 'Hito / Evento', 'Minutos', 'Driver', 'Ubicación', 'Usuario']);
+    sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#f3f3f3');
+    sheet.setFrozenRows(1);
+  }
+
+  const now = new Date();
+  const fechaStr = Utilities.formatDate(now, "GMT-5", "dd/MM/yyyy");
+  const horaStr = Utilities.formatDate(now, "GMT-5", "HH:mm:ss");
+  
+  // Calcular minutos acumulados (opcional si se prefiere hacer en el front)
+  let minutos = 0;
+  try {
+    const pedidosSheet = ss.getSheetByName('Pedidos');
+    const data = pedidosSheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (data[i][0] == nro) {
+            const fechaCreacion = new Date(data[i][1]);
+            minutos = Math.floor((now - fechaCreacion) / 60000);
+            break;
+        }
+    }
+  } catch(e) {}
+
+  sheet.appendRow([nro, fechaStr, horaStr, evento, minutos, driver, detalle, user]);
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Obtiene todos los eventos de un pedido específico.
+ */
+function obtenerTrazabilidad(nro) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Trazabilidad');
+  if (!sheet) return { success: true, data: [] };
+  
+  const data = sheet.getDataRange().getValues();
+  const eventos = data.filter(row => row[0] == nro).map(row => ({
+      fecha: row[1],
+      hora: row[2],
+      hito: row[3],
+      minutos: row[4],
+      driver: row[5],
+      detalle: row[6],
+      usuario: row[7]
+  }));
+  
+  return { success: true, data: eventos };
+}
+
+// MODIFICACIÓN SUGERIDA EN DO-POST:
+/*
+  switch(action) {
+    case 'obtenerTrazabilidad':  result = obtenerTrazabilidad(payload.nro); break;
+    case 'registrarLlegadaManual': 
+        registrarEvento(payload.nro, "LLEGADA TIENDA", payload.driver, payload.user, "Registro Manual");
+        result = { success: true }; 
+        break;
+    ...
+  }
+*/

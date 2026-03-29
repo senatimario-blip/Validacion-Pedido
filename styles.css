@@ -538,7 +538,7 @@ body {
     color: var(--text-muted);
 }
 
-/* Stats Grid */
+/* Legacy Stats Grid - Commented out to use new Slim & Glass Design 
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -551,72 +551,8 @@ body {
     align-items: center;
     gap: 20px;
 }
-
-.stat-card.total {
-    border-left: 4px solid var(--primary);
-}
-
-.stat-card.pending {
-    border-left: 4px solid var(--warning);
-}
-
-.stat-card.en-camino {
-    border-left: 4px solid #ffffff !important;
-}
-
-.stat-card.por-validar {
-    border-left: 4px solid #3b82f6;
-}
-
-/* Color específico para Por Validar */
-.stat-card.validated {
-    border-left: 4px solid var(--success);
-}
-
-.stat-card.rejected {
-    border-left: 4px solid var(--danger);
-}
-
-.stat-icon {
-    width: 50px;
-    height: 50px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-}
-
-.stat-icon.combined {
-    background: rgba(99, 102, 241, 0.2);
-    color: var(--primary);
-}
-
-.stat-icon.pending {
-    background: rgba(245, 158, 11, 0.2);
-    color: var(--warning);
-}
-
-.stat-icon.validated {
-    background: rgba(16, 185, 129, 0.2);
-    color: var(--success);
-}
-
-.stat-icon.rejected {
-    background: rgba(239, 68, 68, 0.2);
-    color: var(--danger);
-}
-
-.stat-info h3 {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    font-weight: 500;
-}
-
-.stat-info span {
-    font-size: 1.8rem;
-    font-weight: 700;
-}
+... (etc) ...
+*/
 
 /* Table */
 .content-panel {
@@ -1347,47 +1283,77 @@ body {
 }
 
 /* Stats Card Updates */
+/* Stats Card Updates - Slim & Glass Design */
 .stats-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
+    grid-template-columns: repeat(6, 1fr); /* 6 en línea para escritorio */
+    gap: 12px;
+    margin-bottom: 25px;
 }
 
+/* Responsive: 3 en línea en tablets, 2 en móviles */
+@media (max-width: 1200px) { .stats-container { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 768px) { .stats-container { grid-template-columns: repeat(2, 1fr); } }
+
 .stat-card {
-    background: var(--bg-panel);
-    border: 1px solid var(--glass-border);
-    backdrop-filter: blur(20px);
-    border-radius: 16px;
-    padding: 25px;
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    border-radius: 12px;
+    padding: 12px 15px; /* Más delgado */
     display: flex;
     align-items: center;
-    gap: 20px;
-    transition: transform 0.3s ease;
+    gap: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
 }
 
 .stat-card:hover {
-    transform: translateY(-5px);
+    transform: translateY(-3px);
+    background: rgba(30, 41, 59, 0.6);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Indicadores de color sutiles */
+.stat-card.total { border-left: 3px solid var(--primary); }
+.stat-card.pending { border-left: 3px solid var(--warning); }
+.stat-card.en-camino { border-left: 3px solid #ffffff; }
+.stat-card.por-validar { border-left: 3px solid #3b82f6; }
+.stat-card.validated { border-left: 3px solid var(--success); }
+.stat-card.rejected { border-left: 3px solid var(--danger); }
+
+.stat-icon {
+    width: 36px; /* Más pequeño */
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
 }
 
 .stat-info h4 {
     color: var(--text-muted);
-    font-size: 0.9rem;
-    margin-bottom: 5px;
+    font-size: 0.75rem; /* Título más pequeño */
+    margin-bottom: 2px;
     font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .stat-value {
-    font-size: 1.5rem;
+    font-size: 1.15rem; /* Valor proporcional */
     font-weight: 700;
     color: white;
-    line-height: 1.2;
+    line-height: 1;
 }
 
 .stat-subtext {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
-    margin-top: 2px;
+    opacity: 0.8;
 }
 
 /* Filter Buttons Colors */

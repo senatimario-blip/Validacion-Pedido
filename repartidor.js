@@ -430,7 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- New Features Initialization ---
     initConnectivityMonitoring();
     initPullToRefresh();
-    initFloatingHub(); // v1.0: Asistente Flotante
+    // initFloatingHub(); // v1.0: Asistente Flotante (Oculto momentáneamente)
 
 
     // Inicializar filtro de fecha de historial a hoy (Lima)
@@ -788,14 +788,14 @@ async function fetchDriverOrders() {
                     const sheetName = String(o.envio || '').trim().toLowerCase();
                     const loginName = String(currentUser || '').trim().toLowerCase();
                     
-                    // Mejor tolerancia en nombres (ej. "Juan C." vs "Juan Perez" vs "Juan")
-                    const loginBase = loginName.split(' ')[0].replace(/[^a-z0-9]/g, ''); // ej. "juan"
-                    const sheetBase = sheetName.split(' ')[0].replace(/[^a-z0-9]/g, ''); // ej. "juan"
+                    const sheetNorm = sheetName.replace(/\./g, "").trim();
+                    const loginNorm = loginName.replace(/\./g, "").trim();
 
-                    const nameMatch = (sheetName === loginName) || 
-                                      (sheetName.startsWith(loginName) && loginName.length > 2) ||
-                                      (loginName.startsWith(sheetName) && sheetName.length > 2) ||
-                                      (loginBase === sheetBase && loginBase.length > 2); // Coincide el primer nombre
+                    // Coincidencia estricta: deben ser idénticos (ej. 'bryan b' vs 'bryan b')
+                    // Esto evita que 'bryan b' vea los pedidos de 'bryan q'
+                    const nameMatch = (sheetNorm === loginNorm) || 
+                                      (sheetNorm.startsWith(loginNorm) && loginNorm.length > 6) ||
+                                      (loginNorm.startsWith(sheetNorm) && sheetNorm.length > 6);
                     
                     return statusOk && nameMatch;
                 }).sort((a, b) => {
@@ -1031,6 +1031,7 @@ function renderSingleOrderCard(order, index) {
                     </div>
                 </div>
             </div>
+
             <div class="text-right flex items-center gap-3">
                 <div>
                     <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">A Cobrar</span>
@@ -4376,4 +4377,5 @@ function updateFloatingHub() {
         }
     }
 }
+
 
