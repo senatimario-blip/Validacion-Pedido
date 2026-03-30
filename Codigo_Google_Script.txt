@@ -2301,15 +2301,42 @@
       const ss    = getSS();
       let sheet = ss.getSheetByName('Trazabilidad');
 
-      // Buscar llave si no viene
-      if (!llave) {
+      // Helper para buscar de forma Inversa por lotes iterativos (Fast-Scan)
+      function buscarPedidoInverso() {
+        if (!nro) return null;
         try {
           const pSheet = ss.getSheetByName('Pedidos');
-          const pData  = pSheet.getRange(2, 1, pSheet.getLastRow() - 1, 3).getValues();
-          for (let i = 0; i < pData.length; i++) {
-            if (String(pData[i][0]) === String(nro)) { llave = String(pData[i][2]); break; }
+          const lastPR = pSheet.getLastRow();
+          if (lastPR < 2) return null;
+          
+          const chunkSize = 500;
+          for (let r = lastPR; r >= 2; r -= chunkSize) {
+            let startRow = Math.max(2, r - chunkSize + 1);
+            let numRows = r - startRow + 1;
+            let chunkData = pSheet.getRange(startRow, 1, numRows, 3).getValues();
+            for (let i = chunkData.length - 1; i >= 0; i--) {
+              if (String(chunkData[i][0]) === String(nro)) {
+                return {
+                  fechaOrigen: chunkData[i][1],
+                  llavePed: String(chunkData[i][2])
+                };
+              }
+            }
           }
-        } catch(e) { llave = "---"; }
+        } catch(e) {}
+        return null;
+      }
+
+      let infoPedido = null;
+
+      // Buscar llave si no viene, mediante Fast-Scan
+      if (!llave) {
+        infoPedido = infoPedido || buscarPedidoInverso();
+        if (infoPedido) {
+          llave = infoPedido.llavePed;
+        } else {
+          llave = "---";
+        }
       }
 
       // Crear hoja si no existe o no tiene 9 columnas
@@ -2320,65 +2347,66 @@
         sheet.setFrozenRows(1);
       }
 
-      // Protección Anti-Duplicado CREACIÓN
       const lastR = sheet.getLastRow();
+      
+      // Fast-Scan para Protección Anti-Duplicado CREACIÓN y chequeo de recientes
+      let yaExisteCreacion = false;
+      let existeReciente = false;
+      const now      = customDate ? (customDate instanceof Date ? customDate : new Date(customDate)) : new Date();
+      
       if (lastR >= 2) {
-        const checkHits = sheet.getRange(2, 1, lastR - 1, 5).getValues();
-        const yaExisteCreacion = checkHits.some(r => String(r[0]) == String(nro) && r[4] === "CREACIÓN");
-
-        if (evento === "CREACIÓN" && yaExisteCreacion) return;
-        if (evento !== "CREACIÓN" && !yaExisteCreacion) return;
-      } else if (evento !== "CREACIÓN") {
-        return;
+        const chunkSize = 500;
+        let buscarMas = true;
+        const horaLimite = new Date(now.getTime() - 90000); // 90 segundos atrás
+        
+        for (let r = lastR; r >= 2 && buscarMas; r -= chunkSize) {
+          let startRow = Math.max(2, r - chunkSize + 1);
+          let numRows = r - startRow + 1;
+          let checkHits = sheet.getRange(startRow, 1, numRows, 5).getValues();
+          
+          for (let i = checkHits.length - 1; i >= 0; i--) {
+            if (String(checkHits[i][0]) == String(nro)) {
+              if (checkHits[i][4] === "CREACIÓN") {
+                  yaExisteCreacion = true;
+                  buscarMas = false; // Como ya hallé la creación, no evalúo filas más antiguas (CREACION es lo más viejo del pedido)
+              }
+              if (evento !== "CREACIÓN" && checkHits[i][4] === evento) {
+                // Chequeo de duplicado exacto reciente
+                let rawHora = checkHits[i][3];
+                let tEv = null;
+                if (rawHora instanceof Date) {
+                  tEv = new Date(now);
+                  tEv.setHours(rawHora.getHours(), rawHora.getMinutes(), rawHora.getSeconds(), 0);
+                } else {
+                  let hR = String(rawHora).split(':');
+                  if (hR.length >= 2 && !isNaN(+hR[0])) {
+                    tEv = new Date(now);
+                    tEv.setHours(+hR[0], +hR[1], +(hR[2]||0), 0);
+                  }
+                }
+                if (tEv && tEv >= horaLimite) {
+                  existeReciente = true;
+                  buscarMas = false;
+                }
+              }
+            }
+          }
+        }
       }
 
-      const now      = customDate ? (customDate instanceof Date ? customDate : new Date(customDate)) : new Date();
+      if (evento === "CREACIÓN" && yaExisteCreacion) return;
+      if (evento !== "CREACIÓN" && !yaExisteCreacion) return;
+      if (evento !== "CREACIÓN" && existeReciente) return;
+
       const fechaStr = Utilities.formatDate(now, "GMT-5", "dd/MM/yyyy");
       const horaStr  = Utilities.formatDate(now, "GMT-5", "HH:mm:ss");
 
       let minutos = 0;
       if (evento !== "CREACIÓN") {
-        try {
-          const pSheet = ss.getSheetByName('Pedidos');
-          const pRows  = pSheet.getRange(2, 1, pSheet.getLastRow() - 1, 2).getValues();
-          for (let i = 0; i < pRows.length; i++) {
-            if (pRows[i][0] == nro) {
-              const fc = pRows[i][1] instanceof Date ? pRows[i][1] : new Date(pRows[i][1]);
-              minutos  = Math.floor((now - fc) / 60000);
-              break;
-            }
-          }
-        } catch(e) {}
-      }
-
-      // ── Anti-duplicado: rechazar si el mismo hito del mismo pedido
-      //    fue registrado hace menos de 90 segundos ──
-      if (evento !== "CREACIÓN") {
-        const lastR2 = sheet.getLastRow();
-        if (lastR2 >= 2) {
-          const checkRows = Math.min(lastR2 - 1, 15);
-          const recientes = sheet.getRange(lastR2 - checkRows + 1, 1, checkRows, 5).getValues();
-          const horaLimite = new Date(now.getTime() - 90000); // 90 segundos atrás
-          for (let k = recientes.length - 1; k >= 0; k--) {
-            if (String(recientes[k][0]) == String(nro) && recientes[k][4] === evento) {
-              // La hora puede ser Date (sheet auto-convierte) o string "HH:mm:ss"
-              let tEv = null;
-              const rawHora = recientes[k][3];
-              if (rawHora instanceof Date) {
-                // Si el Sheet lo interpretó como Date, usar directo
-                tEv = new Date(now);
-                tEv.setHours(rawHora.getHours(), rawHora.getMinutes(), rawHora.getSeconds(), 0);
-              } else {
-                const hR = String(rawHora).split(':');
-                if (hR.length >= 2 && !isNaN(+hR[0])) {
-                  tEv = new Date(now);
-                  tEv.setHours(+hR[0], +hR[1], +(hR[2]||0), 0);
-                }
-              }
-              if (tEv && tEv >= horaLimite) return; // duplicado reciente, ignorar
-              break;
-            }
-          }
+        infoPedido = infoPedido || buscarPedidoInverso();
+        if (infoPedido && infoPedido.fechaOrigen) {
+          const fc = infoPedido.fechaOrigen instanceof Date ? infoPedido.fechaOrigen : new Date(infoPedido.fechaOrigen);
+          minutos  = Math.floor((now - fc) / 60000);
         }
       }
 
