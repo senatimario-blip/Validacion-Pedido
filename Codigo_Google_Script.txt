@@ -415,7 +415,7 @@
                     }
                   } catch(ef) { logToSheet("Err validando fecha: " + ef); }
 
-                  // --- 4. VALIDAR HORA (voucher debe ser 0-40 min después de hora del PEDIDO en Col B) ---
+                  // --- 4. VALIDAR HORA (voucher debe ser 0-60 min después de hora del PEDIDO en Col B) ---
                   let horaOK = false;
                   try {
                     if (horaVoucherStr) {
@@ -431,7 +431,7 @@
                       const diff = minutosVoucher - minutosPedido;
                       // Manejo de cruce de medianoche
                       const diffAjustado = diff < -700 ? diff + 1440 : diff;
-                      horaOK = diffAjustado >= 0 && diffAjustado <= 40;
+                      horaOK = diffAjustado >= 0 && diffAjustado <= 60;
                       logToSheet("Hora voucher: " + horaVoucherStr + " | Hora pedido (Col B): " + hP + ":" + String(mP).padStart(2,'0') + " | Diff min: " + diffAjustado + " | horaOK: " + horaOK);
                     } else {
                       horaOK = true; // Si Gemini no vio la hora, no bloqueamos
