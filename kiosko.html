@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Asistencia — Kiosco</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QR Code library (local) -->
+    <script src="qrcode.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0e1a;
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Fondo animado */
+        .bg-orbs {
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+        }
+        .orb {
+            position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15;
+        }
+        .orb-1 { width: 400px; height: 400px; background: #3b82f6; top: -100px; left: -100px; animation: float1 8s ease-in-out infinite; }
+        .orb-2 { width: 350px; height: 350px; background: #10b981; bottom: -80px; right: -80px; animation: float2 10s ease-in-out infinite; }
+        .orb-3 { width: 250px; height: 250px; background: #8b5cf6; top: 50%; left: 50%; transform: translate(-50%,-50%); animation: float3 6s ease-in-out infinite; }
+
+        @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(30px,30px)} }
+        @keyframes float2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-20px,-20px)} }
+        @keyframes float3 { 0%,100%{transform:translate(-50%,-50%)} 50%{transform:translate(-45%,-55%)} }
+
+        .layout {
+            position: relative; z-index: 1;
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            height: 100vh;
+            gap: 0;
+        }
+
+        /* Panel Izquierdo: QR */
+        .panel-qr {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            border-right: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 40px;
+        }
+        .header-logo .icon {
+            width: 56px; height: 56px; border-radius: 16px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem;
+        }
+        .header-logo h1 { font-size: 1.8rem; font-weight: 900; }
+        .header-logo p  { font-size: 0.85rem; color: rgba(255,255,255,0.5); }
+
+        .qr-container {
+            background: white;
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 0 80px rgba(59,130,246,0.3);
+            position: relative;
+            margin-bottom: 28px;
+        }
+
+        .qr-container canvas { display: block; }
+
+        /* Pulso verde en esquinas del QR */
+        .qr-corner {
+            position: absolute; width: 20px; height: 20px;
+            border-color: #10b981; border-style: solid;
+        }
+        .qr-corner.tl { top: -4px; left: -4px; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+        .qr-corner.tr { top: -4px; right: -4px; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+        .qr-corner.bl { bottom: -4px; left: -4px; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+        .qr-corner.br { bottom: -4px; right: -4px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+        .instruccion {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .instruccion h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 6px; }
+        .instruccion p  { color: rgba(255,255,255,0.5); font-size: 0.9rem; line-height: 1.5; }
+
+        /* Cuenta regresiva */
+        .timer-bar-wrap {
+            width: 320px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 100px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .timer-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            border-radius: 100px;
+            transition: width 1s linear;
+        }
+        .timer-text {
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.4);
+            text-align: center;
+        }
+
+        /* Hora actual */
+        .current-time {
+            margin-top: 28px;
+            font-size: 3.5rem;
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -2px;
+        }
+        .current-date {
+            font-size: 1rem;
+            color: rgba(255,255,255,0.4);
+            text-align: center;
+            margin-top: 4px;
+        }
+
+        /* Panel Derecho: Feed */
+        .panel-feed {
+            display: flex;
+            flex-direction: column;
+            padding: 28px 24px;
+            background: rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .feed-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: rgba(255,255,255,0.35);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .feed-pulse {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #10b981;
+            animation: pulse-green 2s infinite;
+        }
+        @keyframes pulse-green { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
+
+        .feed-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .feed-list::-webkit-scrollbar { display: none; }
+
+        .feed-item {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 14px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideInRight 0.4s ease-out;
+        }
+        @keyframes slideInRight { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+
+        .feed-item.ingreso { border-left: 3px solid #10b981; }
+        .feed-item.salida  { border-left: 3px solid #ef4444; }
+
+        .feed-avatar {
+            width: 40px; height: 40px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem; font-weight: 700; flex-shrink: 0;
+            font-size: 0.9rem;
+        }
+        .feed-item.ingreso .feed-avatar { background: rgba(16,185,129,0.15); color: #10b981; }
+        .feed-item.salida  .feed-avatar { background: rgba(239,68,68,0.15);  color: #ef4444; }
+
+        .feed-info { flex: 1; min-width: 0; }
+        .feed-name { font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .feed-meta { font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 2px; }
+
+        .feed-hora {
+            font-size: 1rem; font-weight: 900; 
+            font-variant-numeric: tabular-nums;
+        }
+        .feed-item.ingreso .feed-hora { color: #34d399; }
+        .feed-item.salida  .feed-hora { color: #f87171; }
+
+        /* Stats en el feed */
+        .feed-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .stat-box {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        .stat-box .val { font-size: 1.6rem; font-weight: 900; }
+        .stat-box .lbl { font-size: 0.65rem; text-transform: uppercase; color: rgba(255,255,255,0.35); margin-top: 2px; letter-spacing: 1px; }
+        .stat-box.green .val { color: #34d399; }
+        .stat-box.red   .val { color: #f87171; }
+
+        #estado-api {
+            position: fixed; bottom: 16px; left: 16px;
+            font-size: 0.7rem; color: rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body>
+
+<!-- Fondo -->
+<div class="bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+</div>
+
+<!-- Layout Principal -->
+<div class="layout">
+
+    <!-- Panel Izquierdo: QR -->
+    <div class="panel-qr">
+        <div class="header-logo">
+            <div class="icon"><i class="fa-solid fa-motorcycle"></i></div>
+            <div>
+                <h1>Control de Asistencia</h1>
+                <p>Escanea para registrar tu ingreso o salida</p>
+            </div>
+        </div>
+
+        <div class="instruccion">
+            <h2>📱 Abre tu App → Asistencia</h2>
+            <p>Luego toca "Registrar Entrada" o "Registrar Salida"<br>y escanea este código QR.</p>
+        </div>
+
+        <div class="qr-container" id="qr-container">
+            <div id="qr-canvas" style="width:260px;height:260px;"></div>
+            <div class="qr-corner tl"></div>
+            <div class="qr-corner tr"></div>
+            <div class="qr-corner bl"></div>
+            <div class="qr-corner br"></div>
+        </div>
+
+        <div class="timer-bar-wrap">
+            <div class="timer-bar" id="timer-bar" style="width:100%"></div>
+        </div>
+        <div class="timer-text" id="timer-text">Válido por 5:00 min</div>
+
+        <div class="current-time" id="current-time">--:--:--</div>
+        <div class="current-date" id="current-date">Cargando...</div>
+    </div>
+
+    <!-- Panel Derecho: Feed en vivo -->
+    <div class="panel-feed">
+        <div class="feed-title">
+            <div class="feed-pulse"></div>
+            Registros de Hoy
+        </div>
+
+        <div class="feed-stats">
+            <div class="stat-box green">
+                <div class="val" id="stat-ingresos">0</div>
+                <div class="lbl">Ingresos</div>
+            </div>
+            <div class="stat-box red">
+                <div class="val" id="stat-salidas">0</div>
+                <div class="lbl">Salidas</div>
+            </div>
+        </div>
+
+        <br>
+        <div class="feed-list" id="feed-list">
+            <div style="text-align:center; color:rgba(255,255,255,0.2); padding: 40px 0; font-size:0.85rem;">
+                <i class="fa-solid fa-clock" style="font-size:2rem; margin-bottom:10px; display:block;"></i>
+                Esperando registros...
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="estado-api">Conectando...</div>
+
+<script>
+    // =====================================================
+    // CONFIGURACIÓN — API URL desde parámetro ?api=
+    // o desde prompt si no viene en la URL
+    // Ejemplo: kiosko.html?api=https://script.google.com/...
+    // =====================================================
+    const urlParams = new URLSearchParams(window.location.search);
+    let API_URL = urlParams.get('api') || '';
+
+    // Si viene por parámetro, lo guardamos permanentemente
+    if (API_URL) {
+        try { localStorage.setItem('kiosko_api_url', API_URL); } catch(e) {}
+    } else {
+        // Si no viene por parámetro, intentamos recuperar el guardado
+        try { API_URL = localStorage.getItem('kiosko_api_url') || ''; } catch(e) {}
+    }
+
+    if (!API_URL) {
+        const url = prompt('⚠️ Por favor, ingresa la URL de tu Google Apps Script (API):');
+        if (url && url.trim()) {
+            API_URL = url.trim();
+            try { localStorage.setItem('kiosko_api_url', API_URL); } catch(e) {}
+            // Recargar con el parámetro para confirmar
+            window.location.href = 'kiosko.html?api=' + encodeURIComponent(API_URL);
+        }
+    }
+
+    // =====================================================
+    // TOKEN QR ROTATIVO
+    // =====================================================
+    const QR_DURATION = 5 * 60; // 5 minutos en segundos
+    let qrToken = '';
+    let qrExpira = 0;
+    let timerInterval = null;
+
+    async function fetchAPI(action, payload = {}) {
+        const res = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action, ...payload })
+        });
+        return await res.json();
+    }
+
+    async function generarNuevoQR() {
+        document.getElementById('estado-api').textContent = 'Generando QR...';
+        try {
+            const res = await fetchAPI('generarQRToken');
+            if (!res.success) throw new Error(res.message);
+
+            qrToken = res.token;
+            qrExpira = res.expira;
+
+            // El QR contiene: token|apiUrl para que la PWA lo pueda leer
+            const qrData = JSON.stringify({ token: qrToken, api: API_URL });
+
+            const container = document.getElementById('qr-canvas');
+            container.innerHTML = ''; // Limpiar QR anterior
+            new QRCode(container, {
+                text: qrData,
+                width: 260,
+                height: 260,
+                colorDark: '#0f172a',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
+            document.getElementById('estado-api').textContent = `✅ QR activo | Token: ...${qrToken.slice(-8)}`;
+
+            // Iniciar cuenta regresiva
+            clearInterval(timerInterval);
+            timerInterval = setInterval(actualizarTimer, 1000);
+
+        } catch(e) {
+            document.getElementById('estado-api').textContent = '⚠️ Error: ' + e.message;
+            console.error(e);
+        }
+    }
+
+    function actualizarTimer() {
+        const ahora    = Date.now();
+        const restante = Math.max(0, Math.floor((qrExpira - ahora) / 1000));
+        const pct      = (restante / QR_DURATION) * 100;
+        const min      = Math.floor(restante / 60);
+        const sec      = restante % 60;
+
+        document.getElementById('timer-bar').style.width = pct + '%';
+        document.getElementById('timer-text').textContent = `Válido por ${min}:${String(sec).padStart(2,'0')} min`;
+
+        if (restante <= 0) {
+            clearInterval(timerInterval);
+            generarNuevoQR(); // Auto-regenerar
+        }
+    }
+
+    // =====================================================
+    // RELOJ EN TIEMPO REAL
+    // =====================================================
+    const DIAS   = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const MESES  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+    function actualizarReloj() {
+        const now  = new Date();
+        const h    = String(now.getHours()).padStart(2,'0');
+        const m    = String(now.getMinutes()).padStart(2,'0');
+        const s    = String(now.getSeconds()).padStart(2,'0');
+        document.getElementById('current-time').textContent = `${h}:${m}:${s}`;
+        document.getElementById('current-date').textContent =
+            `${DIAS[now.getDay()]} ${now.getDate()} ${MESES[now.getMonth()]} ${now.getFullYear()}`;
+    }
+    setInterval(actualizarReloj, 1000);
+    actualizarReloj();
+
+    // =====================================================
+    // FEED EN VIVO — Cargar registros de hoy
+    // =====================================================
+    let ultimosRegistros = [];
+
+    async function cargarFeedHoy() {
+        try {
+            const hoy = new Date();
+            const semanaId = getSemanaId(hoy);
+            const res = await fetchAPI('obtenerAsistenciaSemana', { semanaId });
+            if (!res.success) return;
+
+            const fechaHoy = hoy.toISOString().split('T')[0];
+            const registrosHoy = [];
+
+            Object.keys(res.data || {}).forEach(rep => {
+                const data = res.data[rep];
+                (data.registros || []).forEach(r => {
+                    if (r.fecha === fechaHoy) {
+                        registrosHoy.push({ repartidor: rep, tipo: r.tipo, hora: r.hora });
+                    }
+                });
+            });
+
+            // Ordenar por hora desc
+            registrosHoy.sort((a, b) => b.hora.localeCompare(a.hora));
+
+            // Actualizar solo si hay cambios
+            if (JSON.stringify(registrosHoy) !== JSON.stringify(ultimosRegistros)) {
+                ultimosRegistros = registrosHoy;
+                renderFeed(registrosHoy);
+            }
+        } catch(e) { console.error('Feed error:', e); }
+    }
+
+    function renderFeed(registros) {
+        const list     = document.getElementById('feed-list');
+        const ingresos = registros.filter(r => r.tipo === 'INGRESO').length;
+        const salidas  = registros.filter(r => r.tipo === 'SALIDA').length;
+
+        document.getElementById('stat-ingresos').textContent = ingresos;
+        document.getElementById('stat-salidas').textContent  = salidas;
+
+        if (registros.length === 0) {
+            list.innerHTML = `<div style="text-align:center; color:rgba(255,255,255,0.2); padding: 40px 0; font-size:0.85rem;">
+                <i class="fa-solid fa-clock" style="font-size:2rem; margin-bottom:10px; display:block;"></i>
+                Esperando registros...
+            </div>`;
+            return;
+        }
+
+        list.innerHTML = registros.slice(0, 12).map(r => {
+            const iniciales = r.repartidor.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+            const horaFmt   = r.hora ? r.hora.substring(0,5) : '--:--';
+            const tipoLabel = r.tipo === 'INGRESO' ? 'Entrada' : 'Salida';
+            return `
+            <div class="feed-item ${r.tipo.toLowerCase()}">
+                <div class="feed-avatar">${iniciales}</div>
+                <div class="feed-info">
+                    <div class="feed-name">${r.repartidor}</div>
+                    <div class="feed-meta">${tipoLabel} hoy</div>
+                </div>
+                <div class="feed-hora">${horaFmt}</div>
+            </div>`;
+        }).join('');
+    }
+
+    // --- Helper ISO week ---
+    function getSemanaId(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        return d.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
+    }
+
+    // =====================================================
+    // ARRANQUE
+    // =====================================================
+    if (API_URL) {
+        generarNuevoQR();
+        cargarFeedHoy();
+        setInterval(cargarFeedHoy, 15000); // Actualizar feed cada 15s
+    }
+</script>
+</body>
+</html>

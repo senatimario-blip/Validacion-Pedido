@@ -1,0 +1,6 @@
+Backup_*.txt
+url script_*.txt
+URL Script *.txt
+*.tmp
+node_modules/
+.DS_Store

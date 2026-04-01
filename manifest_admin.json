@@ -1,0 +1,23 @@
+{
+    "name": "Portal de Validación",
+    "short_name": "Validador",
+    "description": "Panel de administración y validación de pedidos.",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#0f172a",
+    "theme_color": "#3b82f6",
+    "icons": [
+        {
+            "src": "./Logo_mio.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "./Logo_mio.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        }
+    ]
+}

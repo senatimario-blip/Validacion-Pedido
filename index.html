@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validación de Pedidos | Portal Seguro</title>
+
+    <!-- Archivo Manifest y Configuraciones PWA (Modo Administrador) -->
+    <link rel="manifest" href="manifest_admin.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="Logo_mio.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css?v=3.1">
+
+    <!-- Alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+
+    <!-- Background Elements -->
+    <div class="bg-gradient"></div>
+    <div class="bg-blur"></div>
+
+    <!-- Login Section -->
+    <section id="login-section" class="active-section">
+        <div class="login-card glass-panel">
+            <div class="login-header">
+                <div class="logo-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                <h1>Portal de Validación</h1>
+                <p>Ingrese sus credenciales para acceder</p>
+            </div>
+            <form id="login-form">
+                <div class="input-group">
+                    <i class="fa-regular fa-user"></i>
+                    <input type="text" id="username" placeholder="Usuario" required autocomplete="username">
+                </div>
+                <div class="input-group">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="password" placeholder="Contraseña" required
+                        autocomplete="current-password">
+                </div>
+                <!-- URL de API (Guardada en localStorage para facilitar configuración) -->
+                <div class="input-group api-group">
+                    <i class="fa-solid fa-link"></i>
+                    <input type="text" id="api-url" placeholder="URL del Script de Google (API)" required>
+                </div>
+                <button type="submit" class="btn-primary">
+                    <span>Ingresar</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </form>
+            <div class="loading-overlay" id="login-loading">
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- App Dashboard Section -->
+    <section id="app-section">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar glass-panel" id="main-sidebar">
+            <button id="sidebar-toggle" class="sidebar-toggle-btn">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+
+            <!-- LOGO CABIFY CENTRADO -->
+            <div class="nav-brand" style="justify-content: center; padding: 10px 0;">
+                <img src="Logo_mio.png" alt="Cabify"
+                    style="width: 40px; height: auto; filter: brightness(0) invert(1);">
+            </div>
+
+            <div class="user-profile">
+                <div class="avatar"><i class="fa-solid fa-user"></i></div>
+                <div class="user-info">
+                    <span id="user-name-display">Usuario</span>
+                    <small>Validador</small>
+                </div>
+            </div>
+            <ul class="nav-links">
+                <li class="active" id="nav-pedidos" title="Pedidos">
+                    <a href="#"><i class="fa-solid fa-table-list"></i> <span>Pedidos</span></a>
+                </li>
+                <li id="nav-mapa" title="Monitor">
+                    <a href="#"><i class="fa-solid fa-map-location-dot"></i> <span>Monitor</span></a>
+                </li>
+                <li id="nav-caja" title="Caja">
+                    <a href="#"><i class="fa-solid fa-wallet"></i> <span>Caja</span></a>
+                </li>
+                <li id="nav-trazabilidad" title="Trazabilidad">
+                    <a href="trazabilidad.html" target="_blank"><i class="fa-solid fa-route"></i> <span>Trazabilidad</span></a>
+                </li>
+                <li id="nav-horarios" title="Horario">
+                    <a href="#"><i class="fa-solid fa-calendar-days"></i> <span>Horario</span></a>
+                </li>
+                <li id="nav-dashboard" title="Dashboard">
+                    <a href="#"><i class="fa-solid fa-chart-pie"></i> <span>Dashboard</span></a>
+                </li>
+                <li id="nav-reportes" title="Reportes">
+                    <a href="#"><i class="fa-solid fa-file-invoice"></i> <span>Reportes</span></a>
+                </li>
+                <li id="nav-auditoria" title="Auditoría POS">
+                    <a href="#"><i class="fa-solid fa-file-shield" style="color: #4ade80;"></i> <span>Auditoría POS</span></a>
+                </li>
+            </ul>
+            <div style="margin-top: auto; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
+                <button id="logout-btn" class="logout-link" title="Salir" style="width: 100%; border-radius: 12px;">
+                    <i class="fa-solid fa-right-from-bracket"></i> <span>Salir</span>
+                </button>
+            </div>
+
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- CONTENEDOR PRINCIPAL: PEDIDOS -->
+            <div id="app-content">
+                <header class="top-bar glass-panel">
+                    <div class="toolbar-actions" style="display: flex; gap: 10px; align-items: center; flex: 1;">
+                        <input type="date" id="date-filter" class="search-input"
+                            style="width: auto; padding: 8px 12px; color-scheme: dark; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;">
+
+                        <button id="btn-date-range" class="btn-secondary" style="padding: 8px 12px; font-size: 0.9em;">
+                            <i class="fa-solid fa-calendar-week"></i> Corte
+                        </button>
+                        <span id="range-display-text"
+                            style="font-size: 0.85em; color: rgba(255,255,255,0.7); margin-left:8px;"></span>
+
+                        <div class="search-wrapper" style="position: relative; flex: 1; max-width: 300px;">
+                            <i class="fa-solid fa-magnifying-glass"
+                                style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,0.5); pointer-events: none;"></i>
+                            <input type="text" id="search-input" class="search-input"
+                                placeholder="Buscar por llave, nro..." style="padding-left: 38px; width: 100%;">
+                        </div>
+
+                        <!-- FILTRO POR REPARTIDOR (v18) -->
+                        <select id="driver-filter" class="search-input"
+                            style="width: auto; max-width: 180px; padding: 8px 12px; background: #1e1b4b; color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; cursor: pointer;">
+                            <option value="all">Todos los Repartidores</option>
+                        </select>
+
+                        <!-- NUEVO: FILTROS DINÁMICOS ESTADO Y PAGO (Multi-selección v24) -->
+                        <div class="multi-select-container" id="main-status-filter-container">
+                            <button class="multi-select-button" id="main-status-filter-btn">
+                                <i class="fa-solid fa-list-check"></i>
+                                <span id="main-status-filter-label">Estados: Todos</span>
+                                <i class="fa-solid fa-chevron-down" style="font-size: 0.7em; margin-left: auto;"></i>
+                            </button>
+                            <div class="multi-select-dropdown" id="main-status-filter-dropdown">
+                                <!-- Se puebla dinámicamente -->
+                            </div>
+                        </div>
+
+                        <div class="multi-select-container" id="main-payment-filter-container">
+                            <button class="multi-select-button" id="main-payment-filter-btn">
+                                <i class="fa-solid fa-credit-card"></i>
+                                <span id="main-payment-filter-label">Pagos: Todos</span>
+                                <i class="fa-solid fa-chevron-down" style="font-size: 0.7em; margin-left: auto;"></i>
+                            </button>
+                            <div class="multi-select-dropdown" id="main-payment-filter-dropdown">
+                                <!-- Se puebla dinámicamente -->
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Alertas Switch -->
+                    <button id="toggle-alerts-btn" class="btn-secondary"
+                        style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px 15px;">
+                        <i class="fa-solid fa-bell-slash"></i> <span id="lbl-alerts">Alertas: OFF</span>
+                    </button>
+                    <button id="robot-alerts-btn" class="btn-secondary hidden"
+                        style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 8px 15px; position: relative;">
+                        <i class="fa-solid fa-robot"></i> <span id="robot-alerts-count">0 Alertas Robot</span>
+                        <span class="pulse-status"
+                            style="position: absolute; top: -5px; right: -5px; width: 10px; height: 10px; background: #f59e0b; border-radius: 50%; display: none;"
+                            id="robot-alerts-pulse"></span>
+                    </button>
+                    <button id="clear-robot-findings-btn" class="btn-secondary hidden"
+                        style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 8px 15px;"
+                        title="Limpiar Hallazgos del Robot">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                    <button id="refresh-btn" class="btn-icon" title="Actualizar datos">
+                        <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                    <!-- BOTÓN EXPORTAR EXCEL (v25) -->
+                    <button id="export-excel-btn" class="btn-icon" title="Exportar a Excel" style="color: #4ade80;">
+                        <i class="fa-solid fa-file-excel"></i>
+                    </button>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="import-text-btn" class="btn-secondary" title="Pegar Pedidos"
+                            style="padding: 10px 15px; margin-left: 5px;">
+                            <i class="fa-solid fa-paste"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Stats Cards -->
+                <div class="stats-container">
+                    <div class="stat-card total">
+                        <div class="stat-icon combined"><i class="fa-solid fa-layer-group"></i></div>
+                        <div class="stat-info">
+                            <h4>Total</h4>
+                            <p class="stat-value" id="stat-total-amount">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-total-count">0 pedidos</p>
+                        </div>
+                    </div>
+                    <div class="stat-card pending">
+                        <div class="stat-icon pending"><i class="fa-regular fa-clock"></i></div>
+                        <div class="stat-info">
+                            <h4>Pendientes</h4>
+                            <p class="stat-value" id="stat-pending-amount">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-pending-count">0 pedidos</p>
+                        </div>
+                    </div>
+                    <div class="stat-card en-camino">
+                        <div class="stat-icon" style="background: rgba(255, 255, 255, 0.1); color: #ffffff;"><i
+                                class="fa-solid fa-motorcycle"></i></div>
+                        <div class="stat-info">
+                            <h4>En camino</h4>
+                            <p class="stat-value" id="stat-encamino-amount" style="color: #ffffff;">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-encamino-count">0 pedidos</p>
+                        </div>
+                    </div>
+                    <div class="stat-card por-validar">
+                        <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;"><i
+                                class="fa-solid fa-eye"></i></div>
+                        <div class="stat-info">
+                            <h4>Por Validar</h4>
+                            <p class="stat-value" id="stat-porvalidar-amount" style="color: #60a5fa;">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-porvalidar-count">0 pedidos</p>
+                        </div>
+                    </div>
+                    <div class="stat-card validated" id="card-validated" style="cursor: pointer;">
+                        <div class="stat-icon validated"><i class="fa-solid fa-check-double"></i></div>
+                        <div class="stat-info">
+                            <h4>Validados</h4>
+                            <p class="stat-value" id="stat-validated-amount">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-validated-count">0 pedidos</p>
+                        </div>
+                    </div>
+                    <div class="stat-card rejected">
+                        <div class="stat-icon rejected"><i class="fa-solid fa-ban"></i></div>
+                        <div class="stat-info">
+                            <h4>Cancelados</h4>
+                            <p class="stat-value" id="stat-rejected-amount">S/ 0.00</p>
+                            <p class="stat-subtext" id="stat-rejected-count">0 pedidos</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Orders Table -->
+                <div class="content-panel glass-panel">
+                    <div class="panel-header">
+                        <h2>Listado de Pedidos</h2>
+                        <div class="filter-tabs">
+                            <button class="filter-tab active" data-filter="all">Todos</button>
+                            <button class="filter-tab" data-filter="Validado">Validados</button>
+                            <button class="filter-tab" data-filter="En Camino">En Camino</button>
+                            <button class="filter-tab" data-filter="Por Validar">Por Validar</button>
+                            <button class="filter-tab" data-filter="Pendiente">Pendientes</button>
+                            <button class="filter-tab" data-filter="Cancelado">Cancelados</button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="orders-table">
+                            <thead>
+                                <tr>
+                                    <th>Nro</th>
+                                    <th>Llave</th>
+                                    <th>Fecha</th>
+                                    <th>Monto</th>
+                                    <th>Vuelto</th>
+                                    <th>Detalle</th>
+                                    <th>Estado</th>
+                                    <th>Envío</th>
+                                    <th>Tiempo</th>
+                                    <th title="SLA Real (Hora TADA)">Tiempo Real</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orders-table-body">
+                                <!-- Rows inserted by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="loading-indicator" class="table-loading">
+                        <div class="spinner"></div> Cargando datos...
+                    </div>
+                </div>
+            </div> <!-- End APP Content -->
+
+            <!-- CONTENEDOR: HORARIOS (Solo Admin) -->
+            <div id="horarios-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <header class="top-bar glass-panel" style="justify-content: space-between;">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <h2 style="margin: 0; color: white;"><i class="fa-solid fa-calendar-days"
+                                style="color:#3b82f6;"></i>
+                            Organizador de Horarios</h2>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.9em;">Semana:</label>
+                        <input type="week" id="horario-semana-picker" class="search-input"
+                            style="padding: 8px; width: 220px; background: #1e1b4b; color: white; border: 1px solid rgba(255,255,255,0.4); color-scheme: dark;">
+                        <button id="btn-clone-horario" class="btn-secondary"
+                            style="margin-left:10px; border-color: rgba(96, 165, 250, 0.4); color: #60a5fa;">
+                            <i class="fa-solid fa-copy"></i> Clonar Anterior
+                        </button>
+                        <button id="btn-save-horario" class="btn-primary" style="background:#10b981; margin-left:10px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Guardar Horario
+                        </button>
+                        <button id="btn-refresh-horario" class="btn-icon" title="Refrescar Horario"
+                            style="margin-left:5px;">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                        <button id="btn-compliance-report" class="btn-primary"
+                            style="background:#8b5cf6; margin-left:10px;">
+                            <i class="fa-solid fa-chart-line"></i> Cumplimiento
+                        </button>
+                    </div>
+                </header>
+
+                <div style="display: flex; flex-direction: column; gap: 20px; padding: 20px;">
+                    <!-- Main Editable Table (FULL WIDTH) -->
+                    <div class="glass-panel" style="width: 100%; padding: 20px; border-radius: 16px; overflow: hidden;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="margin: 0; font-size: 1.1em; color: rgba(255,255,255,0.9);">Programación ATE</h3>
+                            <div>
+                                <button id="btn-paste-horario" class="btn-secondary small"
+                                    style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.3); margin-right: 10px;">
+                                    <i class="fa-solid fa-paste"></i> Pegar desde Excel
+                                </button>
+                                <button id="btn-add-horario-row" class="btn-secondary small"
+                                    style="background: rgba(59,130,246,0.1); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3);">
+                                    <i class="fa-solid fa-plus"></i> Añadir Repartidor
+                                </button>
+                            </div>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table class="data-table" id="horarios-table" style="width: 100%; white-space: nowrap;">
+                                <thead>
+                                    <tr style="background: rgba(0,0,0,0.3);">
+                                        <th style="width: 50px;">Nro</th>
+                                        <th style="width: 120px;">Status</th>
+                                        <th style="width: 180px;">Driver</th>
+                                        <th id="th-l" style="width: 110px;">Lunes</th>
+                                        <th id="th-m" style="width: 110px;">Martes</th>
+                                        <th id="th-x" style="width: 110px;">Miércoles</th>
+                                        <th id="th-j" style="width: 110px;">Jueves</th>
+                                        <th id="th-v" style="width: 110px;">Viernes</th>
+                                        <th id="th-s" style="width: 110px;">Sábado</th>
+                                        <th id="th-d" style="width: 110px;">Domingo</th>
+                                        <th style="width: 100px; text-align: center; color: #60a5fa;">Hrs LU-JU</th>
+                                        <th style="width: 50px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="horarios-table-body">
+                                    <!-- Rows will be dynamically loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Bar (Templates + Summary) -->
+                    <div style="display: flex; gap: 20px; align-items: stretch;">
+
+                        <!-- Shift Templates (HORIZONTAL WRAP) -->
+                        <div class="glass-panel" style="flex: 2; padding: 20px; border-radius: 16px;">
+                            <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #6ee7b7;"><i
+                                    class="fa-solid fa-shapes"></i> Plantillas de Turnos</h3>
+                            <div style="font-size: 0.85em; color: rgba(255,255,255,0.6); margin-bottom: 12px;">Arrastra
+                                estos turnos a la cuadrícula superior.</div>
+
+                            <div id="shift-templates-container" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                <div class="shift-chip template-chip" draggable="true" data-time="08 a 23"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-clock"></i> 08 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="08 a 16"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-clock"></i> 08 a 16
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="09 a 23"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-clock"></i> 09 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="10 a 23"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-clock"></i> 10 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="15 a 23"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-clock"></i> 15 a 23
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="16 a 23"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-clock"></i> 16 a 23
+                                </div>
+                                <div class="shift-chip template-chip shift-descanso" draggable="true"
+                                    data-time="Descanso" data-status="DESCANSO" data-is-template="true"
+                                    style="width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-mug-hot"></i> Descanso
+                                </div>
+
+                                <div class="shift-chip template-chip" draggable="true" data-time="Otros"
+                                    data-status="PENDING" data-is-template="true"
+                                    style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-pen"></i> Otros
+                                </div>
+                                <div class="shift-chip template-chip" draggable="true" data-time="Borrar"
+                                    data-status="DELETE" data-is-template="true"
+                                    style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; width: auto; min-width: 100px;">
+                                    <i class="fa-solid fa-eraser"></i> Borrar
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Summary Table (Dotación) -->
+                        <div class="glass-panel" style="flex: 1; padding: 20px; border-radius: 16px;">
+                            <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #fcd34d;"><i
+                                    class="fa-solid fa-users-viewfinder"></i> Resumen Dotación</h3>
+                            <table class="data-table" id="horarios-summary-table"
+                                style="width: 100%; font-size: 0.9em;">
+                                <thead>
+                                    <tr style="background: rgba(0,0,0,0.3);">
+                                        <th style="text-align: left;">Turno</th>
+                                        <th>LU</th>
+                                        <th>MA</th>
+                                        <th>MI</th>
+                                        <th>JU</th>
+                                        <th>VI</th>
+                                        <th>SA</th>
+                                        <th>DO</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="font-weight:bold; color: #a78bfa;">Rooster</td>
+                                        <td id="sum-l-ro" style="text-align:center;">0</td>
+                                        <td id="sum-m-ro" style="text-align:center;">0</td>
+                                        <td id="sum-x-ro" style="text-align:center;">0</td>
+                                        <td id="sum-j-ro" style="text-align:center;">0</td>
+                                        <td id="sum-v-ro" style="text-align:center;">0</td>
+                                        <td id="sum-s-ro" style="text-align:center;">0</td>
+                                        <td id="sum-d-ro" style="text-align:center;">0</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-weight:bold; color: #60a5fa;">AM</td>
+                                        <td id="sum-l-am" style="text-align:center;">0</td>
+                                        <td id="sum-m-am" style="text-align:center;">0</td>
+                                        <td id="sum-x-am" style="text-align:center;">0</td>
+                                        <td id="sum-j-am" style="text-align:center;">0</td>
+                                        <td id="sum-v-am" style="text-align:center;">0</td>
+                                        <td id="sum-s-am" style="text-align:center;">0</td>
+                                        <td id="sum-d-am" style="text-align:center;">0</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-weight:bold; color: #fca5a5;">PM</td>
+                                        <td id="sum-l-pm" style="text-align:center;">0</td>
+                                        <td id="sum-m-pm" style="text-align:center;">0</td>
+                                        <td id="sum-x-pm" style="text-align:center;">0</td>
+                                        <td id="sum-j-pm" style="text-align:center;">0</td>
+                                        <td id="sum-v-pm" style="text-align:center;">0</td>
+                                        <td id="sum-s-pm" style="text-align:center;">0</td>
+                                        <td id="sum-d-pm" style="text-align:center;">0</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            </div>
+
+            <!-- CONTENEDOR CAJA -->
+            <div id="caja-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <header class="top-bar glass-panel" style="justify-content: space-between;">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <h2 style="margin: 0; color: white;"><i class="fa-solid fa-cash-register"
+                                style="color:#10b981;"></i>
+                            Gestión de Caja</h2>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.9em;">Fecha:</label>
+                        <input type="date" id="caja-date-picker" class="search-input"
+                            style="padding: 8px; width: 180px; color-scheme: dark;">
+                        <button id="btn-abrir-caja" class="btn-primary" style="background:#10b981;">
+                            <i class="fa-solid fa-door-open"></i> Apertura
+                        </button>
+                        <button id="btn-add-caja-entry" class="btn-primary" style="background:#3b82f6;">
+                            <i class="fa-solid fa-plus"></i> Movimiento
+                        </button>
+                        <button id="btn-cerrar-caja" class="btn-primary" style="background:#ef4444;">
+                            <i class="fa-solid fa-door-closed"></i> Cierre (11 PM)
+                        </button>
+                    </div>
+                </header>
+                <div id="caja-vueltos-container"
+                    style="margin: 20px 20px 0 20px; display: none; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px; padding: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h5
+                            style="color:rgba(255,255,255,0.8); font-size:1.1em; margin:0; display:flex; align-items:center; gap:10px;">
+                            <i class="fa-solid fa-clock-rotate-left" style="color:#60a5fa;"></i> Pedidos Contado en Ruta
+                            (Pendientes de Vuelto / Cobro)
+                        </h5>
+                        <button onclick="loadCajaData()" class="btn-icon-small" title="Refrescar pedidos"
+                            style="background:rgba(255,255,255,0.1); border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border:none; color:white; cursor:pointer;">
+                            <i class="fa-solid fa-rotate" id="caja-refresh-icon"></i>
+                        </button>
+                    </div>
+                    <div id="caja-vueltos-list"
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px;">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 20px; padding: 20px; align-items: flex-start; flex: 1;">
+                    <!-- Main Caja Table -->
+                    <div class="glass-panel"
+                        style="flex: 2; padding: 20px; border-radius: 16px; display: flex; flex-direction: column;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="margin: 0; font-size: 1.1em; color: rgba(255,255,255,0.9);">Movimientos de Caja
+                            </h3>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="btn-export-caja" class="btn-secondary small"
+                                    style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">
+                                    <i class="fa-solid fa-file-excel"></i> Exportar
+                                </button>
+                            </div>
+                        </div>
+                        <div style="overflow-x: auto; flex: 1;">
+                            <table class="data-table" id="caja-table" style="width: 100%; white-space: nowrap;">
+                                <thead>
+                                    <tr style="background: rgba(0,0,0,0.3);">
+                                        <th style="width: 50px;">Nro</th>
+                                        <th style="width: 120px;">Hora</th>
+                                        <th style="width: 150px;">Tipo</th>
+                                        <th>Descripción</th>
+                                        <th style="width: 120px;">Monto (S/)</th>
+                                        <th style="width: 100px;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="caja-table-body">
+                                    <!-- Rows will be dynamically loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right Sidebar (Summary) -->
+                    <div class="glass-panel"
+                        style="flex: 1; padding: 20px; border-radius: 16px; display: flex; flex-direction: column; gap: 15px;">
+                        <h3 style="margin: 0; font-size: 1.1em; color: #fcd34d;"><i class="fa-solid fa-chart-pie"></i>
+                            Resumen de Caja</h3>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span style="color: rgba(255,255,255,0.7);">Saldo Inicial:</span>
+                            <span id="caja-saldo-inicial" style="font-weight: bold; color: #fff;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span style="color: rgba(255,255,255,0.7);">Ingresos:</span>
+                            <span id="caja-ingresos" style="font-weight: bold; color: #10b981;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <span style="color: rgba(255,255,255,0.7);">Egresos:</span>
+                            <span id="caja-egresos" style="font-weight: bold; color: #ef4444;">S/ 0.00</span>
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 2px solid rgba(255,255,255,0.2);">
+                            <span style="font-size: 1.1em; font-weight: bold; color: #fff;">Saldo Final:</span>
+                            <span id="caja-saldo-final" style="font-size: 1.2em; font-weight: bold; color: #3b82f6;">S/
+                                0.00</span>
+                        </div>
+                        <div
+                            style="margin-top: 15px; font-size: 0.8em; color: rgba(255,255,255,0.4); text-align: center;">
+                            El resumen se actualiza automáticamente con los movimientos.
+                        </div>
+                    </div>
+
+                    <!-- Información Adicional Section -->
+                    <div class="glass-panel"
+                        style="flex: 1; padding: 20px; border-radius: 16px; display: flex; flex-direction: column; gap: 15px; background: rgba(252, 211, 77, 0.05); border: 1px solid rgba(252, 211, 77, 0.2);">
+                        <h3 style="margin: 0; font-size: 1.1em; color: #fcd34d;"><i class="fa-solid fa-circle-info"></i>
+                            Información Adicional</h3>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0;">
+                            <span style="color: #fcd34d; font-size: 1em; font-weight: 600;">Recaudado (Pedidos
+                                Contado):</span>
+                            <span id="caja-recaudado-pedidos"
+                                style="font-size: 1.25em; font-weight: bold; color: #fcd34d;">S/ 0.00</span>
+                        </div>
+                        <div style="font-size: 0.85em; color: rgba(255,255,255,0.5); line-height: 1.4;">
+                            Monto total acumulado de pedidos marcados como <strong>CONTADO</strong>. Este valor es
+                            informativo y no afecta directamente al saldo físico de caja hasta que se registre el cobro.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CONTENEDOR PRINCIPAL: REPORTES -->
+            <div id="reports-content" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <header class="top-bar glass-panel" style="justify-content: space-between;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span style="font-weight: 600; font-size: 1.1em;"><i class="fa-solid fa-file-invoice"></i>
+                            Reportes de Validación</span>
+                        <input type="date" id="report-date-filter" class="search-input"
+                            style="width: auto; padding: 8px 12px; color-scheme: dark; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-left: 20px;">
+                    </div>
+                    <button id="btn-print-report" class="btn-primary">
+                        <i class="fa-solid fa-print"></i> Imprimir / Guardar PDF
+                    </button>
+                </header>
+
+                <div class="content-panel glass-panel" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="panel-header printable-header hidden">
+                        <h2 id="print-title"
+                            style="text-align: center; color: black; font-family: monospace; font-size: 1.5em; border: 1px solid black; padding: 10px; border-radius: 20px; display: inline-block; margin-bottom: 20px; text-transform: uppercase;">
+                        </h2>
+                    </div>
+
+                    <!-- NUEVO: Podio de Motorizados -->
+                    <div id="podio-motorizados" style="margin-bottom: 20px; display: none;">
+                        <h3 style="margin-bottom: 10px; color: var(--primary);"><i class="fa-solid fa-ranking-star"></i>
+                            Rendimiento de Motorizados</h3>
+                        <div id="podio-grid"
+                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;">
+                            <!-- JS inyecta tarjetas aquí -->
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" style="flex: 1; border-radius: 0;">
+                        <table class="orders-table printable-table" id="reports-table">
+                            <thead>
+                                <tr>
+                                    <th>Pedido</th>
+                                    <th>LLave</th>
+                                    <th>Driver</th>
+                                    <th>Tipo/Pago</th>
+                                    <th>Monto</th>
+                                    <th>Vuelto</th>
+                                    <th>Validación</th>
+                                    <th>Hora</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reports-table-body">
+                                <!-- Report rows injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div> <!-- End Reports Content -->
+
+            <!-- END REPORTS CONTENT -->
+
+            <!-- CONTENEDOR PRINCIPAL: MAPA MOTORIZADOS -->
+            <div id="mapa-content" class="hidden"
+                style="height: 100%; display: flex; flex-direction: column; overflow: hidden;">
+                <header class="top-bar glass-panel" style="justify-content: space-between; flex-shrink: 0;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span style="font-weight: 600; font-size: 1.1em;"><i class="fa-solid fa-map-location-dot"></i>
+                            Monitor de Motorizados</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span id="mapa-route-count" class="status-badge"
+                            style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.85em; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+                            <i class="fa-solid fa-motorcycle"></i> <span class="val">0</span> En Ruta
+                        </span>
+                        <span id="mapa-arrived-count" class="status-badge"
+                            style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.85em; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+                            <i class="fa-solid fa-house-circle-check"></i> <span class="val">0</span> Entregaron
+                        </span>
+                        <button onclick="cerrarTodosLosViajesGlobal()" class="btn-primary"
+                            style="padding: 6px 15px; background: #ef4444; border: none; font-size: 0.85em; display: flex; align-items: center; gap: 8px;"
+                            title="Cerrar todos los viajes activos">
+                            <i class="fa-solid fa-route"></i> Cerrar Todo
+                        </button>
+                        <button id="btn-manage-drivers" class="btn-icon" title="Gestión de Repartidores"
+                            style="background: rgba(139, 92, 246, 0.1); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3);">
+                            <i class="fa-solid fa-user-plus"></i>
+                        </button>
+                        <input type="date" id="mapa-date-filter" class="form-control"
+                            style="width: 140px; background: #1e1b4b; color: white; border: 1px solid rgba(255,255,255,0.4); height: 32px; font-size: 0.85em; color-scheme: dark;">
+                        <button id="btn-refresh-mapa" class="btn-icon" title="Actualizar Datos">
+                            <i class="fa-solid fa-rotate-right"></i>
+                        </button>
+                    </div>
+                </header>
+                <div class="content-panel glass-panel"
+                    style="flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 20px;">
+                    <div id="mapa-grid" style="display: flex; flex-direction: column; gap: 25px; width: 100%;">
+                        <!-- Tarjetas de motorizados inyectadas por JS -->
+                    </div>
+
+                    <!-- NUEVA SECCION DE VIAJES -->
+                    <div id="seccion-viajes"
+                        style="margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h2
+                                style="font-size: 1.4em; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px;">
+                                <i class="fa-solid fa-route" style="color: var(--primary);"></i> Viajes del Día y
+                                Liquidación
+                            </h2>
+                            <div id="trip-drop-zone" class="trip-drop-zone">
+                                <i class="fa-solid fa-plus-circle"></i> Arrastra aquí para NUEVO VIAJE
+                            </div>
+                        </div>
+
+                        <div id="viajes-grid"
+                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
+                            <!-- Viajes inyectados por JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </section>
+
+    <!-- Modals -->
+
+    <!-- New Order Modal -->
+    <div id="modal-new-order" class="modal-backdrop">
+        <div class="modal-card glass-panel">
+            <div class="modal-header">
+                <h3>Nuevo Pedido</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="new-order-form">
+                <div class="form-group">
+                    <label style="color: white !important;">Correlativo del Filtro Activo <span
+                            id="active-filter-details"
+                            style="font-weight: normal; font-size: 0.9em; margin-left: 5px; opacity: 0.8;"></span></label>
+                    <input type="text" id="new-correlative-display" readonly
+                        style="background: rgba(255, 255, 255, 0.1); border-color: rgba(255,255,255,0.3); font-weight: bold; color: white !important;">
+                </div>
+                <div class="form-group">
+                    <label>Fecha <span class="required">*</span></label>
+                    <input type="date" id="new-date" required readonly style="opacity: 0.7; cursor: not-allowed;">
+                </div>
+                <div class="form-group">
+                    <label>Hora <span class="required">*</span></label>
+                    <input type="text" id="new-time" required placeholder="Ej: 08:05, 22:10"
+                        style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); color: white;">
+                </div>
+                <div class="form-group">
+                    <label style="color: white !important;">Correlativo Historial <span
+                            class="required">*</span></label>
+                    <input type="number" id="new-nro" required min="1" readonly
+                        style="opacity: 0.7; cursor: not-allowed;">
+                </div>
+                <div class="form-group">
+                    <label>Llave Única <span class="required">*</span></label>
+                    <input type="text" id="new-key" required placeholder="Ej: KEY-2024-X">
+                </div>
+                <div class="form-group">
+                    <label>Responsable Envío</label>
+                    <input type="text" id="new-envio" placeholder="Opcional" list="drivers-list" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>Tipo de Pago Original <span class="required">*</span></label>
+                    <select id="new-pago" required
+                        style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); color: white; padding: 12px; border-radius: 8px; width: 100%;">
+                        <option value="" disabled selected>Seleccione...</option>
+                        <option value="EFECTIVO">Efectivo</option>
+                        <option value="TARJETA">Tarjeta</option>
+                        <option value="QR">QR (Yape/Plin)</option>
+                        <option value="ONLINE">Online</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Monto (S/) <span class="required">*</span></label>
+                    <input type="number" id="new-amount" step="0.01" required placeholder="0.00">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar Pedido</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div id="modal-import" class="modal-backdrop">
+        <div class="modal-card glass-panel wide-modal">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-file-csv"></i> Importar Pedidos (CSV)</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="import-content">
+                <div class="photo-upload-area" id="import-drop-zone"
+                    style="height: 100px; min-height: 100px; margin-bottom: 20px;">
+                    <input type="file" id="import-file" accept=".csv,.txt" class="file-input-hidden">
+                    <div class="upload-placeholder">
+                        <i class="fa-solid fa-file-csv" style="font-size: 2em; margin-bottom: 10px;"></i>
+                        <p>Click o arrastra archivo CSV aquí</p>
+                    </div>
+                </div>
+
+                <div id="import-preview-container" class="hidden">
+                    <div class="panel-header">
+                        <h4>Pedidos Detectados: <span id="import-count">0</span></h4>
+                    </div>
+                    <div class="table-responsive"
+                        style="max-height: 300px; overflow-y: auto; border: 1px solid var(--glass-border); border-radius: 8px;">
+                        <table class="orders-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;"><input type="checkbox" id="import-check-all" checked></th>
+                                    <th>Llave</th>
+                                    <th>Fecha</th>
+                                    <th>Monto</th>
+                                    <th>Envío</th>
+                                    <th>Pago</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="import-table-body">
+                                <!-- JS inserts here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                <button type="button" class="btn-primary" id="btn-confirm-import" disabled>
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Importar Seleccionados
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Text Modal -->
+    <div id="modal-import-text" class="modal-backdrop">
+        <div class="modal-card glass-panel wide-modal">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-paste"></i> Pegar Pedidos desde la Web</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="import-content">
+                <div class="photo-upload-area" id="import-text-drop-zone"
+                    style="height: 150px; min-height: 150px; margin-bottom: 20px; text-align: center; border-style: dashed; display: flex; flex-direction: column; justify-content: center; align-items: center;"
+                    tabindex="0">
+                    <div class="upload-placeholder" id="import-text-placeholder">
+                        <i class="fa-solid fa-clipboard"
+                            style="font-size: 2.5em; margin-bottom: 15px; color: rgba(255,255,255,0.8);"></i>
+                        <p style="font-size: 1.1em; margin-bottom: 5px;">Haz clic aquí y luego presiona
+                            <strong>Ctrl+V</strong>
+                        </p>
+                        <p style="font-size: 0.85em; opacity: 0.7;">Para pegar las filas copiadas desde la plataforma
+                        </p>
+                    </div>
+                </div>
+
+                <div id="import-text-preview-container" class="hidden">
+                    <div class="panel-header">
+                        <h4>Pedidos Encontrados: <span id="import-text-count">0</span></h4>
+                    </div>
+                    <div class="table-responsive"
+                        style="max-height: 300px; overflow-y: auto; border: 1px solid var(--glass-border); border-radius: 8px;">
+                        <table class="orders-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;"><input type="checkbox" id="import-text-check-all" checked>
+                                    </th>
+                                    <th>Llave</th>
+                                    <th>Fecha Hora</th>
+                                    <th>Monto</th>
+                                    <th>Envío</th>
+                                    <th>Pago</th>
+                                    <th>Estado Original</th>
+                                </tr>
+                            </thead>
+                            <tbody id="import-text-table-body">
+                                <!-- JS inserts here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                <button type="button" class="btn-primary" id="btn-confirm-import-text" disabled>
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Importar Datos
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-date-range" class="modal-backdrop">
+        <div class="modal-card glass-panel">
+            <div class="modal-header">
+                <h3>Seleccionar Periodo</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="range-form">
+                <div class="form-group">
+                    <label>Desde</label>
+                    <input type="date" id="range-start" required>
+                </div>
+                <div class="form-group">
+                    <label>Hasta</label>
+                    <input type="date" id="range-end" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                    <button type="submit" class="btn-primary">Aplicar Filtro</button>
+                </div>
+                <div style="margin-top:10px; text-align:center;">
+                    <button type="button" id="btn-clear-range" class="btn-text">Limpiar Rango</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Tesseract (OCR) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+    <!-- PDF.js Libs (Add before scripts) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <!-- Edit / Validate Modal -->
+    <div id="modal-validate" class="modal-backdrop">
+        <div class="modal-card glass-panel wide-modal">
+            <div class="modal-header">
+                <h3 style="display:flex; align-items:center; gap:10px;">
+                    Validar Pedido #<span id="val-nro-display"></span> <span id="val-validator-display" style="font-size: 0.75em; opacity: 0.8; margin-left: 10px; color: #60a5fa; font-weight: normal;"></span>
+                    <span id="val-status-badge" style="font-size: 0.6em; padding: 4px 8px; border-radius: 6px; font-weight: bold;"></span>
+                </h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-icon-small" id="btn-val-prev" title="Pedido Anterior (Flecha Izquierda)"><i class="fa-solid fa-chevron-left"></i></button>
+                    <button type="button" class="btn-icon-small" id="btn-val-next" title="Siguiente Pedido (Flecha Derecha)"><i class="fa-solid fa-chevron-right"></i></button>
+                    <button class="close-modal" style="margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+            <div class="modal-body-grid">
+                <!-- Left: Details -->
+                <div class="details-column">
+                    <!-- Hallazgos del Robot (OCR) -->
+                    <div id="val-robot-findings-container" class="robot-findings-box hidden"></div>
+                    <div class="detail-group">
+                        <label>Llave</label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="detail-value" id="val-key-display"></div>
+                            <button type="button" id="btn-copy-llave" class="btn-copy" title="Copiar Llave">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
+                        <div id="val-extra-info" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;"></div>
+                    </div>
+                    <div class="detail-group" style="display: flex; gap: 20px; align-items: flex-end;">
+                        <div>
+                            <label>Monto Registrado</label>
+                            <div class="detail-value amount-highlight" style="font-size: 1.25em; line-height: 1;">S/ <span id="val-amount-display"></span></div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div style="font-size: 0.8em; color: #fbbf24; font-weight: 600;"><i class="fa-solid fa-clock" style="font-size: 0.9em;"></i> <span id="val-entrega-y-display">--</span></div>
+                            <div style="font-size: 0.8em; color: #fbbf24; font-weight: 600;"><i class="fa-solid fa-ghost" style="font-size: 0.9em;"></i> <span id="val-tada-z-display">--</span></div>
+                        </div>
+                    </div>
+
+                    <hr class="divider">
+
+                    <div class="validation-status-box" id="validation-status-box">
+                        <i class="fa-solid fa-circle-question" id="status-icon"></i>
+                        <span id="status-text">Pendiente de Foto</span>
+                    </div>
+
+                    <form id="validate-form">
+                        <input type="hidden" id="val-id">
+
+                        <div class="form-group">
+                            <label>Tipo de Validación</label>
+                            <div class="validation-type-selector" style="grid-template-columns: 1fr 1fr 1fr;">
+                                <label class="radio-label">
+                                    <input type="radio" name="valType" value="pos">
+                                    <span><i class="fa-solid fa-calculator"></i> POS</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="valType" value="online">
+                                    <span><i class="fa-solid fa-globe"></i> Online</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="valType" value="efectivo">
+                                    <span><i class="fa-solid fa-money-bill-wave"></i> Efectivo</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="sub-options-container" class="form-group"
+                            style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--glass-border);">
+                            <div id="pos-options" style="display: block;">
+                                <label>Medio de Pago por POS:</label>
+                                <div style="display:flex; gap:10px; margin-top:8px;">
+                                    <button type="button" id="btn-pos-tarjeta" onclick="setPosType('TARJETA')"
+                                        class="btn-pos-toggle active"
+                                        style="flex:1; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:var(--accent); color:white; font-weight:600; cursor:pointer; transition:all 0.2s;">
+                                        <i class="fa-solid fa-credit-card"></i> Tarjeta
+                                    </button>
+                                    <button type="button" id="btn-pos-qr" onclick="setPosType('QR')"
+                                        class="btn-pos-toggle"
+                                        style="flex:1; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.7); font-weight:600; cursor:pointer; transition:all 0.2s;">
+                                        <i class="fa-solid fa-qrcode"></i> QR
+                                    </button>
+                                </div>
+                                <input type="hidden" id="val-pos-type" value="TARJETA">
+                            </div>
+
+                            <div id="efectivo-options" style="display: none;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <div>
+                                        <label>Vuelto Entregado (S/):</label>
+                                        <input type="number" id="val-vuelto-amount" class="form-control" step="0.01"
+                                            placeholder="0.00" style="margin-top: 5px; width: 100%;">
+                                    </div>
+                                    <div>
+                                        <label>Monto Recibido (S/):</label>
+                                        <input type="number" id="val-monto-recibido" class="form-control" step="0.01"
+                                            placeholder="Redondo"
+                                            style="margin-top: 5px; width: 100%; font-weight: bold; color: #4ade80;">
+                                    </div>
+                                </div>
+                                <small
+                                    style="display: block; margin-top: 8px; color: rgba(255,255,255,0.4); font-size: 0.8em;">
+                                    <i class="fa-solid fa-circle-info"></i> Sugerido Redondo: <span
+                                        id="val-sugerido-redondo" style="color: #60a5fa; font-weight: bold;">--</span>
+                                </small>
+                            </div>
+
+                            <div id="online-options" style="display: none;">
+                                <small style="color: var(--text-muted);"><i class="fa-solid fa-circle-info"></i> La
+                                    validación Online requiere foto de captura del banco.</small>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Nombre del Driver (Repartidor)</label>
+                            <input type="text" id="val-driver-name" class="form-control"
+                                placeholder="Nombre del repartidor..." list="drivers-list" autocomplete="off">
+                        </div>
+
+                        <div class="form-group">
+                            <label id="lbl-monto-val">Monto Pagado Manual / Re-escaneo</label>
+                            <div class="input-with-ocr">
+                                <input type="number" id="val-photo-amount" step="0.01" placeholder="0.00">
+                                <button type="button" id="ocr-trigger-btn" class="btn-icon-small"
+                                    title="Re-escanear foto">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                            <small id="ocr-helper-text">Sube una foto para detectar el monto (opcional en
+                                Efectivo/Online).</small>
+                        </div>
+
+                        <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div>
+                                <label>Fecha de Entrega</label>
+                                <input type="text" id="val-fecha-entrega" class="form-control" placeholder="DD/MM/YYYY">
+                            </div>
+                            <div>
+                                <label>Hora de Entrega</label>
+                                <input type="time" id="val-hora-entrega" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Tiempo Transcurrido</label>
+                            <div id="val-tiempo-transcurrido"
+                                style="padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; font-weight: bold; color: var(--accent); text-align: center;">
+                                --</div>
+                        </div>
+
+                        <div class="modal-actions" style="flex-direction: column; gap: 10px;">
+                            <div style="display: flex; gap: 10px; width: 100%;">
+                                <button type="button" class="btn-secondary" id="btn-save-next"
+                                    title="Atajo: Presiona Ctrl + Enter"
+                                    style="flex: 1; background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); color: #60a5fa;">
+                                    <i class="fa-solid fa-forward-step"></i> Aprobar y Siguiente
+                                </button>
+                                <button type="submit" class="btn-primary" id="btn-save-validation"
+                                    style="flex: 1;">Confirmar Validación</button>
+                            </div>
+                            <div style="text-align: center; font-size: 0.8em; color: rgba(255,255,255,0.5);">
+                                <label
+                                    style="cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                                    <input type="checkbox" id="val-auto-next" style="width: auto;"> Seguir
+                                    automáticamente al guardar
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Right: Photo Upload -->
+                <div class="photo-column">
+                    <label>Evidencia (Foto)</label>
+                    <div class="photo-upload-area" id="photo-drop-zone">
+                        <input type="file" id="photo-input" accept="image/*" class="file-input-hidden">
+                        <div class="upload-placeholder" id="upload-placeholder">
+                            <i class="fa-solid fa-cloud-arrow-up"
+                                style="margin-bottom: 8px; font-size: 2em; color: rgba(255,255,255,0.8);"></i>
+                            <p style="margin-bottom: 4px;">Click, arrastra imagen</p>
+                            <p>o presiona <strong>Ctrl+V</strong></p>
+                        </div>
+                        <img id="photo-preview" class="photo-preview hidden" alt="Vista previa">
+                        <div class="ocr-scanning-overlay hidden" id="ocr-overlay">
+                            <div class="scanner-line"></div>
+                            <span>Escaneando monto...</span>
+                        </div>
+                    </div>
+                    <div id="photo-actions" class="photo-actions hidden">
+                        <button type="button" class="btn-secondary small" id="rotate-photo-btn" title="Girar 90°">
+                            <i class="fa-solid fa-rotate"></i> Girar
+                        </button>
+                        <button type="button" class="btn-secondary small" id="remove-photo-btn">Cambiar Foto</button>
+                        <a href="#" target="_blank" id="view-full-photo" class="btn-secondary small">Ver Original</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Shift Modal -->
+    <div id="modal-shift-edit" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-clock"></i> Editar Turno</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="edit-shift-form">
+                <input type="hidden" id="edit-shift-day">
+                <input type="hidden" id="edit-shift-row">
+                <div class="form-group">
+                    <label>Horario</label>
+                    <input type="text" id="edit-shift-time" autocomplete="off" list="shift-suggestions" required
+                        placeholder="Ej: 08 a 23, Descanso"
+                        style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); color: white;">
+                    <datalist id="shift-suggestions">
+                        <option value="08 a 23">
+                        <option value="08 a 16">
+                        <option value="10 a 23">
+                        <option value="16 a 23">
+                        <option value="Descanso">
+                        <option value="F180">
+                        <option value="Otros">
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label>Cumplimiento</label>
+                    <div class="validation-type-selector" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <label class="radio-label">
+                            <input type="radio" name="shiftStatus" value="PENDING" checked>
+                            <span style="color: var(--warning);"><i class="fa-solid fa-hourglass-half"></i>
+                                Pendiente</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="shiftStatus" value="OK">
+                            <span style="color: var(--success);"><i class="fa-solid fa-check"></i> Cumplió</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="shiftStatus" value="FAIL">
+                            <span style="color: var(--danger);"><i class="fa-solid fa-xmark"></i> Faltó</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                    <button type="button" class="btn-secondary" id="btn-clear-shift"
+                        style="color: var(--danger); border-color: rgba(239, 68, 68, 0.3);">Borrar Turno</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+
+    <!-- Driver Management Modal -->
+    <div id="modal-manage-drivers" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-gear"></i> Registrar Repartidor</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="new-driver-form">
+                <div class="form-group">
+                    <label>Nombre del Repartidor</label>
+                    <input type="text" id="new-driver-name" required placeholder="Ej: Raul, Ybor, etc.">
+                </div>
+                <div class="form-group">
+                    <label>Contraseña (PWA)</label>
+                    <input type="password" id="new-driver-pass" required placeholder="Contraseña para el celular">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary close-modal">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar Repartidor</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Datalist for Driver Suggestions -->
+    <datalist id="drivers-list"></datalist>
+
+    <script src="app.js?v=40"></script>
+    <script src="dashboard.js?v=29"></script>
+    <script src="mapa.js?v=24"></script>
+    <script src="horarios.js"></script>
+    <script src="caja.js"></script>
+    <!-- Registro del Service Worker para PWA (Panel Admin) -->
+    <!--
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw_admin.js')
+                    .then(registration => {
+                        console.log('ServiceWorker Admin registrado con éxito', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Error al registrar ServiceWorker Admin', error);
+                    });
+            });
+        }
+    </script>
+    -->
+    <!-- Compliance Report Modal -->
+    <!-- Auditoría POS Modal -->
+    <div id="modal-auditoria" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 1000px; width: 95%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-file-shield"></i> Nueva Auditoría POS</h3>
+                <button class="close-modal" onclick="closeAuditoriaModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="audit-setup-grid" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 15px; margin-bottom: 20px;">
+                    <div class="input-group">
+                        <label>Repartidor</label>
+                        <select id="audit-driver" class="search-input" style="width: 100%;"></select>
+                    </div>
+                    <div class="input-group">
+                        <label>Fecha de Operación</label>
+                        <input type="date" id="audit-date" class="search-input" style="width: 100%; color-scheme: dark;">
+                    </div>
+                    <div class="input-group" style="display: flex; align-items: flex-end;">
+                        <button class="btn-primary" onclick="loadAuditData()">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> 1. Cargar Sistema
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filtros columna SISTEMA automáticos (v24.2) -->
+
+                <div id="audit-upload-zone" class="hidden">
+                    <div class="upload-box glass-panel" style="border: 2px dashed rgba(255,255,255,0.2); padding: 30px; text-align: center; border-radius: 12px; cursor: pointer;" onclick="document.getElementById('audit-files').click()">
+                        <i class="fa-solid fa-cloud-arrow-up" style="font-size: 3rem; color: #60a5fa; margin-bottom: 10px;"></i>
+                        <h4>Subir imágenes de POS</h4>
+                        <p style="color: rgba(255,255,255,0.6);">Puedes seleccionar varias imágenes con traslape.</p>
+                        <input type="file" id="audit-files" multiple accept="image/*" class="hidden" onchange="handleAuditFiles(this)">
+                    </div>
+                    <div id="audit-previews" style="display: flex; gap: 10px; margin-top: 15px; overflow-x: auto; padding-bottom: 5px;"></div>
+                </div>
+
+                <div id="audit-comparison-zone" class="hidden" style="margin-top: 20px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <!-- Columna POS -->
+                        <div class="glass-panel" style="padding: 15px; border-radius: 12px; background: rgba(0,0,0,0.2);">
+                            <h4 style="color: #60a5fa; margin-bottom: 15px;"><i class="fa-solid fa-mobile-screen"></i> Detalle POS (Fotos)</h4>
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                <table class="data-table small" style="width: 100%;">
+                                    <thead><tr><th>Monto / Hora</th><th>Tarjeta / POS ID</th><th>Estado</th></tr></thead>
+                                    <tbody id="audit-pos-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <!-- Columna Sistema -->
+                        <div class="glass-panel" style="padding: 15px; border-radius: 12px; background: rgba(0,0,0,0.2);">
+                            <h4 style="color: #4ade80; margin-bottom: 15px;"><i class="fa-solid fa-laptop-code"></i> Detalle Sistema (TADA)</h4>
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                <table class="data-table small" style="width: 100%;">
+                                    <thead><tr><th>Llave</th><th>Monto</th><th>Conciliado</th></tr></thead>
+                                    <tbody id="audit-system-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="audit-summary-footer" class="glass-panel" style="margin-top: 20px; padding: 20px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #60a5fa;">
+                        <div>
+                            <span style="font-size: 1.2rem; font-weight: bold; color: white;">Resumen Final:</span>
+                            <div style="display: flex; gap: 20px; margin-top: 5px;">
+                                <span id="summary-pos-total">POS Total: S/ 0.00</span>
+                                <span id="summary-sys-total">Sistema Total: S/ 0.00</span>
+                                <span id="summary-diff-total" style="font-weight: bold;">Diferencia: S/ 0.00</span>
+                            </div>
+                        </div>
+                        <button class="btn-primary" id="btn-save-audit" onclick="saveAuditReport()">
+                            <i class="fa-solid fa-floppy-disk"></i> Guardar Auditoría
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-compliance-report" class="modal-backdrop">
+        <div class="modal-card glass-panel" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-chart-line"></i> Reporte de Cumplimiento</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div style="padding: 20px;">
+                <p id="compliance-week-title"
+                    style="color: rgba(255,255,255,0.7); margin-bottom: 20px; font-weight: bold;"></p>
+                <div class="table-responsive">
+                    <table class="data-table" id="compliance-table" style="width: 100%;">
+                        <thead>
+                            <tr style="background: rgba(0,0,0,0.3);">
+                                <th>Repartidor</th>
+                                <th style="text-align: center;">Total Turnos</th>
+                                <th style="text-align: center; color: #4ade80;">OK</th>
+                                <th style="text-align: center; color: #f87171;">FAIL</th>
+                                <th style="text-align: center;">% Cumplimiento</th>
+                            </tr>
+                        </thead>
+                        <tbody id="compliance-table-body">
+                            <!-- Inyectado por JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary close-modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Motorizado | Entregas</title>
+
+    <!-- Archivo Manifest y Configuraciones PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="Logo_mio.png">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- FontAwesome para Íconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Estilos Personalizados del Hub y App -->
+    <link rel="stylesheet" href="styles.css?v=1.0">
+
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <!-- SortableJS para Drag & Drop Tactil -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+    <!-- Tesseract OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+    <!-- Configuracion de Tailwind (Mobile First) -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6', // Azul principal
+                        bgDark: '#0f172a',
+                        cardDark: '#1e293b'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            /* Evitar rebote en iOS/Android */
+            overscroll-behavior-y: none;
+        }
+
+        .slide-up {
+            animation: slideUp 0.3s ease-out forwards;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Ocultar barra de scroll en contenedores */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            /* IE and Edge */
+            scrollbar-width: none;
+            /* Firefox */
+        }
+
+        .fa-spin-fast {
+            animation: fa-spin 0.5s linear infinite;
+        }
+
+        /* --- New UI Improvements --- */
+        #offline-banner {
+            background-color: #ef4444;
+            color: white;
+            padding: 8px;
+            text-align: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: none;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        #ptr-indicator {
+            height: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #1e293b;
+            color: #3b82f6;
+            transition: height 0.2s ease;
+        }
+
+        .ptr-active #ptr-indicator {
+            height: 60px;
+        }
+
+        .btn-copy {
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-copy:active {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: #3b82f6;
+            color: #3b82f6;
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen bg-bgDark flex flex-col font-sans">
+
+    <!-- Banner Offline -->
+    <div id="offline-banner">
+        <i class="fa-solid fa-plane-slash mr-2"></i> Sin conexión a Internet
+    </div>
+
+    <!-- PANTALLA 1: LOGIN / SELECCIÓN DE REPARTIDOR -->
+    <div id="pantalla-login"
+        class="flex flex-col items-center justify-center min-h-screen p-6 transition-opacity duration-300">
+        <div class="text-center mb-8">
+            <i class="fa-solid fa-motorcycle text-5xl text-primary mb-4"></i>
+            <h1 class="text-3xl font-bold">App Repartidor</h1>
+            <p class="text-slate-400 mt-2">Ingresa tu código o nombre para ver tus entregas asignadas.</p>
+        </div>
+
+        <div class="w-full max-w-sm bg-cardDark rounded-2xl p-6 shadow-xl border border-slate-700/50">
+            <label class="block text-sm font-medium text-slate-300 mb-2">Nombre del Motorizado</label>
+            <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <i class="fa-solid fa-user text-slate-400"></i>
+                </span>
+                <input type="text" id="driver-name-input"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                    placeholder="Ej. Victor L.">
+            </div>
+
+            <label class="block text-sm font-medium text-slate-300 mt-4 mb-2">Contraseña</label>
+            <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <i class="fa-solid fa-lock text-slate-400"></i>
+                </span>
+                <input type="password" id="driver-pass-input"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-10 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                    placeholder="Tu clave">
+                <button id="btn-toggle-pass" type="button"
+                    class="absolute inset-y-0 right-0 flex items-center pr-3 group transition-opacity">
+                    <i class="fa-solid fa-eye text-slate-500 group-hover:text-slate-300"></i>
+                </button>
+            </div>
+
+            <button id="btn-ingresar"
+                class="w-full bg-primary hover:bg-blue-600 text-white font-bold rounded-xl py-4 mt-6 flex items-center justify-center gap-2 transition-colors active:scale-95">
+                <span>Ingresar a Ruta</span>
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- PANTALLA 2: LISTADO DE PEDIDOS (Ruta Activa) -->
+    <div id="pantalla-ruta" class="hidden flex-col h-screen slide-up relative">
+
+        <!-- Header Fijo -->
+        <header
+            class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                    <i class="fa-solid fa-motorcycle"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight" id="lbl-driver-name">Repartidor</h2>
+                    <p class="text-xs text-slate-400">En ruta • <span id="lbl-pedidos-count">0</span> pendientes</p>
+                </div>
+            </div>
+            <button id="btn-actualizar"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 active:bg-slate-700">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <!-- Admin Only: Date Filter & View Toggle (PERSISTENTE) -->
+        <div id="admin-ruta-controls"
+            class="hidden px-4 py-3 bg-slate-800/50 border-b border-slate-700 flex flex-col gap-3 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 cursor-pointer active:scale-95 transition-all"
+                    onclick="document.getElementById('admin-date-filter').showPicker()">
+                    <i class="fa-solid fa-calendar-days"></i>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-[10px] uppercase font-bold text-slate-500 mb-0.5 tracking-widest">Filtrar
+                        Fecha</label>
+                    <input type="date" id="admin-date-filter"
+                        class="bg-transparent border-none text-white text-base font-bold focus:ring-0 outline-none w-full appearance-none p-0 cursor-pointer">
+                </div>
+            </div>
+            <div class="flex p-1 bg-slate-900 rounded-xl border border-slate-700">
+                <button id="admin-view-summary" onclick="setAdminSubView('summary')"
+                    class="flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all bg-primary text-white">
+                    Por Repartidor
+                </button>
+                <button id="admin-view-global" onclick="setAdminSubView('global')"
+                    class="flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all text-slate-400">
+                    Crónologico Total
+                </button>
+            </div>
+        </div>
+
+        <!-- Lista scrolleable de Tarjetas -->
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-24" id="lista-pedidos-container">
+            <!-- Pull to Refresh Indicator -->
+            <div id="ptr-indicator" class="rounded-xl mb-2">
+                <i class="fa-solid fa-arrow-down-long mr-2" id="ptr-icon"></i>
+                <span id="ptr-text">Desliza para actualizar</span>
+            </div>
+
+
+            <!-- Loading State -->
+            <div class="text-center py-10" id="loading-pedidos">
+                <i class="fa-solid fa-spinner fa-spin text-3xl text-primary mb-3"></i>
+                <p class="text-slate-400">Cargando pedidos...</p>
+            </div>
+
+
+            <!-- Aquí se inyectarán los pedidos dinámicamente -->
+        </main>
+
+    </div>
+
+    <!-- PANTALLA 4: HISTORIAL DE ENTREGAS -->
+    <div id="pantalla-historial" class="hidden flex-col h-screen slide-up relative">
+        <!-- Header Fijo -->
+        <header
+            class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Mi Historial</h2>
+                    <p class="text-xs text-slate-400" id="lbl-history-summary">0 entregas completadas</p>
+                </div>
+            </div>
+            <button id="btn-refresh-history"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <!-- Filtro de Fecha para Historial -->
+        <div id="container-filtro-historial"
+            class="px-5 py-4 bg-slate-800 border-b border-slate-700 flex items-center gap-3 sticky top-[73px] z-10">
+            <div
+                class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                <i class="fa-solid fa-calendar-day"></i>
+            </div>
+            <div class="flex-1">
+                <label class="block text-[10px] uppercase font-bold text-slate-500 mb-0.5 tracking-widest">Filtrar
+                    por
+                    Fecha</label>
+                <input type="date" id="history-date-filter"
+                    class="bg-transparent border-none text-white text-base font-bold focus:ring-0 outline-none w-full appearance-none p-0 cursor-pointer"
+                    min="2026-03-02">
+            </div>
+        </div>
+
+        <!-- Lista scrolleable de Historial -->
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-3 pb-24" id="lista-historial-container">
+            <!-- Aquí se inyectará el historial -->
+        </main>
+    </div>
+
+    <!-- PANTALLA 5: VALIDACIÓN (Solo Admin) -->
+    <div id="pantalla-validar" class="hidden flex-col h-screen slide-up relative">
+        <!-- Header Fijo -->
+        <header
+            class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                    <i class="fa-solid fa-shield-check"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Pendientes de Validar</h2>
+                    <p class="text-xs text-slate-400" id="lbl-validar-summary">0 pedidos por procesar</p>
+                </div>
+            </div>
+            <button onclick="fetchDriverOrders()"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <!-- Lista scrolleable de Pedidos por Validar -->
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-3 pb-24" id="lista-validar-container">
+            <!-- Aquí se inyectarán los pedidos con estado "Por Validar" -->
+            <div class="text-center py-10" id="loading-validar">
+                <i class="fa-solid fa-spinner fa-spin text-3xl text-primary mb-3"></i>
+                <p class="text-slate-400">Buscando pendientes...</p>
+            </div>
+        </main>
+    </div>
+    <!-- PANTALLA 6: AUDITORÍA POS (Solo Admin) -->
+    <div id="pantalla-auditoria" class="hidden flex-col h-screen slide-up relative bg-bgDark">
+        <header class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Auditoría POS</h2>
+                    <p class="text-xs text-slate-400">Análisis Forense por Páginas</p>
+                </div>
+            </div>
+            <button onclick="fetchDriverOrders()" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-24">
+            <!-- Selector de Fecha y Chofer (Reutilizado) -->
+            <!-- Filtros y Captura -->
+            <div class="bg-cardDark p-4 rounded-2xl border border-slate-700/50 space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Fecha</label>
+                        <input type="date" id="audit-date" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold outline-none focus:ring-1 focus:ring-primary">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Repartidor</label>
+                        <select id="audit-driver" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm font-bold outline-none focus:ring-1 focus:ring-primary">
+                            <option value="">Todos los Repartidores</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- COLA DE FOTOS (PREVIEW) -->
+                <div id="audit-queue-container" class="hidden space-y-2">
+                    <div class="flex items-center justify-between px-1">
+                        <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Fotos en cola: <span id="audit-queue-count">0</span></span>
+                        <button onclick="clearAuditQueue()" class="text-[10px] font-bold text-red-400 uppercase tracking-widest">Limpiar todo</button>
+                    </div>
+                    <div id="audit-queue-preview" class="flex gap-2 overflow-x-auto no-scrollbar pb-2 min-h-[80px]">
+                        <!-- Miniaturas dinámicas -->
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <!-- Botón Cámara (Directo) -->
+                    <button onclick="document.getElementById('audit-camera-input').click()" class="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl py-3 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+                        <i class="fa-solid fa-camera text-lg"></i>
+                        <span class="text-[10px] uppercase">Tomar Foto</span>
+                        <input type="file" id="audit-camera-input" accept="image/*" capture="environment" class="hidden" onchange="addToAuditQueue(event)">
+                    </button>
+
+                    <!-- Botón Galería -->
+                    <button onclick="document.getElementById('audit-gallery-input').click()" class="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl py-3 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all">
+                        <i class="fa-solid fa-images text-lg"></i>
+                        <span class="text-[10px] uppercase">Galería</span>
+                        <input type="file" id="audit-gallery-input" accept="image/*" multiple class="hidden" onchange="addToAuditQueue(event)">
+                    </button>
+
+                    <!-- Botón Consultar (Procesar) -->
+                    <button onclick="processAuditQueue()" id="btn-audit-process" class="col-span-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl py-4 font-black flex items-center justify-center gap-3 active:scale-95 transition-all opacity-50 cursor-not-allowed" disabled>
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> PROCESAR Y CONSULTAR
+                    </button>
+                    
+                    <!-- Botón Solo Consultar Sistema (Sin fotos) -->
+                    <button onclick="loadAuditDataPWA()" class="col-span-2 text-slate-500 text-[10px] font-bold uppercase tracking-widest py-2 hover:text-slate-300">
+                        O solo consultar sistema (sin fotos)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resumen de Totales -->
+            <div id="audit-summary-box" class="hidden grid grid-cols-2 gap-3">
+                <div class="bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl text-center">
+                    <span class="text-[10px] text-blue-400/70 font-bold uppercase block">Total POS</span>
+                    <span id="summary-pos-total" class="text-lg font-black text-white">S/ 0.00</span>
+                </div>
+                <div class="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl text-center">
+                    <span class="text-[10px] text-emerald-400/70 font-bold uppercase block">Total TADA</span>
+                    <span id="summary-sys-total" class="text-lg font-black text-white">S/ 0.00</span>
+                </div>
+                <div class="col-span-2 bg-slate-800/50 border border-slate-700 p-3 rounded-xl flex justify-between items-center px-5">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Diferencia</span>
+                    <span id="summary-diff-total" class="text-xl font-black">S/ 0.00</span>
+                </div>
+            </div>
+
+            <!-- Tablas de Comparación (Cuerpo Dinámico) -->
+            <div id="audit-results-container" class="hidden space-y-6">
+                <!-- Seccion POS -->
+                <div>
+                     <h3 class="text-sm font-bold text-blue-400 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-mobile-screen"></i> DETALLE POS (FOTOS)
+                     </h3>
+                     <div class="bg-slate-900/40 rounded-2xl border border-slate-800 overflow-hidden">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-800/50 text-slate-500 uppercase font-black text-[9px] tracking-widest">
+                                <tr>
+                                    <th class="p-3">Monto / Hora</th>
+                                    <th class="p-3 text-right">Tarjeta / POS ID</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-pos-tbody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                     </div>
+                </div>
+
+                <!-- Seccion Sistema -->
+                <div>
+                    <h3 class="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                       <i class="fa-solid fa-laptop-code"></i> DETALLE SISTEMA (TADA)
+                    </h3>
+                    <div class="bg-slate-900/40 rounded-2xl border border-slate-800 overflow-hidden">
+                        <table class="w-full text-left text-xs">
+                           <thead class="bg-slate-800/50 text-slate-500 uppercase font-black text-[9px] tracking-widest">
+                               <tr>
+                                   <th class="p-3">Pedido (Llave)</th>
+                                   <th class="p-3 text-right">Monto</th>
+                               </tr>
+                           </thead>
+                           <tbody id="audit-system-tbody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Botón de Acción Final -->
+                <button onclick="saveAuditReportPWA()" class="w-full bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 transition-all">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> GUARDAR AUDITORÍA
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- NAVEGACIÓN INFERIOR (Solo visible cuando se inicia sesión) -->
+    <nav id="nav-footer"
+        class="hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 z-40 pb-safe">
+        <div class="flex items-center justify-around h-20">
+            <button onclick="switchTab('ruta')" id="nav-btn-ruta"
+                class="flex flex-col items-center justify-center gap-1 text-primary">
+                <i class="fa-solid fa-motorcycle text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Mi Ruta</span>
+            </button>
+            <!-- Botón Validar (Solo Admin) -->
+            <button onclick="switchTab('validar')" id="nav-btn-validar"
+                class="hidden flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-shield-check text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Validar</span>
+            </button>
+            <!-- Botón Asistencia (Todos) -->
+            <button onclick="switchTab('asistencia')" id="nav-btn-asistencia"
+                class="flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-user-clock text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Asistencia</span>
+            </button>
+            <button onclick="switchTab('historial')" id="nav-btn-historial"
+                class="flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Historial</span>
+            </button>
+            <!-- Botón Auditoría (Solo Admin) -->
+            <button onclick="switchTab('auditoria')" id="nav-btn-auditoria"
+                class="hidden flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-magnifying-glass-chart text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Auditoría</span>
+            </button>
+            <!-- Botón Logout integrado -->
+            <button id="btn-cerrar-ruta" class="flex flex-col items-center justify-center gap-1 text-slate-500">
+                <i class="fa-solid fa-right-from-bracket text-xl"></i>
+                <span class="text-[10px] font-bold uppercase tracking-wider">Cerrar</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- MENU DE ACCION (SELECTOR) -->
+    <div id="modal-selector-accion"
+        class="fixed inset-0 bg-black/60 z-40 hidden flex-col justify-end transition-opacity">
+        <div class="bg-cardDark rounded-t-3xl p-6 slide-up shadow-2xl border-t border-slate-700">
+            <div class="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-6"></div>
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h3 class="text-xl font-bold" id="lbl-selector-llave">PED-000</h3>
+                    <p class="text-slate-400 text-sm">¿Qué acción deseas realizar?</p>
+                </div>
+                <button onclick="closeActionSelector()"
+                    class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 pb-8">
+                <!-- POS -->
+                <button onclick="selectAction('pos')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-purple-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center text-2xl border border-purple-500/20">
+                        <i class="fa-solid fa-receipt"></i>
+                    </div>
+                    <span class="font-bold">📱 POS / Voucher</span>
+                </button>
+
+                <!-- EFECTIVO -->
+                <button onclick="selectAction('efectivo')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-emerald-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-2xl border border-emerald-500/20">
+                        <i class="fa-solid fa-money-bill-wave"></i>
+                    </div>
+                    <span class="font-bold">💵 Efectivo</span>
+                </button>
+
+                <!-- ONLINE -->
+                <button onclick="selectAction('online')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-blue-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center text-2xl border border-blue-500/20">
+                        <i class="fa-solid fa-globe"></i>
+                    </div>
+                    <span class="font-bold">📲 Online / Transf.</span>
+                </button>
+
+                <!-- CANCELAR -->
+                <button onclick="selectAction('cancelar')"
+                    class="flex flex-col items-center justify-center gap-3 p-5 rounded-2xl bg-slate-800 border border-slate-700 active:scale-95 transition-all text-red-400">
+                    <div
+                        class="w-14 h-14 rounded-2xl bg-red-500/10 flex items-center justify-center text-2xl border border-red-500/20">
+                        <i class="fa-solid fa-ban"></i>
+                    </div>
+                    <span class="font-bold">❌ Cancelar Delivery</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE CAPTURA (Cámara 1 y 2) -->
+    <div id="modal-captura" class="fixed inset-0 bg-black/95 z-50 hidden flex-col transition-opacity">
+        <div class="flex items-center justify-between p-4 border-b border-slate-800">
+            <div class="flex items-center gap-3">
+                <button onclick="shortcutToCancel()"
+                    class="h-10 px-4 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center gap-2 text-red-500 active:scale-95 transition-all">
+                    <i class="fa-solid fa-ban text-lg"></i>
+                    <span class="font-black text-xs">CANCELAR</span>
+                </button>
+                <div>
+                    <span class="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">Realizando Entrega</span>
+                    <span class="text-xl font-black text-white tracking-tighter" id="lbl-modal-llave">PED-000</span>
+                </div>
+            </div>
+            <button id="btn-cerrar-modal"
+                class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 p-6 flex flex-col items-center justify-center gap-6 overflow-y-auto">
+
+            <div class="text-center mb-2">
+                <p class="text-slate-300">Toma o sube la foto del comprobante para confirmar la entrega.</p>
+            </div>
+
+            <!-- Boton Captura POS/Pago -->
+            <div class="w-full relative group">
+                <input type="file" accept="image/*" capture="environment" id="input-foto-pos" class="hidden">
+                <div id="btn-ui-pos"
+                    class="bg-purple-900/10 border-2 border-dashed border-purple-500/30 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all relative overflow-hidden backdrop-blur-sm">
+                    <div class="w-16 h-16 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 text-2xl border border-purple-500/40"
+                        id="icon-pos">
+                        <i class="fa-solid fa-camera-retro"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="font-black text-lg block text-white uppercase tracking-tighter" id="lbl-tipo-pago-modal">1. FOTO COMPROBANTE</span>
+                        <span class="text-[11px] text-purple-300/60 font-medium tracking-wide">Voucher POS, Billete o Captura</span>
+                    </div>
+                    <img id="preview-pos"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-purple-500/50 shadow-lg shadow-purple-500/10">
+                    
+                    <!-- Botón Reintentar (Capa superior) -->
+                    <button onclick="event.stopPropagation(); resetSinglePhoto('pos')" 
+                        class="absolute top-3 right-3 w-10 h-10 bg-slate-900/90 border border-slate-700 rounded-full text-white flex items-center justify-center opacity-0 group-focus-within:opacity-100 transition-opacity z-10 shadow-xl" id="btn-reset-pos">
+                        <i class="fa-solid fa-rotate-right text-sm"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Boton Captura Evidencia -->
+            <div class="w-full relative group mt-6">
+                <input type="file" accept="image/*" capture="environment" id="input-foto-evidencia" class="hidden">
+                <div id="btn-ui-evidencia"
+                    class="bg-blue-900/10 border-2 border-dashed border-blue-500/30 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-all relative overflow-hidden backdrop-blur-sm">
+                    <div class="w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-2xl border border-blue-500/40"
+                        id="icon-evidencia">
+                        <i class="fa-solid fa-image"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="font-black text-lg block text-white uppercase tracking-tighter">2. FOTO EVIDENCIA</span>
+                        <span class="text-[11px] text-blue-300/60 font-medium tracking-wide">Fachada, Puerta o Cliente</span>
+                    </div>
+                    <img id="preview-evidencia"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-blue-500/50 shadow-lg shadow-blue-500/10">
+
+                    <!-- Botón Reintentar (Capa superior) -->
+                    <button onclick="event.stopPropagation(); resetSinglePhoto('evidencia')" 
+                        class="absolute top-3 right-3 w-10 h-10 bg-slate-900/90 border border-slate-700 rounded-full text-white flex items-center justify-center opacity-0 group-focus-within:opacity-100 transition-opacity z-10 shadow-xl" id="btn-reset-evidencia">
+                        <i class="fa-solid fa-rotate-right text-sm"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Canvas Oculto para Fusionar (Ya no se usa pero lo dejamos por si acaso) -->
+            <canvas id="canvas-fusion" class="hidden"></canvas>
+
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="p-4 bg-cardDark border-t border-slate-800">
+            <button id="btn-enviar-wsp" disabled
+                class="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
+                <i class="fa-brands fa-whatsapp text-xl"></i>
+                <span class="text-lg">Enviar a WhatsApp</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL DE CANCELACIÓN -->
+    <div id="modal-cancelacion" class="fixed inset-0 bg-black/95 z-50 hidden flex-col transition-opacity">
+        <div class="flex items-center justify-between p-4 border-b border-red-900/50">
+            <div>
+                <span class="text-xs text-red-400 font-medium uppercase tracking-wider block">Reportar
+                    Cancelación</span>
+                <span class="text-xl font-bold text-red-300" id="lbl-cancel-llave">PED-000</span>
+            </div>
+            <button id="btn-cerrar-cancel"
+                class="w-10 h-10 rounded-full bg-red-900/40 flex items-center justify-center text-red-300">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 p-6 flex flex-col items-center justify-center gap-6 overflow-y-auto">
+
+            <div class="text-center mb-2">
+                <div class="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-3">
+                    <i class="fa-solid fa-ban text-3xl text-red-400"></i>
+                </div>
+                <p class="text-red-200 font-semibold text-lg">Pedido Cancelado</p>
+                <p class="text-slate-400 text-sm mt-1">Adjunta las evidencias requeridas para reportar la
+                    cancelación.
+                </p>
+            </div>
+
+            <!-- Slot 1: Evidencia de Cancelación (screenshot llamadas / motivo) -->
+            <div class="w-full relative">
+                <input type="file" accept="image/*" id="input-cancel-evidencia" class="hidden">
+                <div id="btn-ui-cancel-evidencia"
+                    class="bg-slate-800 border-2 border-dashed border-red-500/40 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    <div class="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-2xl"
+                        id="icon-cancel-evidencia">
+                        <i class="fa-solid fa-phone-slash"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="font-bold text-lg block text-white">Evidencia de Cancelación</span>
+                        <span class="text-sm text-slate-400">Screenshot de llamadas o motivo</span>
+                    </div>
+                    <img id="preview-cancel-evidencia"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-red-500/40">
+                </div>
+            </div>
+
+            <!-- Slot 2: Foto de Fachada -->
+            <div class="w-full relative">
+                <input type="file" accept="image/*" id="input-cancel-fachada" class="hidden">
+                <div id="btn-ui-cancel-fachada"
+                    class="bg-slate-800 border-2 border-dashed border-red-500/40 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 transition-colors">
+                    <div class="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-2xl"
+                        id="icon-cancel-fachada">
+                        <i class="fa-solid fa-building"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="font-bold text-lg block text-white">Foto de Fachada</span>
+                        <span class="text-sm text-slate-400">Fachada del lugar de entrega</span>
+                    </div>
+                    <img id="preview-cancel-fachada"
+                        class="hidden mt-2 rounded-lg max-h-48 object-cover w-full border border-red-500/40">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="p-4 bg-cardDark border-t border-red-900/50">
+            <button id="btn-enviar-cancel" disabled
+                class="w-full bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl py-4 flex items-center justify-center gap-2 transition-all">
+                <i class="fa-brands fa-whatsapp text-xl"></i>
+                <span class="text-lg">Enviar Cancelación a WhatsApp</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL DE EDICIÓN MANUAL DE ENTREGA (Admin) -->
+    <div id="modal-edit-delivery" class="fixed inset-0 bg-black/80 z-[100] hidden items-center justify-center p-4">
+        <div
+            class="bg-cardDark border border-slate-700 w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl animate-scaleIn">
+            <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+                <h3 class="text-xl font-bold text-white">Corregir Entrega</h3>
+                <button onclick="document.getElementById('modal-edit-delivery').classList.add('hidden')"
+                    class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="edit-delivery-nro">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Fecha
+                        de
+                        Entrega</label>
+                    <input type="date" id="edit-delivery-date"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Hora de
+                        Entrega</label>
+                    <input type="time" id="edit-delivery-time"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-primary">
+                </div>
+                <p class="text-[10px] text-slate-500 italic">* El sistema recalculará automáticamente si la
+                    entrega fue
+                    exitosa (SLA).</p>
+            </div>
+            <div class="p-4 bg-slate-800/50 flex gap-3">
+                <button onclick="document.getElementById('modal-edit-delivery').classList.add('hidden')"
+                    class="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-700 transition-all">Cancelar</button>
+                <button id="btn-save-edit-delivery"
+                    class="flex-1 py-3 rounded-xl font-bold bg-primary text-white hover:bg-blue-600 transition-all">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANTALLA 3: MAPA COMPLETO (Admin) -->
+    <div id="pantalla-mapa" class="hidden flex-col h-screen slide-up relative">
+        <!-- Header -->
+        <header
+            class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Mapa Completo</h2>
+                    <p class="text-xs text-slate-400">Vista de Administrador</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="btn-switch-to-list"
+                    class="hidden w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-primary active:bg-slate-700"
+                    title="Ver lista de repartidor">
+                    <i class="fa-solid fa-list-check"></i>
+                </button>
+                <span id="mapa-active-count"
+                    class="text-xs text-primary font-bold bg-primary/20 px-2 py-1 rounded border border-primary/40">
+                    <i class="fa-solid fa-motorcycle"></i> 0 Activos
+                </span>
+                <button onclick="cerrarTodosLosViajesGlobal()"
+                    class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 shadow-lg shadow-red-500/20">
+                    <i class="fa-solid fa-route"></i> Cerrar Todo
+                </button>
+                <button id="btn-refresh-mapa"
+                    class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 active:bg-slate-700">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+                <button id="btn-cerrar-mapa"
+                    class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 active:bg-red-500/40"
+                    title="Cerrar sesión">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Container -->
+        <main class="flex-1 overflow-y-auto p-4 space-y-4 pb-24" id="mapa-content-repartidor"
+            style="background-color: #0f172a;">
+            <div id="mapa-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm w-full">
+                <!-- Tarjetas inyectadas por mapa.js -->
+            </div>
+        </main>
+
+        <!-- Loading global map state -->
+        <div id="loading-mapa"
+            class="absolute inset-0 bg-bgDark/80 flex flex-col items-center justify-center z-50 hidden">
+            <i class="fa-solid fa-spinner fa-spin text-4xl text-primary mb-4"></i>
+            <p class="text-slate-300 text-lg font-medium">Cargando rutas...</p>
+        </div>
+    </div>
+
+    <!-- Contenedor para el Hub Flotante -->
+    <div id="floating-hub-container"></div>
+    <div style="display:none; position:fixed; pointer-events:none;">
+        <canvas id="canvas-hub" width="220" height="110"></canvas>
+        <video id="video-hub" autoplay muted playsinline></video>
+    </div>
+
+    <!-- Quick Share Input (Step 1 & 3) -->
+    <input type="file" accept="image/*" capture="environment" id="input-quick-share" class="hidden">
+
+    <!-- Audio para alerta 30min -->
+    <!-- Se usará un tono corto codificado en base64 corto u oscilador puro en JS para evitar pedir descargar assets extra -->
+
+    <!-- Lógica de la App del Repartidor -->
+    <!-- mapa.js requiere global orders -->
+    <script>window.orders = [];</script>
+    <script src="mapa.js?v=44"></script>
+    <script src="repartidor.js?v=45"></script>
+
+    <!-- Registro del Service Worker para PWA -->
+    <!--
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw_admin.js')
+                    .then(reg => console.log('ServiceWorker Repartidor registrado con éxito', reg.scope))
+                    .catch(err => console.error('Error al registrar ServiceWorker Repartidor', err));
+            });
+        }
+    </script>
+    -->
+    <!-- MODAL VALIDAR (ADMIN ONLY) -->
+    <div id="modal-validar-admin"
+        class="fixed inset-0 bg-bgDark/95 z-[100] hidden flex-col transition-all duration-300">
+        <!-- Header -->
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-cardDark/50 backdrop-blur-md">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
+                    <i class="fa-solid fa-shield-check text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-lg text-white">Validar Pedido #<span id="val-admin-nro">---</span></h3>
+                    <p class="text-xs text-slate-400" id="val-admin-llave">Llave: ---</p>
+                </div>
+            </div>
+            <button onclick="closeValidateModalAdmin()"
+                class="w-10 h-10 rounded-full bg-slate-800/50 flex items-center justify-center text-slate-400 active:scale-95 transition-transform">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+
+        <!-- Body Scrollable -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar pb-32">
+            <!-- Order Summary Info -->
+            <div class="bg-slate-800/30 rounded-2xl p-4 border border-slate-700/30">
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-slate-400 text-sm">Monto Registrado</span>
+                    <span class="text-2xl font-black text-primary">S/ <span id="val-admin-monto-orig">0.00</span></span>
+                </div>
+                <div id="val-admin-chips" class="flex flex-wrap gap-2">
+                    <!-- Chips context -->
+                </div>
+            </div>
+
+            <!-- Robot Findings (Column Z/H) -->
+            <div id="val-admin-robot-findings-container" class="hidden">
+                <!-- Inyectado via JS -->
+            </div>
+
+            <!-- Validation Type Selector -->
+            <div class="space-y-3">
+                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Tipo de Validación</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <label class="relative cursor-pointer group">
+                        <input type="radio" name="valAdminType" value="pos" class="peer hidden" checked
+                            onchange="toggleValAdminOptions()">
+                        <div
+                            class="p-3 rounded-xl border border-slate-700/50 bg-slate-800/40 text-center peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:text-primary transition-all">
+                            <i class="fa-solid fa-calculator text-lg mb-1 block"></i>
+                            <span class="text-[10px] font-bold uppercase">POS</span>
+                        </div>
+                    </label>
+                    <label class="relative cursor-pointer group">
+                        <input type="radio" name="valAdminType" value="online" class="peer hidden"
+                            onchange="toggleValAdminOptions()">
+                        <div
+                            class="p-3 rounded-xl border border-slate-700/50 bg-slate-800/40 text-center peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:text-primary transition-all">
+                            <i class="fa-solid fa-globe text-lg mb-1 block"></i>
+                            <span class="text-[10px] font-bold uppercase">Online</span>
+                        </div>
+                    </label>
+                    <label class="relative cursor-pointer group">
+                        <input type="radio" name="valAdminType" value="efectivo" class="peer hidden"
+                            onchange="toggleValAdminOptions()">
+                        <div
+                            class="p-3 rounded-xl border border-slate-700/50 bg-slate-800/40 text-center peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:text-primary transition-all">
+                            <i class="fa-solid fa-money-bill-wave text-lg mb-1 block"></i>
+                            <span class="text-[10px] font-bold uppercase">Efectivo</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Sub-Options for POS -->
+            <div id="val-admin-pos-options" class="bg-slate-800/20 p-3 rounded-xl border border-slate-700/30">
+                <label class="text-[10px] font-bold text-slate-500 uppercase block mb-3">Sub-medio POS</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <button type="button" id="btn-val-admin-tarjeta" onclick="setValAdminPosType('TARJETA')"
+                        class="p-3 rounded-lg border border-primary bg-primary/10 text-primary font-bold text-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-credit-card"></i> Tarjeta
+                    </button>
+                    <button type="button" id="btn-val-admin-qr" onclick="setValAdminPosType('QR')"
+                        class="p-3 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 font-bold text-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-qrcode"></i> QR Yape/Plin
+                    </button>
+                    <input type="hidden" id="val-admin-pos-sub-type" value="TARJETA">
+                </div>
+            </div>
+
+            <!-- Sub-Options for Efectivo -->
+            <div id="val-admin-efectivo-options"
+                class="bg-slate-800/20 p-4 rounded-xl border border-slate-700/30 hidden space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-bold text-slate-500 uppercase block">Monto Recibido</label>
+                        <input type="number" id="val-admin-monto-recibido" step="0.01"
+                            class="w-full bg-bgDark border border-slate-700 rounded-lg p-3 text-white font-bold outline-none focus:border-primary">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-bold text-slate-500 uppercase block">Vuelto Entregado</label>
+                        <input type="number" id="val-admin-vuelto" step="0.01"
+                            class="w-full bg-bgDark border border-slate-700 rounded-lg p-3 text-white font-bold outline-none focus:border-primary">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Photo Upload Area -->
+            <div class="space-y-3">
+                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Evidencia /
+                    Captura</label>
+                <div id="val-admin-upload-area" onclick="document.getElementById('val-admin-photo-input').click()"
+                    class="aspect-video rounded-2xl border-2 border-dashed border-slate-700 bg-slate-800/20 flex flex-col items-center justify-center relative overflow-hidden group active:bg-slate-800/40 transition-all">
+                    <input type="file" id="val-admin-photo-input" accept="image/*" capture="environment" class="hidden"
+                        onchange="handleValAdminPhoto(event)">
+
+                    <div id="val-admin-placeholder" class="text-center">
+                        <div
+                            class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 mb-3 mx-auto border border-slate-700 group-hover:text-primary transition-colors">
+                            <i class="fa-solid fa-camera text-2xl"></i>
+                        </div>
+                        <p class="text-sm font-bold text-slate-400">Tomar Foto</p>
+                        <p class="text-[10px] text-slate-600 uppercase mt-1">Sube la captura del banco o POS</p>
+                    </div>
+
+                    <img id="val-admin-preview" class="absolute inset-0 w-full h-full object-contain hidden"
+                        alt="Vista previa">
+
+                    <!-- OCR Overlay -->
+                    <div id="val-admin-ocr-overlay"
+                        class="absolute inset-0 bg-primary/20 backdrop-blur-[2px] flex items-center justify-center hidden">
+                        <div class="flex flex-col items-center gap-2">
+                            <i class="fa-solid fa-spinner fa-spin text-white text-3xl"></i>
+                            <span class="text-white text-xs font-bold uppercase tracking-widest">Escaneando...</span>
+                        </div>
+                        <div class="absolute h-1 w-full bg-white/50 top-0 animate-ocr-scan"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Amount & Driver -->
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block">Monto Validado</label>
+                    <div class="relative">
+                        <input type="number" id="val-admin-photo-amount" step="0.01"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-amber-400 font-black text-lg outline-none focus:border-amber-500 transition-all pl-9 pr-12">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500/50 font-bold">S/</span>
+                        <div id="val-admin-status-monto" class="absolute right-12 top-1/2 -translate-y-1/2 hidden flex items-center gap-1">
+                            <!-- Inyectado por JS: Check o Alerta -->
+                        </div>
+                        <button type="button" id="btn-val-admin-ocr-trigger"
+                            class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-slate-700/50 text-slate-400 flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-all"
+                            title="Re-escanear">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block">Repartidor Final</label>
+                    <input type="text" id="val-admin-driver"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white font-bold outline-none focus:border-primary transition-all"
+                        list="drivers-list">
+                </div>
+            </div>
+
+            <!-- More Details (Date/Time) -->
+            <div class="grid grid-cols-2 gap-4 pb-10">
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block">Fecha Entrega</label>
+                    <div class="relative">
+                        <input type="text" id="val-admin-date" placeholder="DD/MM/YYYY"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white/80 font-medium outline-none focus:border-primary">
+                        <div id="val-admin-status-fecha" class="absolute right-3 top-1/2 -translate-y-1/2 hidden">
+                            <!-- Inyectado por JS: Check o Alerta -->
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block">Hora Entrega</label>
+                    <input type="time" id="val-admin-time"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white/80 font-medium outline-none focus:border-primary">
+                </div>
+            </div>
+        </div>
+
+        <!-- Float Footer -->
+        <div class="p-4 bg-bgDark/80 backdrop-blur-xl border-t border-slate-800 fixed bottom-0 left-0 right-0 z-[110]">
+            <button type="button" onclick="confirmarValidacionAdmin()" id="btn-confirm-val-admin"
+                class="w-full bg-primary hover:bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-primary/20 flex items-center justify-center gap-3 active:scale-[0.98] transition-all">
+                <span>CONFIRMAR VALIDACIÓN</span>
+                <i class="fa-solid fa-check-double rotate-3"></i>
+            </button>
+        </div>
+    </div>
+
+    <style>
+        @keyframes ocr-scan {
+            0% {
+                top: 0;
+            }
+
+            50% {
+                top: 100%;
+            }
+
+            100% {
+                top: 0;
+            }
+        }
+
+        .animate-ocr-scan {
+            animation: ocr-scan 2s linear infinite;
+        }
+    </style>
+    <datalist id="drivers-list"></datalist>
+
+    <!-- ================================================ -->
+    <!-- PANTALLA: ASISTENCIA (Entrada / Salida)          -->
+    <!-- ================================================ -->
+    <div id="pantalla-asistencia" class="hidden flex-col h-screen slide-up relative bg-bgDark">
+
+        <!-- Header -->
+        <header class="bg-cardDark px-4 py-4 flex items-center justify-between border-b border-slate-700/50 sticky top-0 z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                    <i class="fa-solid fa-user-clock"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold leading-tight">Mi Asistencia</h2>
+                    <p class="text-xs text-slate-400" id="lbl-asistencia-semana">Semana actual</p>
+                </div>
+            </div>
+            <button onclick="cargarMiAsistencia()" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </header>
+
+        <main class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-28">
+
+            <!-- BOTONES PRINCIPALES -->
+            <div class="grid grid-cols-1 gap-4">
+
+                <!-- ENTRADA -->
+                <button id="btn-registrar-entrada" onclick="iniciarRegistroAsistencia('INGRESO')"
+                    class="bg-emerald-500/10 hover:bg-emerald-500/20 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-3xl p-6 flex items-center gap-5 active:scale-[0.97] transition-all">
+                    <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                        <i class="fa-solid fa-right-to-bracket text-emerald-400 text-3xl"></i>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xl font-black text-emerald-400">REGISTRAR ENTRADA</div>
+                        <div class="text-sm text-slate-400 mt-1">Escanea el QR del local + GPS</div>
+                    </div>
+                </button>
+
+                <!-- SALIDA -->
+                <button id="btn-registrar-salida" onclick="iniciarRegistroAsistencia('SALIDA')"
+                    class="bg-red-500/10 hover:bg-red-500/20 border-2 border-red-500/40 hover:border-red-400 rounded-3xl p-6 flex items-center gap-5 active:scale-[0.97] transition-all">
+                    <div class="w-16 h-16 rounded-2xl bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                        <i class="fa-solid fa-right-from-bracket text-red-400 text-3xl"></i>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xl font-black text-red-400">REGISTRAR SALIDA</div>
+                        <div class="text-sm text-slate-400 mt-1">Con QR (local) o directo (ruta)</div>
+                    </div>
+                </button>
+            </div>
+
+            <!-- RESUMEN SEMANAL -->
+            <div class="bg-cardDark rounded-2xl border border-slate-700/50 overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">📊 Esta Semana</span>
+                </div>
+                <div id="asistencia-resumen-semana" class="p-3 space-y-2">
+                    <div class="text-center text-slate-500 py-6 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i>Cargando...
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL QR SCANNER (para escanear el QR de la tablet) -->
+    <div id="modal-qr-scanner" class="fixed inset-0 bg-black/95 z-[200] hidden flex-col">
+        <div class="flex items-center justify-between p-4 border-b border-slate-800">
+            <div>
+                <span class="text-xs text-slate-400 uppercase tracking-wider block">Escaneando QR</span>
+                <span class="text-xl font-bold" id="lbl-qr-tipo">ENTRADA</span>
+            </div>
+            <button onclick="cerrarQRScanner()" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 flex flex-col items-center justify-center gap-6 p-6">
+            <!-- Video stream para cámara -->
+            <div class="relative w-full max-w-sm">
+                <video id="qr-video" class="w-full rounded-2xl bg-slate-900" autoplay playsinline muted></video>
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <!-- Marco de escaneo -->
+                    <div class="w-52 h-52 relative">
+                        <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
+                        <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
+                        <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg"></div>
+                        <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-lg"></div>
+                        <div class="absolute top-0 left-0 right-0 h-0.5 bg-emerald-400/60 animate-ocr-scan"></div>
+                    </div>
+                </div>
+            </div>
+            <p class="text-slate-300 text-center text-sm">Apunta la cámara al código QR de la pantalla del local</p>
+
+            <!-- Opción alternativa: sin QR (en ruta) -->
+            <button onclick="registrarSinQR()" class="text-slate-500 text-xs font-bold uppercase tracking-widest py-3 hover:text-slate-300 border border-slate-700 rounded-xl px-6">
+                <i class="fa-solid fa-location-dot mr-2"></i>Estoy en Ruta — Registrar sin QR
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

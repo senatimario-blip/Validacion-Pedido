@@ -1,0 +1,1704 @@
+// --- CÃ“DIGO GOOGLE APPS SCRIPT FINAL v3.0 ---
+// Hoja: "Pedidos" con 14 columnas (A-N)
+// A: Nro  B: Fecha  C: Llave  D: Monto  E: Foto(URL)  F: Monto Foto
+// G: Estado  H: Validado Por  I: Fecha ValidaciÃ³n  J: Resp. EnvÃ­o
+// K: Pago Original  L: Tipo Pago Val.  M: Vuelto  N: Motivo CancelaciÃ³n
+// O: SLA Fuera Tiempo  P-R: Entrega/SLA  S: Ruta  T: Viaje
+// U-X: Anti-Cheat Metadata  Y: Hora TADA
+
+function doGet(e) {
+  return HtmlService.createHtmlOutput("API Activa - v3.0 Columnas Limpias");
+}
+
+function doPost(e) {
+  const output = ContentService.createTextOutput().setMimeType(ContentService.MimeType.JSON);
+  try {
+    const payload = JSON.parse(e.postData.contents);
+    const action = payload.action;
+    logToSheet("Action: " + action + " | Nro: " + (payload.nro || payload.llave || 'n/a'));
+    
+    let result = {};
+    switch(action) {
+      case 'login':               result = login(payload.user, payload.pass); break;
+      case 'listarPedidos':       result = listarPedidos(); break;
+      case 'crearPedido':         result = crearPedido(payload); break;
+      case 'validarPedido':       result = validarPedido(payload); break;
+      case 'rechazarPedido':      result = rechazarPedido(payload); break;
+      case 'crearPedidosMasivos': result = crearPedidosMasivos(payload); break;
+      case 'actualizarHorasTada': result = actualizarHorasTada(payload.orders); break;
+      case 'marcarSLAFuera':      result = marcarSLAFuera(payload.nro, payload.fuera_sla); break;
+      case 'guardarFotoOcr':      result = guardarFotoOcrSilent(payload.llave, payload.fotoBase64, payload.lat, payload.lng, payload.accuracy, payload.phoneTimestamp); break;
+      case 'processVoucherOCR':   result = processVoucherOCR(payload); break;
+      case 'setGeminiKey':        result = setGeminiKey(payload); break;
+      case 'loginMotorizado':     result = loginMotorizado(payload.user, payload.pass); break;
+      case 'marcarPorValidar':    result = marcarPorValidar(payload.nro, payload.fechaEntrega, payload.horaEntrega, payload.lat, payload.lng, payload.accuracy, payload.phoneTimestamp, payload.isAutoValidated); break;
+      case 'asignarMotorizado':   result = asignarMotorizado(payload); break;
+      case 'marcarEnCamino':      result = marcarEnCamino(payload.nro); break;
+      case 'crearViajeAutomatico': result = crearViajeAutomatico(payload); break;
+      case 'guardarOrdenRutaMotorizado': result = guardarOrdenRutaMotorizado(payload); break;
+      case 'asignarViajePedido':  result = asignarViajePedido(payload); break;
+      case 'corregirEntrega':     result = corregirEntrega(payload); break;
+      case 'getPhotoBase64':      result = getPhotoBase64(payload.nro); break;
+      case 'crearMotorizado':     result = crearMotorizado(payload); break;
+      case 'guardarHorarioSemananal': result = guardarHorarioSemananal(payload); break;
+      case 'obtenerHorariosSemanales': result = obtenerHorariosSemanales(payload.semanaId); break;
+      case 'registrarMovimientoCaja': result = registrarMovimientoCaja(payload); break;
+      case 'getCajaData':             result = getCajaData(payload); break;
+      case 'guardarVueltoInline':     result = guardarVueltoInline(payload); break;
+      case 'obtenerNombresMotorizados': result = obtenerNombresMotorizados(); break;
+      case 'obtenerLlavesExistentes':   result = obtenerLlavesExistentes(); break;
+      case 'extraerListaPOS':           result = extraerListaPOS(payload); break;
+      case 'guardarAuditoriaPOS':       result = guardarAuditoriaPOS(payload); break;
+      case 'obtenerAuditoriasPOS':      result = obtenerAuditoriasPOS(payload.filtro); break;
+      case 'obtenerDataSistemaAudit':   result = obtenerDataSistemaAudit(payload); break;
+      default:                    result = { success: false, message: 'AcciÃ³n no encontrada' };
+    }
+    return output.setContent(JSON.stringify(result));
+  } catch (err) {
+    output.setContent(JSON.stringify({ success: false, message: err.toString() }));
+  }
+  return output;
+}
+
+const SPREADSHEET_ID = '1wFzE3tJCLsx-bBoOnLcyCsBngPu75JLfUaFTK_mX62U';
+
+function getSheet() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Pedidos');
+}
+
+function login(user, pass) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Usuarios');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) == user && String(data[i][1]) == pass) {
+      return { success: true, user: { usuario: data[i][0], nombre: data[i][2], rol: data[i][3] || 'Lector' } };
+    }
+  }
+  return { success: false, message: "Credenciales incorrectas" };
+}
+
+function loginMotorizado(user, pass) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Motorizados');
+  if (!sheet) return { success: false, message: "Hoja de Motorizados no encontrada" };
+  
+  const data = sheet.getDataRange().getValues();
+  // Asumimos Fila 1 = Encabezados, Fila 2 en adelante = Datos (Col0: Nombre, Col1: ContraseÃ±a)
+  for (let i = 1; i < data.length; i++) {
+    const dbUser = String(data[i][0]).trim();
+    const dbPass = String(data[i][1]).trim();
+    if (dbUser.toLowerCase() === String(user).trim().toLowerCase() && dbPass === String(pass).trim()) {
+      return { success: true, user: dbUser };
+    }
+  }
+  return { success: false, message: "ContraseÃ±a incorrecta o usuario no encontrado" };
+}
+
+function listarPedidos() {
+  const sheet = getSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: true, data: [] };
+
+  // Leer 32 columnas (A..AF)
+  const data = sheet.getRange(2, 1, lastRow - 1, 32).getValues();
+  // Traemos tambiÃ©n los Textos (Display Values) para ignorar el formato histÃ³rico de Time/Dates en Sheets
+  const displayData = sheet.getRange(2, 1, lastRow - 1, 32).getDisplayValues();
+
+  const pedidos = data.map((row, index) => ({
+    nro:               row[0],
+    fecha:             row[1],
+    llave:             row[2],
+    monto:             row[3],
+    foto:              row[4],   // E: URL limpia
+    monto_foto:        row[5],   // F
+    estado:            row[6],   // G
+    validado_por:      row[7],   // H
+    fecha_validacion:  row[8],   // I
+    envio:             row[9],   // J
+    pago:              row[10],  // K: Pago Original
+    tipo_pago:         row[11],  // L: Tipo Pago Val.
+    vuelto:            row[12],  // M: Vuelto
+    motivo_cancelacion: row[13], // N: Motivo CancelaciÃ³n
+    sla_fuera:         row[14],  // O: SLA Fuera Tiempo
+    fecha_entrega:     displayData[index][15],  // P: Fecha Entrega como texto en hoja
+    hora_entrega:      displayData[index][16],  // Q: Hora Entrega como texto en hoja
+    tiempo_transcurrido: displayData[index][17], // R: Texto Puro de Tiempo Transcurrido (ej "00:26:00")
+    orden_ruta:        row[18],  // S: Ordenamiento explÃ­cito para la ruta del motorizado
+    viaje_id:          row[19],  // T: ID de Viaje para agrupaciÃ³n y pagos
+    lat:               row[20],  // U: Latitud
+    lng:               row[21],  // V: Longitud
+    accuracy:          row[22],  // W: Preci GPS
+    phoneTimestamp:    row[23],  // X: Timestamp del Celular
+    fechaHoraReal:     row[24],  // Y: Fecha y Hora Real (Calculada)
+    minutosReales:     row[25],  // Z: Minutos Reales (Y - B)
+    idTransaccion:     row[26],  // AA
+    fechaPos:          displayData[index][27],  // AB
+    horaPos:           displayData[index][28],  // AC
+    idCompras:         row[29],  // AD
+    esDuplicado:       row[30],  // AE
+    hallazgoRobot:     row[31]   // AF
+  })).filter(p => p.nro);
+
+  return { success: true, data: pedidos.sort((a, b) => b.nro - a.nro) };
+}
+
+function marcarSLAFuera(nro, fuera_sla) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == nro) {
+      const cell = sheet.getRange(i + 1, 15);
+      if (fuera_sla) {
+        cell.setValue(new Date()); // Marcar con fecha/hora actual
+        return { success: true, marked: true };
+      } else {
+        cell.clearContent();       // Limpiar correctamente la celda
+        return { success: true, marked: false };
+      }
+    }
+  }
+  return { success: false, msg: 'Pedido no encontrado para validar.' };
+}
+
+function marcarPorValidar(nro, fechaEntrega, horaEntrega, lat, lng, accuracy, phoneTimestamp, isAutoValidated = false) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  
+  // Forzamos que sea booleano por si llega como string "true"
+  const triggerOCR = (String(isAutoValidated) === "true" || isAutoValidated === true);
+  logToSheet("marcarPorValidar Nro: " + nro + " | AutoOCR: " + triggerOCR);
+
+  for (let i = 1; i < rows.length; i++) {
+    // Usamos String y trim para asegurar matching (por si hay espacios o tipos distintos)
+    if (String(rows[i][0]).trim() == String(nro).trim()) {
+      
+      // Solo procesar si el estado es 'Pendiente', 'En Camino', 'Reservado' o si el ROBOT quiere validar uno 'Por Validar'
+      const allowedStates = ['Pendiente', 'En Camino', 'Reservado'];
+      if (triggerOCR) allowedStates.push('Por Validar');
+
+      if (allowedStates.includes(rows[i][6])) {
+        
+        // --- GUARDAR METADATOS ANTI-CHEAT ---
+        if (lat) sheet.getRange(i + 1, 21).setValue(lat); // U
+        if (lng) sheet.getRange(i + 1, 22).setValue(lng); // V
+        if (accuracy) sheet.getRange(i + 1, 23).setValue(accuracy); // W
+        if (phoneTimestamp) sheet.getRange(i + 1, 24).setValue(phoneTimestamp); // X
+        
+        // --- GUARDAR FECHA/HORA DE ENTREGA OFICIAL Y CALCULAR R (SLA) ---
+        if (fechaEntrega) sheet.getRange(i + 1, 16).setValue(fechaEntrega); // P
+        if (horaEntrega) sheet.getRange(i + 1, 17).setValue(horaEntrega);   // Q
+        
+        if (fechaEntrega && horaEntrega) {
+          try {
+            const creationDate = new Date(rows[i][1]); // Col B
+            const [h, m] = horaEntrega.split(':').map(Number);
+            const FE = new Date(fechaEntrega);
+            const deliveryDate = new Date(FE.getFullYear(), FE.getMonth(), FE.getDate(), h, m, 0);
+            
+            // Si la entrega es antes de la creación, asumimos cruce de medianoche
+            let diffMs = deliveryDate.getTime() - creationDate.getTime();
+            if (diffMs < -43200000) { // Si es más de 12h antes, es el día siguiente
+               deliveryDate.setDate(deliveryDate.getDate() + 1);
+               diffMs = deliveryDate.getTime() - creationDate.getTime();
+            }
+            
+            const diffMins = Math.floor(diffMs / 60000);
+            const slaHours = Math.floor(diffMins / 60);
+            const slaMins = diffMins % 60;
+            const slaText = slaHours + ":" + String(slaMins).padStart(2,'0') + ":00";
+            sheet.getRange(i + 1, 18).setValue(slaText); // R
+          } catch(e_sla) {
+            logToSheet("Error calculando SLA: " + e_sla.toString());
+          }
+        }
+
+        let finalStatus = 'Por Validar';
+        let validatorUser = '';
+
+        // --- VALIDACIÓN AUTOMÁTICA OCR (Solo si el medio de pago lo requiere) ---
+        const pagoOriginal = String(rows[i][10] || "").trim(); // Col K
+        const mediosConVoucher = ['Código QR de Plin', 'Tarjeta de crédito / débito', 'Código QR de Yape'];
+        const esPagoEfectivo = !mediosConVoucher.includes(pagoOriginal);
+
+        if (triggerOCR && !esPagoEfectivo) {
+          try {
+            const montoEsperado = parseFloat(rows[i][3]) || 0; // Col D: Monto Pedido
+            logToSheet("Robot AG Iniciando Auto-Validación p/ #" + nro + " (" + pagoOriginal + ")");
+            
+            // Pausa breve para asegurar que Google Drive procesó el archivo
+            Utilities.sleep(2000); 
+            
+            const photoData = getPhotoBase64(nro);
+            if (photoData.success) {
+              const ocrResult = processVoucherOCR({
+                imageBase64: photoData.base64,
+                mimeType: photoData.mimeType
+              });
+
+              if (ocrResult.success && ocrResult.data && ocrResult.data.total) {
+                const ocr = ocrResult.data;
+                const montoOCR = parseFloat(ocr.total) || 0;
+                const horaVoucherStr = ocr.hora || ''; // Disponible desde aquí
+                logToSheet("OCR: monto=" + montoOCR + " fecha=" + ocr.fecha + " hora=" + horaVoucherStr + " id=" + ocr.idOperacion);
+
+                // --- 1. GUARDAR SIEMPRE: Monto foto, ID operación, Fecha POS, Hora POS ---
+                sheet.getRange(i + 1, 6).setValue(montoOCR);           // F: Monto Foto
+                if (ocr.idOperacion)  sheet.getRange(i + 1, 27).setValue(ocr.idOperacion); // AA: ID Transacción
+                if (ocr.fecha) {
+                  sheet.getRange(i + 1, 28).setValue(ocr.fecha);      // AB: Fecha POS
+                }
+                if (ocr.hora) {
+                  sheet.getRange(i + 1, 29).setValue(ocr.hora);       // AC: Hora POS
+                }
+                // NUEVO: Guardar ID Compras (Columna AD = 30)
+                if (ocr.idCompras) {
+                  const idLimpio = String(ocr.idCompras).trim();
+                  sheet.getRange(i + 1, 30).setValue(idLimpio);
+
+                  // --- DETECTAR ID DUPLICADO EN OTROS PEDIDOS ---
+                  if (idLimpio && idLimpio !== "0") {
+                    const allIds = sheet.getRange(2, 30, rows.length - 1, 1).getValues();
+                    let duplicadoEnNro = null;
+                    for (let r = 0; r < allIds.length; r++) {
+                      // No comparar con la fila actual (i es el indice 0-based de la fila actual)
+                      if (String(allIds[r][0]).trim() === idLimpio && (r + 1) !== i) {
+                        duplicadoEnNro = rows[r + 1][0]; // rows[r+1] es el Nro del pedido original (r+1 porque rows incluye cabecera)
+                        break;
+                      }
+                    }
+                    if (duplicadoEnNro) {
+                      ocr.hallazgo = (ocr.hallazgo ? ocr.hallazgo + " | " : "") + "ALERTA: ID Compras ya usado en pedido #" + duplicadoEnNro;
+                      ocr.esDuplicado = true;
+                    }
+                  }
+                }
+
+                // NUEVO: Guardar Duplicado (Columna AE = 31)
+                if (ocr.esDuplicado)  sheet.getRange(i + 1, 31).setValue(true);
+
+                // NUEVO: Guardar Hallazgo Robot inicial (Columna AF = 32)
+                if (ocr.hallazgo)     sheet.getRange(i + 1, 32).setValue(ocr.hallazgo);
+
+                // --- 2. VALIDAR MONTO ---
+                const montoOK = Math.abs(montoOCR - montoEsperado) < 0.02;
+
+                // --- 3. VALIDAR FECHA (voucher vs fecha del pedido Col B) ---
+                let fechaOK = false;
+                try {
+                  if (ocr.fecha) {
+                    const partsOCR = ocr.fecha.split('/');
+                    // Soporta DD/MM/YY y DD/MM/YYYY
+                    const dayOCR = parseInt(partsOCR[0]);
+                    const monOCR = parseInt(partsOCR[1]) - 1;
+                    const yrOCR  = parseInt(partsOCR[2]) < 100 ? 2000 + parseInt(partsOCR[2]) : parseInt(partsOCR[2]);
+                    const fechaVoucher = new Date(yrOCR, monOCR, dayOCR);
+
+                    const fechaPedido = new Date(rows[i][1]); // Col B
+                    fechaOK = (
+                      fechaVoucher.getFullYear()  === fechaPedido.getFullYear() &&
+                      fechaVoucher.getMonth()     === fechaPedido.getMonth() &&
+                      fechaVoucher.getDate()      === fechaPedido.getDate()
+                    );
+                  }
+                } catch(ef) { logToSheet("Err validando fecha: " + ef); }
+
+                // --- 4. VALIDAR HORA (voucher debe ser 0-40 min después de hora del PEDIDO en Col B) ---
+                let horaOK = false;
+                try {
+                  if (horaVoucherStr) {
+                    const [hV, mV] = horaVoucherStr.split(':').map(Number);
+                    const minutosVoucher = hV * 60 + mV;
+
+                    // Extraer hora del pedido desde Col B (fecha de creación)
+                    const fechaPedidoB = new Date(rows[i][1]); // Col B
+                    const hP = fechaPedidoB.getHours();
+                    const mP = fechaPedidoB.getMinutes();
+                    const minutosPedido = hP * 60 + mP;
+
+                    const diff = minutosVoucher - minutosPedido;
+                    // Manejo de cruce de medianoche
+                    const diffAjustado = diff < -700 ? diff + 1440 : diff;
+                    horaOK = diffAjustado >= 0 && diffAjustado <= 40;
+                    logToSheet("Hora voucher: " + horaVoucherStr + " | Hora pedido (Col B): " + hP + ":" + String(mP).padStart(2,'0') + " | Diff min: " + diffAjustado + " | horaOK: " + horaOK);
+                  } else {
+                    horaOK = true; // Si Gemini no vio la hora, no bloqueamos
+                  }
+                } catch(eh) { logToSheet("Err validando hora: " + eh); horaOK = true; }
+
+                // --- 5. DECISIÓN FINAL ---
+                if (montoOK && fechaOK && horaOK) {
+                  finalStatus    = 'Validado AG';
+                  validatorUser  = 'AG';
+                  sheet.getRange(i + 1, 9).setValue(new Date());          // I: Fecha validación
+                  sheet.getRange(i + 1, 12).setValue(rows[i][10] || '');  // L: Pago Val = K
+                  // Guardar datos del voucher
+                  if (ocr.fecha) sheet.getRange(i + 1, 28).setValue(ocr.fecha); // AB: Fecha voucher
+                  if (horaVoucherStr) sheet.getRange(i + 1, 29).setValue(horaVoucherStr); // AC: Hora voucher
+                  logToSheet("¡VALIDADO AUTO! monto=" + montoOK + " fecha=" + fechaOK + " hora=" + horaOK);
+                } else {
+                  // Construir motivo de rechazo para el log y para la columna de Hallazgos
+                  const motivos = [];
+                  if (!montoOK)  motivos.push('Monto:' + montoOCR + '≠' + montoEsperado);
+                  if (!fechaOK)  motivos.push('Fecha:' + ocr.fecha);
+                  if (!horaOK)   motivos.push('Hora:' + horaVoucherStr);
+                  
+                  const internalAlert = motivos.join(', ');
+                  validatorUser = 'Robot (NoValidado: ' + internalAlert + ')';
+                  logToSheet("Sin validar auto: " + validatorUser);
+
+                  // Acumular alertas internas en la Columna AF (32) junto a los hallazgos de Gemini
+                  const currentFindings = (ocr.hallazgo || "");
+                  const consolidated = (currentFindings ? currentFindings + " | " : "") + "ERR: " + internalAlert;
+                  sheet.getRange(i + 1, 32).setValue(consolidated);
+                }
+
+                // El Robot AG ya no sincroniza P y Q para proteger la hora oficial
+                logToSheet("Auditoría Robot guardada en AB/AC. P/Q se mantienen con la hora oficial.");
+              } else {
+                const errMsg = 'Robot (Err: ' + (ocrResult.message || 'Sin monto') + ')';
+                validatorUser = errMsg;
+                sheet.getRange(i + 1, 32).setValue(errMsg); // Guardar error en AF
+              }
+            } else {
+              validatorUser = 'Robot (Foto no encontrada)';
+            }
+          } catch(e_ocr) {
+            logToSheet("Error Crítico en Robot AG: " + e_ocr.toString());
+          }
+        } else if (triggerOCR && esPagoEfectivo) {
+          logToSheet("Robot AG OMITIDO p/ #" + nro + ": El medio de pago (" + pagoOriginal + ") no requiere voucher.");
+        }
+
+        sheet.getRange(i + 1, 7).setValue(finalStatus); // G: Estado
+        if (validatorUser) sheet.getRange(i + 1, 8).setValue(validatorUser); // H: Validado por
+
+        // P, Q y R ya fueron guardados al inicio de la función para mayor precisión temporal
+        
+        // Sincronización forzada para que la UI de Google Sheets se actualice inmediatamente
+        SpreadsheetApp.flush(); 
+
+        return { success: true, status: finalStatus, isAuto: triggerOCR };
+      }
+    }
+  }
+  return { success: false, message: 'Pedido no encontrado o ya validado.' };
+}
+
+
+function marcarEnCamino(nro) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == nro) {
+      if (rows[i][6] === 'Pendiente') {
+        sheet.getRange(i + 1, 7).setValue('En Camino');
+        return { success: true };
+      }
+      return { success: true, message: 'Estado actual no es Pendiente' };
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
+}
+
+function crearViajeAutomatico(payload) {
+  try {
+    const nro = payload.nro;
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    let driverName = "";
+    let targetRowIndex = -1;
+
+    // 1. Encontrar el pedido y su repartidor
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] == nro) {
+        targetRowIndex = i + 1;
+        driverName = (rows[i][9] || "").toString().trim(); // Col J: Responsable EnvÃ­o
+        break;
+      }
+    }
+
+    if (targetRowIndex === -1) return { success: false, message: "Pedido no encontrado" };
+
+    // 2. AUTOMATIZACIÃ“N DE VIAJE (v5.1 - Solo vÃ­a Monitor)
+    const newViajeId = "AUTO_" + Date.now().toString().substring(5);
+    let autoGroupCount = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const rowDriver = (rows[i][9] || "").toString().trim();
+      const rowEstado = rows[i][6];
+      const rowViajeId = (rows[i][19] || "").toString().trim();
+
+      if (rowDriver.toLowerCase() === driverName.toLowerCase() && 
+          (rowEstado === 'Pendiente' || rowEstado === 'En Camino' || rowEstado === 'Por Validar') &&
+          (rowViajeId === "" || rowViajeId === "null" || rowViajeId === "undefined")) {
+            
+        sheet.getRange(i + 1, 20).setValue(newViajeId); // Col T: Viaje ID
+        autoGroupCount++;
+      }
+    }
+    return { success: true, message: "Viaje auto-creado con " + autoGroupCount + " pedidos." };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function asignarMotorizado(data) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == data.nro) {
+      sheet.getRange(i + 1, 10).setValue(data.envio || ""); // Columna J: Responsable EnvÃ­o
+      return { success: true };
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
+}
+
+function validarPedido(data) {
+  var sheet = getSheet();
+  var rows = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] == data.nro) { rowIndex = i + 1; break; }
+  }
+  if (rowIndex === -1) return { success: false, message: "Pedido no encontrado" };
+
+  var photoUrl = "";
+  if (data.archivo && data.archivo.data) {
+    try {
+      var folderId = "1YO8veJ9RtTGOBdilEEnVHdPSLwsbGdRo";
+      var folder = DriveApp.getFolderById(folderId);
+      var blob = Utilities.newBlob(
+        Utilities.base64Decode(data.archivo.data),
+        data.archivo.type,
+        data.archivo.name
+      );
+      var file = folder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      photoUrl = "https://lh3.googleusercontent.com/d/" + file.getId();
+    } catch(e) {
+      photoUrl = "Error al subir: " + e.toString();
+    }
+  } else {
+    // Mantener URL existente de columna E (ya estÃ¡ limpia)
+    photoUrl = rows[rowIndex - 1][4] || "";
+    // Si la URL guardada tiene texto concatenado por versiones anteriores, limpiarla
+    if (photoUrl && photoUrl.indexOf(' ') > -1) {
+      photoUrl = photoUrl.split(' ')[0];
+    }
+  }
+
+  // Guardar en columnas separadas y limpias
+  sheet.getRange(rowIndex, 5).setValue(photoUrl);           // E: URL limpia
+  sheet.getRange(rowIndex, 6).setValue(data.montoFoto || 0); // F: Monto foto OCR
+  sheet.getRange(rowIndex, 7).setValue("Validado");          // G: Estado
+  sheet.getRange(rowIndex, 8).setValue(data.usuario);        // H: Validado por
+  sheet.getRange(rowIndex, 9).setValue(new Date());          // I: Fecha validaciÃ³n
+  sheet.getRange(rowIndex, 10).setValue(data.envio || "");    // J: Responsable EnvÃ­o
+  sheet.getRange(rowIndex, 12).setValue(data.tipo || "");    // L: Tipo Pago Val.
+  sheet.getRange(rowIndex, 13).setValue(                     // M: Vuelto
+    (data.tipo === "EFECTIVO" && data.vuelto) ? parseFloat(data.vuelto) : ""
+  );
+  sheet.getRange(rowIndex, 16).setValue(data.fechaEntrega || ""); // P: Fecha de Entrega
+  sheet.getRange(rowIndex, 17).setValue(data.horaEntrega || "");  // Q: Hora de Entrega
+  sheet.getRange(rowIndex, 18).setValue(data.tiempoTranscurrido || ""); // R: Tiempo Transcurrido
+
+  // --- NUEVO v6.1: GUARDAR DATA OCR EN VALIDACIÓN MANUAL (Identico al Robot) ---
+  // Nos aseguramos de tener al menos 32 columnas (hasta AF)
+  if (sheet.getMaxColumns() < 32) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), 32 - sheet.getMaxColumns());
+  }
+
+  // Preparamos el array de datos para las columnas AA (27) a AF (32)
+  var ocrFields = [
+    data.idOperacion || "",
+    data.fechaPOS || "",
+    data.horaPOS || "",
+    data.idCompras || "",
+    data.esDuplicado ? "SÍ" : "NO",
+    data.hallazgo || ""
+  ];
+  
+  try {
+    sheet.getRange(rowIndex, 27, 1, 6).setValues([ocrFields]);
+  } catch(err) {
+    logToSheet("Action: validarPedido | ERROR columnas AA-AF: " + err.toString());
+  }
+
+  return { success: true };
+}
+
+// ============== ENDPOINT PARA LA APP DEL REPARTIDOR ==============
+// Sube la foto pura a Drive y la asocia al Pedido sin validarlo aÃºn.
+function guardarFotoOcrSilent(llaveBusqueda, fotoB64, lat, lng, accuracy, phoneTimestamp) {
+  if (!fotoB64 || !llaveBusqueda) return { success: false, msg: 'Faltan datos' };
+  
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  // Busca el pedido por Llave exacta (ignorando vacÃ­os)
+  const llaveTarget = llaveBusqueda.toString().trim().toUpperCase();
+  let rowIndex = -1;
+  
+  for (let i = 1; i < data.length; i++) {
+    const llaveActual = (data[i][2] || '').toString().trim().toUpperCase(); // Columna C es indice 2 (Llave)
+    if (llaveActual === llaveTarget && llaveActual !== '') {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex === -1) {
+    return { success: false, msg: 'No se encontrÃ³ la llave: ' + llaveTarget };
+  }
+
+  try {
+    const rootFolder = DriveApp.getFolderById('1yXvMbRZ2MAIaNkY0E1VGAr4e1y12L_W_'); // ID de la nueva carpeta FotosApp
+    const mimeType = 'image/jpeg';
+    const blob = Utilities.newBlob(Utilities.base64Decode(fotoB64), mimeType, 'pre_ocr_' + llaveTarget + '_' + Date.now() + '.jpg');
+    const file = rootFolder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const link = file.getUrl();
+    
+    // Guardar el enlace en la Columna E (Foto URL)
+    sheet.getRange(rowIndex, 5).setValue(link);
+    
+    // --- GUARDAR METADATOS ANTI-CHEAT (v4.0) ---
+    if (lat) sheet.getRange(rowIndex, 21).setValue(lat); // U
+    if (lng) sheet.getRange(rowIndex, 22).setValue(lng); // V
+    if (accuracy) sheet.getRange(rowIndex, 23).setValue(accuracy); // W
+    if (phoneTimestamp) sheet.getRange(rowIndex, 24).setValue(phoneTimestamp); // X
+
+    // --- DISPARAR MARCAR POR VALIDAR Y ROBOT (v6.0) ---
+    // Capturamos la hora exacta del servidor (Lima) en que entra la foto
+    // Esto asegura que el cronómetro se detenga al instante de recibir la evidencia.
+    const now = new Date();
+    const fEnt = Utilities.formatDate(now, "GMT-5", "yyyy-MM-dd");
+    const hEnt = Utilities.formatDate(now, "GMT-5", "HH:mm");
+
+    const resultVal = marcarPorValidar(data[rowIndex-1][0], fEnt, hEnt, lat, lng, accuracy, phoneTimestamp, true);
+    
+    if (resultVal.success && resultVal.status === 'Validado AG') {
+       return { success: true, url: link, autoValidated: true, msg: 'Validado automáticamente por Robot AG' };
+    }
+    
+    return { success: true, url: link };
+  } catch (e) {
+    return { success: false, msg: 'Error de Drive:' + e.message };
+  }
+}
+
+function crearPedidosMasivos(payload) {
+  try {
+    const sheet = getSheet();
+    const data = sheet.getDataRange().getValues();
+    let maxNro = 0;
+    const existingKeys = new Set();
+    for (let i = 1; i < data.length; i++) {
+        const n = parseInt(data[i][0]);
+        if (n > maxNro) maxNro = n;
+        if (data[i][2]) existingKeys.add(String(data[i][2]).trim());
+    }
+
+    let addedCount = 0;
+    const now = new Date();
+    const offset = -5; // Lima UTC-5
+    const limaNow = new Date(now.getTime() + (offset * 3600000) + (now.getTimezoneOffset() * 60000));
+    
+    payload.orders.forEach(order => {
+        if (existingKeys.has(String(order.llave).trim())) return;
+        
+        let fechaFinal = order.fecha || "";
+        const lowerFecha = fechaFinal.toLowerCase();
+
+        // 1. Detectar si es un formato ISO o fecha válida procesable
+        let parsedDate = new Date(fechaFinal);
+        
+        // --- PARSEO MANUAL PARA FORMATO TADA (v1.22) ---
+        // Ejemplo: "6 mar. 2026 10:54 p. m."
+        if (isNaN(parsedDate.getTime()) || (!fechaFinal.includes('T') && !fechaFinal.includes('-'))) {
+             const meses = {
+               'ene': 'Jan', 'feb': 'Feb', 'mar': 'Mar', 'abr': 'Apr', 'may': 'May', 'jun': 'Jun',
+               'jul': 'Jul', 'ago': 'Aug', 'sep': 'Sep', 'oct': 'Oct', 'nov': 'Nov', 'dic': 'Dec'
+             };
+             let tempFecha = lowerFecha
+               .replace(/\s+/g, ' ')      // Normalizar cualquier tipo de espacio (incluyendo raros)
+               .replace(/\./g, '')        // Quitar puntos de "mar." o "p.m."
+               .replace('p m', 'PM').replace('a m', 'AM');
+             
+             // Reemplazar mes español por inglés
+             for (let es in meses) {
+               if (tempFecha.includes(es)) {
+                 tempFecha = tempFecha.replace(es, meses[es]);
+                 break;
+               }
+             }
+             const manualParsed = new Date(tempFecha);
+             if (!isNaN(manualParsed.getTime())) parsedDate = manualParsed;
+        }
+
+        if (!isNaN(parsedDate.getTime()) && (fechaFinal.includes('T') || (fechaFinal.includes('-') && fechaFinal.includes(':')) || fechaFinal.match(/[a-z]{3}/i))) {
+            // Es una fecha técnica o parseada. Usamos formato HH:mm para limpieza visual.
+            fechaFinal = Utilities.formatDate(parsedDate, "GMT-5", "dd/MM/yyyy HH:mm");
+        } 
+        // 2. Fallbacks para formatos antiguos "Hoy/Ayer"
+        else if (lowerFecha.includes('hoy')) {
+          let timePart = lowerFecha.split('hoy')[1] || "";
+          timePart = timePart.replace(/[^0-9:]/g, "").trim(); // Limpiar rastro de comas o letras
+          fechaFinal = Utilities.formatDate(limaNow, "GMT-5", "dd/MM/yyyy") + (timePart ? " " + timePart : " " + Utilities.formatDate(limaNow, "GMT-5", "HH:mm"));
+        } else if (lowerFecha.includes('ayer')) {
+          const ayer = new Date(limaNow.getTime() - 86400000);
+          let timePart = lowerFecha.split('ayer')[1] || "";
+          timePart = timePart.replace(/[^0-9:]/g, "").trim();
+          fechaFinal = Utilities.formatDate(ayer, "GMT-5", "dd/MM/yyyy") + (timePart ? " " + timePart : " 00:00");
+        }
+        
+        maxNro++;
+        const now = new Date();
+        const datePrefix = Utilities.formatDate(now, "GMT-5", "d/M/yyyy");
+        let fReal = "";
+        let mReal = "";
+
+        if (order.hora_tada && order.hora_tada !== "---") {
+          try {
+            const hLimpia = order.hora_tada.replace(/\./g, "").toLowerCase();
+            fReal = datePrefix + " " + hLimpia;
+            const [h, m] = hLimpia.split(' ')[0].split(':').map(Number);
+            let hs = h;
+            if (hLimpia.includes('p') && hs < 12) hs += 12;
+            if (hLimpia.includes('a') && hs === 12) hs = 0;
+            const fR = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hs, m, 0);
+            mReal = Math.floor((fR - parsedDate) / 60000);
+            if (mReal < -720) mReal += 1440;
+          } catch(e) {}
+        }
+
+        sheet.appendRow([
+            maxNro,           // A: Nro
+            fechaFinal,       // B: Fecha
+            order.llave,      // C: Llave
+            parseFloat(order.monto), // D: Monto
+            "",               // E: Foto URL
+            0,                // F: Monto Foto
+            "Pendiente",      // G: Estado
+            "",               // H: Validado Por
+            "",               // I: Fecha ValidaciÃ³n
+            order.envio || "", // J: Responsable EnvÃ­o
+            order.pago || "", // K: Pago Original
+            "",               // L: Tipo Pago Val.
+            "",               // M: Vuelto
+            "",               // N: Motivo CancelaciÃ³n
+            "",               // O: SLA Fuera Tiempo
+            "",               // P: Fecha Entrega
+            "",               // Q: Hora Entrega
+            "",               // R: Tiempo Transcurrido
+            "",               // S: Orden Ruta
+            "",               // T: Viaje ID
+            "",               // U: Lat
+            "",               // V: Lng
+            "",               // W: Accuracy
+            "",               // X: PhoneTimestamp
+            fReal,            // Y: Fecha y Hora Real
+            mReal,            // Z: Minutos Reales
+            "",               // AA: ID Transacción
+            "",               // AB: Fecha POS
+            "",               // AC: Hora POS
+            "",               // AD: ID Compras
+            "",               // AE: Duplicado
+            ""                // AF: Hallazgo
+        ]);
+        addedCount++;
+    });
+
+    return { success: true, added: addedCount };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+
+
+function actualizarHorasTada(updates) {
+  if (!updates || !updates.length) return { success: true, updated: 0 };
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  let updatedCount = 0;
+  
+  const keyMap = {};
+  for (let i = 1; i < data.length; i++) {
+    const key = data[i][2]; // C: Llave
+    if (key) keyMap[key] = i + 1;
+  }
+  
+  const now = new Date();
+  const datePrefix = Utilities.formatDate(now, "GMT-5", "d/M/yyyy");
+
+  updates.forEach(upd => {
+    const rowIdx = keyMap[upd.llave];
+    if (rowIdx) {
+      const currentValY = data[rowIdx - 1][24]; // Y: Fecha y Hora Real
+      if (!currentValY || currentValY === "" || currentValY === "---") {
+        try {
+          // 1. Crear Fecha y Hora Real (Y)
+          const horaLimpia = upd.hora_tada.replace(/\./g, "").toLowerCase();
+          const fullDateTimeStr = datePrefix + " " + horaLimpia;
+          
+          // 2. Calcular Diferencia (Z = Y - B)
+          const fechaRegistro = new Date(data[rowIdx - 1][1]); // B: Fecha registro
+          
+          // Parseo manual para asegurar compatibilidad
+          const [h, m] = horaLimpia.split(' ')[0].split(':').map(Number);
+          let hours = h;
+          if (horaLimpia.includes('p') && hours < 12) hours += 12;
+          if (horaLimpia.includes('a') && hours === 12) hours = 0;
+          
+          const fechaReal = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, m, 0);
+          
+          let diffMins = Math.floor((fechaReal - fechaRegistro) / 60000);
+          if (diffMins < -720) diffMins += 1440; // Cruce medianoche
+          
+          sheet.getRange(rowIdx, 25).setValue(fullDateTimeStr); // Y
+          sheet.getRange(rowIdx, 26).setValue(diffMins);         // Z
+          updatedCount++;
+        } catch(e) {}
+      }
+    }
+  });
+  
+  return { success: true, updated: updatedCount };
+}
+
+function crearPedido(data) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  let maxNro = 0;
+  for (let i = 1; i < rows.length; i++) { if (rows[i][0] > maxNro) maxNro = rows[i][0]; }
+
+  sheet.appendRow([
+    parseInt(data.nro) || maxNro + 1,
+    new Date(),
+    data.llave,
+    data.monto,
+    "", 0, "Pendiente", "", "",
+    data.envio || "",
+    data.pago || "", "", "", ""
+  ]);
+  return { success: true };
+}
+
+function rechazarPedido(data) {
+  const sheet = getSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == data.nro) {
+      sheet.getRange(i + 1, 7).setValue("Cancelado");          // G: Estado
+      sheet.getRange(i + 1, 8).setValue(data.usuario);         // H
+      sheet.getRange(i + 1, 9).setValue(new Date());           // I
+      sheet.getRange(i + 1, 10).setValue(data.envio || "");    // J: Responsable EnvÃ­o
+      sheet.getRange(i + 1, 14).setValue(data.motivo || "");   // N: Motivo CancelaciÃ³n
+      
+      // Guardar fecha/hora de evidencia (posiblemente editada por el admin)
+      if (data.fechaEntrega) sheet.getRange(i + 1, 16).setValue(data.fechaEntrega); // P
+      if (data.horaEntrega) sheet.getRange(i + 1, 17).setValue(data.horaEntrega);   // Q
+
+      // Guardar tiempo transcurrido (R)
+      if (data.tiempoTranscurrido) sheet.getRange(i + 1, 18).setValue(data.tiempoTranscurrido);
+      
+      return { success: true };
+    }
+  }
+  return { success: false, message: "Pedido no encontrado" };
+}
+
+// --- GEMINI VISION OCR ---
+
+function setGeminiKey(data) {
+  if (!data.apiKey) return { success: false, message: "API key requerida" };
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', data.apiKey);
+  return { success: true, message: "API key guardada correctamente" };
+}
+
+function processVoucherOCR(data) {
+  // OPCIÃ“N A: Pega tu llave directamente entre las comillas de abajo:
+  // var apiKey = 'TU_API_KEY_AQUI'; 
+  
+  // OPCIÃ“N B (Recomendada): Configura la llave en 'ConfiguraciÃ³n del proyecto' > 'Propiedades del script' con el nombre GEMINI_API_KEY
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    return { success: false, message: "No hay API key de Gemini configurada. Use setGeminiKey primero." };
+  }
+
+  if (!data.imageBase64 || !data.mimeType) {
+    return { success: false, message: "Faltan datos de imagen (imageBase64, mimeType)" };
+  }
+
+  var prompt = 'Extract data from this payment voucher image (POS or Online). '
+    + 'JSON keys: {"fecha":"DD/MM/YY", "hora":"HH:MM", "total":0.00, "tipoPago":"QR|TARJETA", "idOperacion":"", "idCompras":"", "esDuplicado":boolean, "hallazgo":""} '
+    + 'Rules: '
+    + '1. total: extraction of the final amount paid. '
+    + '2. idOperacion: number in parentheses after establishment name (usually 7 digits). '
+    + '3. idCompras: numeric ID usually starting with 0000 after "COMPRAS" or "ID:" (up to 16 digits). '
+    + "4. 'esDuplicado': booleano (true si el voucher ya fue usado o es una copia).\n"
+    + "5. 'hallazgo': string BREVE en ESPAÑOL (ej: 'Foto borrosa', 'Monto no legible', 'Imagen cortada'). Si todo está perfecto, pon 'Todo conforme'.\n\n"
+    + "IMPORTANTE: Toda la respuesta debe estar en ESPAÑOL. Si 'esDuplicado' es true, 'hallazgo' DEBE incluir 'Voucher DUPLICADO'. No respondas en inglés."
+    + 'RETURN ONLY A JSON OBJECT.';
+
+  // Descubrimiento de Modelos (Simplificado para mayor estabilidad)
+  var attempts = [
+    { model: 'gemini-2.0-flash', api: 'v1beta' },
+    { model: 'gemini-1.5-flash', api: 'v1beta' },
+    { model: 'gemini-2.5-flash', api: 'v1beta' }
+  ];
+  var lastError = '';
+
+  for (var i = 0; i < attempts.length; i++) {
+    var model = attempts[i].model;
+    var apiVer = attempts[i].api;
+    var url = 'https://generativelanguage.googleapis.com/' + apiVer + '/models/' + model + ':generateContent?key=' + apiKey;
+
+    var body = {
+      contents: [{ parts: [
+        { text: prompt },
+        { inline_data: { mime_type: data.mimeType, data: data.imageBase64 } }
+      ]}],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
+    };
+
+    try {
+      var response = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(body),
+        muteHttpExceptions: true
+      });
+
+      var code = response.getResponseCode();
+      var respText = response.getContentText();
+
+      if (code === 429) {
+        lastError += '\n[' + model + ']: 429 (Cuota)';
+        Utilities.sleep(2000);
+        continue;
+      }
+
+      if (code !== 200) {
+        lastError += '\n[' + model + ']: ' + code + ' - ' + respText;
+        continue;
+      }
+
+      var jsonResp = JSON.parse(respText);
+      
+      // Parsing robusto para Gemini 2.0+
+      var geminiText = '';
+      if (jsonResp.candidates && jsonResp.candidates.length > 0 
+          && jsonResp.candidates[0].content 
+          && jsonResp.candidates[0].content.parts 
+          && jsonResp.candidates[0].content.parts.length > 0) {
+        geminiText = jsonResp.candidates[0].content.parts[0].text || '';
+      } else {
+        // Log detallado para entender la estructura real
+        logToSheet("DIAG - Respuesta raw (" + model + "): " + respText.substring(0, 300));
+        lastError += '\n[' + model + ']: Respuesta sin candidates/text';
+        continue;
+      }
+      
+      // Clean markdown wrapping if present
+      geminiText = geminiText.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim();
+      
+      // Extract JSON object
+      var jsonMatch = geminiText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        var result = JSON.parse(jsonMatch[0]);
+        result.model = model;
+        logToSheet("OCR ÉXITO con " + model + ": " + JSON.stringify(result));
+        return { success: true, data: result };
+      } else {
+        lastError = 'Respuesta no parseable: ' + geminiText.substring(0, 100);
+      }
+    } catch(e) {
+      lastError = e.toString();
+    }
+  }
+
+  return { success: false, message: 'OCR fallÃ³: ' + lastError };
+}
+
+function guardarOrdenRutaMotorizado(payload) {
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Pedidos');
+    if (!sheet) return { success: false, message: 'Hoja Pedidos no encontrada' };
+
+    const data = sheet.getDataRange().getValues();
+    const orderedIds = payload.orderedIds || [];
+    const responsable = payload.responsable;
+
+    if (!responsable) return { success: false, message: 'Falta nombre del responsable' };
+
+    let updatesCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+       const rowNro = data[i][0].toString();
+       const rowResp = (data[i][9] || '').toString().trim(); // Col J 
+       
+       if (rowResp.toLowerCase() === responsable.toLowerCase()) {
+         // Find this NRO in the orderedIds array
+         const orderIndex = orderedIds.indexOf(rowNro);
+         
+         if (orderIndex !== -1) {
+            // Found it, set its route order (Index 0, 1, 2...)
+            // Guardamos en la columna S (Index 18 original es 0-based, por tanto Columna 19 es 1-based getRange)
+            // A=1, B=2 ... R=18, S=19. Si la columna "Orden Ruta" es la S, entonces es 19. 
+            sheet.getRange(i + 1, 19).setValue(orderIndex);
+            updatesCount++;
+         }
+       }
+    }
+
+    return { success: true, message: `Rutas guardadas: ${updatesCount}` };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+function getPhotoBase64(nro) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    let url = "";
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] == nro) {
+        url = (rows[i][4] || "").toString().trim();
+        break;
+      }
+    }
+    
+    logToSheet("DIAG-FOTO: Nro=" + nro + " | URL encontrada=" + (url ? url.substring(0, 60) : "VACÍA"));
+    if (!url) return { success: false, message: "No hay URL de foto para este pedido" };
+    
+    // Extraer ID de Drive
+    let id = "";
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch) {
+      id = idMatch[1];
+    } else if (url.length > 20 && !url.includes('/') && !url.includes('.')) {
+      id = url;
+    } else {
+      return { success: false, message: "No se pudo extraer el ID de Drive de la URL" };
+    }
+    
+    const file = DriveApp.getFileById(id);
+    const blob = file.getBlob();
+    const b64 = Utilities.base64Encode(blob.getBytes());
+    
+    return { success: true, base64: b64, mimeType: blob.getContentType() };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function asignarViajePedido(payload) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    const nros = payload.nros || [];
+    const viajeId = payload.viajeId;
+    
+    if (viajeId === undefined || viajeId === null) return { success: false, message: 'Falta ID de Viaje' };
+    
+    let updates = 0;
+    for (let i = 1; i < rows.length; i++) {
+      // Verificamos si el NRO del pedido estÃ¡ en la lista recibida
+      if (nros.indexOf(rows[i][0]) !== -1) {
+        // Columna T es la 20 (Index 19)
+        sheet.getRange(i + 1, 20).setValue(viajeId);
+        updates++;
+      }
+    }
+    return { success: true, updates: updates };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function guardarVueltoInline(payload) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    const nro = payload.nro;
+    const vuelto = payload.vuelto;
+
+    if (!nro) return { success: false, message: 'Falta Nro de pedido' };
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] == nro) {
+        // Columna M (Índice 13) es el Vuelto
+        sheet.getRange(i + 1, 13).setValue(parseFloat(vuelto) || "");
+        return { success: true, message: "Vuelto actualizado correctamente" };
+      }
+    }
+    return { success: false, message: "Pedido no encontrado" };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function crearMotorizado(payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName('Motorizados');
+    if (!sheet) {
+      sheet = ss.insertSheet('Motorizados');
+      sheet.appendRow(['Nombre', 'Password']);
+    }
+    
+    const user = String(payload.user).trim();
+    const pass = String(payload.pass).trim();
+    
+    if (!user || !pass) return { success: false, message: 'Nombre y Password obligatorios' };
+    
+    // Verificar duplicado
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === user.toLowerCase()) {
+        return { success: false, message: 'Este repartidor ya existe' };
+      }
+    }
+    
+    sheet.appendRow([user, pass]);
+    return { success: true, message: 'Repartidor '+user+' creado con Ã©xito' };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function corregirEntrega(data) {
+  try {
+    const sheet = getSheet();
+    const rows = sheet.getDataRange().getValues();
+    console.log("CorregirEntrega Recibido para Nro:", data.nro);
+    
+    for (let i = 1; i < rows.length; i++) {
+      // ComparaciÃ³n robusta de nÃºmero de pedido
+      if (String(rows[i][0]).trim() == String(data.nro).trim()) {
+        const rowIndex = i + 1;
+        console.log("Pedido encontrado en fila:", rowIndex);
+        
+        // Actualizar Fecha y Hora
+        if (data.fechaEntrega) sheet.getRange(rowIndex, 16).setValue(data.fechaEntrega); // P
+        if (data.horaEntrega) sheet.getRange(rowIndex, 17).setValue(data.horaEntrega);   // Q
+        
+        // Recalcular Tiempo Transcurrido (Columna R)
+        const fechaRegistro = rows[i][1];
+        if (fechaRegistro && data.fechaEntrega && data.horaEntrega) {
+          try {
+            const [day, month, year] = data.fechaEntrega.split('/').map(Number);
+            const [h, m] = data.horaEntrega.split(':').map(Number);
+            const entregaDate = new Date(year, month - 1, day, h, m, 0);
+            const regDate = new Date(fechaRegistro);
+            
+            const diffMs = entregaDate - regDate;
+            const diffSecs = Math.floor(diffMs / 1000);
+            
+            if (diffSecs >= 0) {
+              const hours = Math.floor(diffSecs / 3600);
+              const minutes = Math.floor((diffSecs % 3600) / 60);
+              const seconds = diffSecs % 60;
+              const durationStr = [hours, minutes, seconds].map(v => String(v).padStart(2, '0')).join(':');
+              sheet.getRange(rowIndex, 18).setValue(durationStr);
+              console.log("SLA Recalculado:", durationStr);
+            }
+          } catch (errRecalc) {
+            console.error("Error recalcuando SLA:", errRecalc);
+          }
+        }
+        
+        SpreadsheetApp.flush(); // Asegurar escritura inmediata
+        return { success: true };
+      }
+    }
+    return { success: false, message: "Pedido #" + data.nro + " no encontrado en la hoja" };
+  } catch (e) {
+    console.error("Error en corregirEntrega:", e);
+    return { success: false, message: e.toString() };
+  }
+}
+
+// --- HORARIOS DE MOTORIZADOS ---
+
+function getHorariosSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('Horarios_Semanales');
+  if (!sheet) {
+    sheet = ss.insertSheet('Horarios_Semanales');
+    // Cabeceras: SemanaID | Nro | Status | Repartidor | Lunes | Martes | Miercoles | Jueves | Viernes | Sabado | Domingo
+    sheet.appendRow(['SemanaID', 'Nro', 'Status', 'Repartidor', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']);
+  }
+  return sheet;
+}
+
+function obtenerHorariosSemanales(semanaId) {
+  try {
+    const sheet = getHorariosSheet();
+    const data = sheet.getDataRange().getValues();
+    const result = [];
+    
+    // Si no hay datos (solo cabeceras), devolver vacÃ­o
+    if (data.length <= 1) return { success: true, data: [] };
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === semanaId) {
+        result.push({
+          nro: data[i][1],
+          status: data[i][2],
+          driver: data[i][3],
+          lunes: data[i][4],
+          martes: data[i][5],
+          miercoles: data[i][6],
+          jueves: data[i][7],
+          viernes: data[i][8],
+          sabado: data[i][9],
+          domingo: data[i][10]
+        });
+      }
+    }
+    return { success: true, data: result };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function guardarHorarioSemananal(payload) {
+  try {
+    const sheet = getHorariosSheet();
+    const semanaId = payload.semanaId;
+    const horarios = payload.horarios || [];
+    
+    if (!semanaId) return { success: false, message: "Falta SemanaID" };
+
+    // 1. Eliminar los registros existentes para esa semana para sobrescribir
+    const data = sheet.getDataRange().getValues();
+    // Iterar de abajo hacia arriba para no alterar los Ã­ndices al borrar
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (data[i][0] === semanaId) {
+        sheet.deleteRow(i + 1);
+      }
+    }
+
+    // 2. Insertar los nuevos registros
+    if (horarios.length > 0) {
+      const rowsToInsert = horarios.map(h => [
+        semanaId,
+        h.nro || '',
+        h.status || '',
+        h.driver || '',
+        h.lunes || '',
+        h.martes || '',
+        h.miercoles || '',
+        h.jueves || '',
+        h.viernes || '',
+        h.sabado || '',
+        h.domingo || ''
+      ]);
+      
+      // AÃ±adir todas las filas juntas es mÃ¡s eficiente
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToInsert.length, 11).setValues(rowsToInsert);
+    }
+
+    return { success: true, message: "Horarios guardados correctamente" };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+// ================= CAJA CHICA (CASH MANAGEMENT) =================
+
+function ensureCajaSheet() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName('Caja_Movimientos');
+  if (!sheet) {
+    sheet = ss.insertSheet('Caja_Movimientos');
+    sheet.appendRow([
+      'ID', 'Fecha', 'Hora', 'Tipo', 'Concepto', 'Monto', 'Pedido_Nro', 'Repartidor', 'Usuario', 'Metodo', 'Saldo_Fisico', 'Saldo_Digital'
+    ]);
+    sheet.getRange(1, 1, 1, 12).setFontWeight('bold').setBackground('#f3f3f3');
+  }
+  return sheet;
+}
+
+function registrarMovimientoCaja(data) {
+  try {
+    var sheet = ensureCajaSheet();
+    var lastRow = sheet.getLastRow();
+    
+    var lastSaldoFisico = 0;
+    var lastSaldoDigital = 0;
+    
+    if (lastRow >= 2) {
+      // Columnas K(11) y L(12) para los saldos
+      var lastValues = sheet.getRange(lastRow, 11, 1, 2).getValues()[0];
+      lastSaldoFisico = parseFloat(lastValues[0]) || 0;
+      lastSaldoDigital = parseFloat(lastValues[1]) || 0;
+    }
+    
+    var monto = parseFloat(data.monto) || 0;
+    var nuevoSaldoFisico = lastSaldoFisico;
+    var nuevoSaldoDigital = lastSaldoDigital;
+    
+    if (data.metodo === "FISICO") {
+      nuevoSaldoFisico += (data.tipo === "INGRESO" ? monto : -monto);
+    } else {
+      nuevoSaldoDigital += (data.tipo === "INGRESO" ? monto : -monto);
+    }
+    
+    var now = new Date();
+    var fechaStr = Utilities.formatDate(now, "GMT-5", "dd/MM/yyyy");
+    var horaStr = Utilities.formatDate(now, "GMT-5", "HH:mm:ss");
+    
+    sheet.appendRow([
+      Date.now(),           // A: ID
+      fechaStr,             // B: Fecha
+      horaStr,              // C: Hora
+      data.tipo || "OTRO",  // D: Tipo
+      data.concepto || "",  // E: Concepto
+      monto,                // F: Monto
+      data.pedidoNro || "", // G: Pedido Nro
+      data.repartidor || "",// H: Repartidor
+      data.usuario || "",   // I: Usuario
+      data.metodo || "FISICO", // J: Metodo
+      nuevoSaldoFisico,     // K: Saldo Fisico
+      nuevoSaldoDigital     // L: Saldo Digital
+    ]);
+    
+    // Si es un EGRESO de vuelto para un pedido especifico, actualizar columna M (Vuelto) en Pedidos
+    if (data.tipo === "EGRESO" && data.pedidoNro) {
+      try {
+        var pedidosSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Pedidos");
+        var pedidosData = pedidosSheet.getDataRange().getValues();
+        for (var pi = 1; pi < pedidosData.length; pi++) {
+          if (pedidosData[pi][0].toString() === data.pedidoNro.toString()) {
+            pedidosSheet.getRange(pi + 1, 13).setValue(monto); // Col M (index 12) = Vuelto
+            break;
+          }
+        }
+      } catch(pe) { /* silently ignore */ }
+    }
+    
+    return { success: true, saldoFisico: nuevoSaldoFisico, saldoDigital: nuevoSaldoDigital };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function getCajaData(params) {
+  try {
+    params = params || {};
+    var targetFecha = params.fecha || Utilities.formatDate(new Date(), "GMT-5", "dd/MM/yyyy");
+
+    var sheet = ensureCajaSheet();
+    var lastRow = sheet.getLastRow();
+    
+    var saldoFisico = 0;
+    var saldoDigital = 0;
+    var movimientos = [];
+
+    if (lastRow >= 2) {
+      var data = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+      var displayValues = sheet.getRange(2, 1, lastRow - 1, 12).getDisplayValues();
+      
+      movimientos = data.map((row, i) => ({
+        id: row[0],
+        fecha: displayValues[i][1],
+        hora: displayValues[i][2],
+        tipo: row[3],
+        concepto: row[4],
+        monto: row[5],
+        pedidoNro: row[6],
+        repartidor: row[7],
+        usuario: row[8],
+        metodo: row[9],
+        saldoFisico: row[10],
+        saldoDigital: row[11]
+      })).reverse(); // Mas recientes primero
+
+      var ultimoRow = data[data.length - 1];
+      saldoFisico = ultimoRow[10];
+      saldoDigital = ultimoRow[11];
+    }
+
+    // --- Obtener Pedidos Contado Pendientes ---
+    var pedidosSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Pedidos");
+    var pedidosDisplay = pedidosSheet.getDataRange().getDisplayValues();
+    var pedidosRaw    = pedidosSheet.getDataRange().getValues();
+    var pedidosContado = [];
+
+    // Parse components of targetFecha (dd/MM/yyyy) for Date object comparison
+    var parts = targetFecha.split('/');
+    var targetDay   = parseInt(parts[0], 10);
+    var targetMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+    var targetYear  = parseInt(parts[2], 10);
+
+    for (var j = 1; j < pedidosDisplay.length; j++) {
+      var pDisp = pedidosDisplay[j];
+      var pRaw  = pedidosRaw[j];
+      
+      var pEstado  = (pDisp[6]  || "").toString().trim().toUpperCase();
+      var pPago    = (pDisp[10] || "").toString().trim().toUpperCase();
+      var pFechaDisp = (pDisp[1] || "").toString(); // Fecha en display, igual que la ves en Sheets
+      
+      // Verificar si el pedido es de la fecha objetivo
+      var esFechaObjetivo = pFechaDisp.includes(targetFecha);
+      
+      // Fallback: comparar con objeto Date si la columna B es Date
+      if (!esFechaObjetivo && pRaw[1] instanceof Date) {
+        esFechaObjetivo = (pRaw[1].getDate()     === targetDay   &&
+                           pRaw[1].getMonth()    === targetMonth &&
+                           pRaw[1].getFullYear() === targetYear);
+      }
+      
+      if (esFechaObjetivo &&
+          (pEstado === "PENDIENTE" || pEstado === "EN CAMINO" || pEstado === "POR VALIDAR" || pEstado === "VALIDADO" || pEstado === "CANCELADO") &&
+          pPago.includes("CONTADO")) {
+        
+        // Estado inicial del card: VALIDADO o CANCELADO si corresponde, sino pendiente
+        var estadoInicial = "PENDIENTE_VUELTO";
+        if (pEstado === "VALIDADO") estadoInicial = "VALIDADO";
+        else if (pEstado === "CANCELADO") estadoInicial = "CANCELADO";
+        
+        pedidosContado.push({
+          nro:         pDisp[0],
+          fecha:       pFechaDisp,
+          llave:       pDisp[2],
+          repartidor:  pDisp[9],
+          monto:       pRaw[3],
+          pago:        pDisp[10],
+          vueltoSheet:     pRaw[12], 
+          vueltoEgresado:  0,
+          metodoVuelto:    "",
+          cobroIngresado:  0,
+          viajeId:         (pDisp[19] || "").toString(), // Columna T
+          motivo_cancelacion: (pDisp[13] || "").toString(), // Columna N
+          sheetEstado:     pEstado, // Estado real en la hoja Pedidos
+          estado:          estadoInicial
+        });
+      }
+    }
+
+    // Cross-reference Caja_Movimientos para encontrar vuelto/cobro de cada pedido
+    if (lastRow >= 2) {
+      var cajaMov = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+      pedidosContado.forEach(function(p) {
+        cajaMov.forEach(function(row) {
+          var movNro    = (row[6] || "").toString().trim();
+          var movTipo   = (row[3] || "").toString().toUpperCase();
+          var movMonto  = parseFloat(row[5]) || 0;
+          if (movNro === p.nro.toString() && movNro !== "") {
+            if (movTipo === "EGRESO") {
+               p.vueltoEgresado = movMonto;
+               p.estado = "PENDIENTE_COBRO";
+            } else if (movTipo === "INGRESO") {
+               p.cobroIngresado = movMonto;
+               p.estado = "COBRADO";
+            }
+          }
+        });
+      });
+
+      var movsFiltrados = movimientos.filter(function(m) {
+        return (m.fecha || "").toString().includes(targetFecha);
+      });
+    } else {
+      var movsFiltrados = [];
+    }
+    
+    return {
+      success: true,
+      saldoFisico: saldoFisico,
+      saldoDigital: saldoDigital,
+      movimientos: movsFiltrados.slice(0, 200), // Ultimos 200 del día
+      pedidosContado: pedidosContado
+    };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function obtenerNombresMotorizados() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Motorizados');
+    if (!sheet) return { success: true, data: [] };
+    const data = sheet.getDataRange().getValues();
+    const names = [];
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0]) names.push(String(data[i][0]).trim());
+    }
+    const uniqueNames = [...new Set(names)].filter(n => n.length > 0).sort();
+    return { success: true, data: uniqueNames };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+function obtenerLlavesExistentes() {
+  try {
+    const sheet = getSheet();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { success: true, data: [] };
+    
+    // Solo leemos las columnas necesarias para mayor velocidad
+    // Col C = 3, Col Y = 25
+    const keys = sheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    const hours = sheet.getRange(2, 25, lastRow - 1, 1).getValues();
+    
+    const result = keys.map((row, i) => ({
+      llave: String(row[0]).trim(),
+      hora: String(hours[i][0]).trim()
+    })).filter(item => item.llave.length > 5);
+
+    return { success: true, data: result };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function logToSheet(msg) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let logSheet = ss.getSheetByName('Logs');
+    if (!logSheet) {
+      logSheet = ss.insertSheet('Logs');
+      logSheet.appendRow(['Fecha', 'Mensaje']);
+    }
+    logSheet.appendRow([new Date(), msg]);
+    SpreadsheetApp.flush();
+  } catch (e) {}
+}
+
+// HERRAMIENTA DE DIAGNÓSTICO: Ejecuta esto manualmente en el editor para probar tu API Key
+function testGeminiKey() {
+  const result = processVoucherOCR({ imageBase64: "dummy", mimeType: "image/jpeg" });
+  Logger.log(JSON.stringify(result, null, 2));
+}
+
+// --- FUNCIÓN PARA FORZAR LA LLAVE CORRECTA (CORREGIDA) ---
+function actualizarLlaveGemini() {
+  // Pega tu llave real aquí (la que empieza con AIza...)
+  const llaveBuena = 'AIzaSyAxzZlGfJ2EM5NdULpZpBQK-F0d1iyQmUk'; 
+  
+  // Guardamos la llave en las propiedades del script
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', llaveBuena);
+  
+  Logger.log("✅ ¡LLAVE ACTUALIZADA CORRECTAMENTE!");
+  Logger.log("Ahora ya puedes probar el robot manual en PruebaOCR.gs");
+}
+
+// --- AUDITORÍA POS (LÓGICA REAL) ---
+
+function getAuditoriasSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('Auditorias_POS');
+  if (!sheet) {
+    sheet = ss.insertSheet('Auditorias_POS');
+    sheet.appendRow(['ID', 'Fecha_Reporte', 'Repartidor', 'Monto_Sistema', 'Monto_POS', 'Diferencia', 'Conciliados', 'Faltantes_POS', 'Faltantes_Sistema', 'Usuario', 'Fecha_Registro', 'URL_Fotos']);
+    sheet.getRange(1, 1, 1, 12).setFontWeight('bold').setBackground('#d9ead3');
+  }
+  return sheet;
+}
+
+function extraerListaPOS(payload) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return { success: false, message: "No se encontró la API Key de Gemini" };
+
+  const parts = [
+    { text: 'Analiza estas imágenes de reportes POS. Extrae CADA transacción respetando estrictamente el orden físico y las páginas que aparecen en la imagen. REGLA CRÍTICA: Cada página completa tiene EXACTAMENTE 10 registros. Si un registro aparece al final de una foto y al principio de otra, INCLÚYELO EN AMBAS si es necesario para que el conteo de la página actual sea correcto (no borres duplicados por traslape si eso rompe la secuencia de 10 por página). Devuelve JSON: [{"monto": 0.00, "tarjeta": "4 digitos", "metodo": "VISA..", "pagina": X, "hora": "HH:mm", "posId": "ID/Terminal"}]. Devuelve SOLO JSON puro.' }
+  ];
+
+  payload.imageBase64Array.forEach(b64Data => {
+    const mimeType = b64Data.split(';')[0].split(':')[1];
+    const data = b64Data.split(',')[1];
+    parts.push({ inline_data: { mime_type: mimeType, data: data } });
+  });
+
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+  const requestBody = { contents: [{ parts: parts }] };
+
+  try {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(requestBody),
+      muteHttpExceptions: true
+    });
+    
+    const responseText = res.getContentText();
+    const jsonRes = JSON.parse(responseText);
+    
+    if (!jsonRes.candidates || !jsonRes.candidates[0]) {
+      throw new Error("Gemini no devolvió resultados: " + responseText);
+    }
+
+    const cleanText = jsonRes.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+    const data = JSON.parse(cleanText);
+    
+    return { success: true, data: data };
+  } catch(e) {
+    return { success: false, message: "Error IA: " + e.toString() };
+  }
+}
+
+function guardarAuditoriaPOS(p) {
+  try {
+    const sheet = getAuditoriasSheet();
+    const now = new Date();
+    // Extraer montos asegurando que sean números
+    const mSistema = parseFloat(p.montoSistema) || 0;
+    const mPOS = parseFloat(p.montoPOS) || 0;
+    const diff = mPOS - mSistema;
+    
+    // ID Descriptivo: AUD-[REPARTIDOR]-[FECHA]
+    const shortName = (p.repartidor || "SR").split(' ')[0].substring(0,3).toUpperCase();
+    const shortDate = (p.fechaReporte || "").replace(/-/g, "");
+    const auditId = "AUD-" + shortName + "-" + shortDate + "-" + now.getHours() + now.getMinutes();
+    
+    // Subir imágenes a Drive y obtener URLs
+    let urlList = [];
+    if (p.imagenes && p.imagenes.length > 0) {
+      try {
+        const folderId = "1yXvMbRZ2MAIaNkY0E1VGAr4e1y12L_W_"; 
+        const rootFolder = DriveApp.getFolderById(folderId);
+        p.imagenes.forEach((imgB64, idx) => {
+          if (!imgB64) return;
+          const mimeType = imgB64.split(';')[0].split(':')[1] || 'image/jpeg';
+          const data = imgB64.split(',')[1];
+          const blob = Utilities.newBlob(Utilities.base64Decode(data), mimeType, "Audit_" + auditId + "_" + idx + ".jpg");
+          const file = rootFolder.createFile(blob);
+          file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          urlList.push(file.getUrl());
+        });
+      } catch(e_drive) {
+        Logger.log("Error subiendo fotos audit: " + e_drive.toString());
+      }
+    }
+    
+    sheet.appendRow([
+      auditId,
+      p.fechaReporte,
+      p.repartidor,
+      mSistema,
+      mPOS,
+      diff,
+      p.conciliadosCount,
+      p.faltantesPOS,
+      p.faltantesSistema,
+      p.usuario,
+      now,
+      urlList.join("\n") 
+    ]);
+    
+    return { success: true, message: "Auditoría guardada correctamente" };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function obtenerAuditoriasPOS(filtro) {
+  try {
+    const sheet = getAuditoriasSheet();
+    const data = sheet.getDataRange().getDisplayValues();
+    if (data.length < 2) return { success: true, data: [] };
+    
+    const audits = data.slice(1).map(r => ({
+      id: r[0], fecha: r[1], driver: r[2], mSistema: r[3], mPos: r[4], diff: r[5], conciliados: r[6], usuario: r[9], registro: r[10]
+    }));
+    
+    return { success: true, data: audits.reverse() };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+function obtenerDataSistemaAudit(payload) {
+  try {
+    const targetFecha = payload.fecha; 
+    const motorizado = payload.motorizado;
+    
+    let tY, tM, tD;
+    if (targetFecha.includes('-')) {
+      [tY, tM, tD] = targetFecha.split('-').map(Number);
+    } else {
+      const parts = targetFecha.split('/');
+      tD = parseInt(parts[0]);
+      tM = parseInt(parts[1]);
+      tY = parseInt(parts[2]);
+    }
+
+    const sheet = getSheet();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { success: true, data: [] };
+
+    const data = sheet.getRange(1, 1, lastRow, 29).getValues();
+    const displayValues = sheet.getRange(1, 1, lastRow, 29).getDisplayValues(); 
+    
+    const metodosFiltro = [
+      'Código QR de Plin',
+      'Código QR de Yape',
+      'Tarjeta de crédito / débito'
+    ];
+
+    const result = [];
+    const motorizadoBuscado = motorizado ? motorizado.toString().trim() : "";
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const dispRow = displayValues[i];
+      
+      const dateVal = row[1];
+      let matchDate = false;
+      if (dateVal instanceof Date) {
+        matchDate = dateVal.getFullYear() === tY && (dateVal.getMonth() + 1) === tM && dateVal.getDate() === tD;
+      } else {
+        const dStr = String(dispRow[1]);
+        const searchStr1 = String(tD).padStart(2,'0') + '/' + String(tM).padStart(2,'0') + '/' + tY;
+        const searchStr2 = tY + '-' + String(tM).padStart(2,'0') + '-' + String(tD).padStart(2,'0'); // Fallback ISO
+        matchDate = dStr.includes(searchStr1) || dStr.includes(searchStr2);
+      }
+      
+      if (!matchDate) continue;
+
+      const resp = (row[9] || '').toString().trim();
+      // Búsqueda exacta (Sincronizado con App Principal: o.envio === driver)
+      if (motorizadoBuscado !== "" && resp !== motorizadoBuscado) continue;
+
+      const pago = (row[10] || '').toString().trim().toLowerCase();
+      const esDigital = metodosFiltro.some(met => pago.includes(met.toLowerCase()));
+      if (!esDigital) continue;
+
+      const estado = (row[6] || '').toString().trim().toLowerCase();
+      if (estado === 'cancelado' || estado === 'rechazado') continue;
+
+      // Extraer horas del sistema
+      let horaTada = "";
+      const hStrTada = dispRow[24] || ""; 
+      const hMatchTada = hStrTada.match(/\d{1,2}:\d{2}/);
+      if (hMatchTada) horaTada = hMatchTada[0];
+
+      let horaPedido = "";
+      const hStrPed = dispRow[1] || "";
+      const hMatchPed = hStrPed.match(/\d{1,2}:\d{2}/);
+      if (hMatchPed) horaPedido = hMatchPed[0];
+
+      let horaVoucher = (dispRow[28] || "").toString().trim(); // Col AC (index 28)
+
+      result.push({
+        nro: row[0],
+        llave: row[2],
+        monto: row[3],
+        envio: row[9],
+        pago: row[10],
+        hora: horaTada,
+        horaPedido: horaPedido,
+        horaVoucher: horaVoucher
+      });
+    }
+
+    return { success: true, data: result };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
