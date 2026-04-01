@@ -634,7 +634,7 @@ async function loadOrders() {
     }
 }
 
-// Auto-refresh silencioso cada 30 segundos
+// Auto-refresh silencioso maestro (v19.2 - Suave) cada 45 segundos
 setInterval(() => {
     // Si la pantalla a la vista no es la de pedidos, o estamos loggeandonos, no hacemos nada
     if (appSection.style.display === 'none' || currentUser == null) return;
@@ -649,17 +649,16 @@ setInterval(() => {
     const isImportOpen = document.getElementById('modal-import')?.classList.contains('active');
     const isImportTextOpen = document.getElementById('modal-import-text')?.classList.contains('active');
 
-    // Módulos que no sean pedidos (Si mapa o reportes están activos y visibles, puede recargar por debajo sin problema, pero aseguramos de no saltar scroll si están frente a pedidos visuales)
-
     if (!isValOpen && !isNewOpen && !isSwalOpen && !isImportOpen && !isImportTextOpen && API_URL) {
         // Bloqueo de seguridad: No recargar si el usuario está arrastrando un pedido (v3.0)
         if (window.isDraggingOrder) {
             console.log("[SilentRefresh] Pausado por drag & drop activo...");
             return;
         }
+        console.log('🔄 Actualización automática suave (60s)...');
         loadOrdersSilent();
     }
-}, 30000); // 30 segundos
+}, 60000); // 60 segundos (v19.2 - Optimo)
 
 async function loadOrdersSilent() {
     try {
@@ -4160,11 +4159,8 @@ if (document.readyState === 'loading') {
 // -----------------------------------------------------------------------
 // ----------------------------------------------
 
-// v19.2: Auto-refresco automático suave cada 45 segundos para no saturar Google
-setInterval(() => {
-    console.log('🔄 Actualización automática de datos (v19.2 - Suave)...');
-    loadOrdersSilent(); // Usar la carga silenciosa para no interrumpir al usuario
-}, 45000);
+// v19.2: Actualización sincronizada con el motor principal de pedidos (v19.2 - Suave)...
+// (Redundancia eliminada para mayor estabilidad de red y evitar errores de CORS)
 
 const modalRange = document.getElementById('modal-date-range');
 const btnDateRange = document.getElementById('btn-date-range');
