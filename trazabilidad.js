@@ -34,6 +34,27 @@ function updateClock() {
     }
 }
 
+// Funciones del Modal Flotante
+window.abrirModalTimeline = function(nro) {
+    const modal = document.getElementById('modal-timeline');
+    if(modal) modal.classList.add('active');
+}
+window.cerrarModalTimeline = function() {
+    const modal = document.getElementById('modal-timeline');
+    if(modal) modal.classList.remove('active');
+}
+
+// Cerrar Modal con la tecla Escape
+document.addEventListener('keydown', function(event) {
+    if (event.key === "Escape") cerrarModalTimeline();
+});
+
+// Cerrar Modal haciendo clic afuera (en el overlay oscuro)
+document.addEventListener('click', function(event) {
+    const modal = document.getElementById('modal-timeline');
+    if (event.target === modal) cerrarModalTimeline();
+});
+
 // Función global para el buscador
 window.buscarPedido = function (nroInput) {
     const input = document.getElementById('manual-search');
@@ -47,6 +68,9 @@ window.buscarPedido = function (nroInput) {
         cards.forEach(c => c.classList.remove('active'));
         const activeCard = document.querySelector(`.order-card[data-nro="${nro}"]`);
         if (activeCard) activeCard.classList.add('active');
+
+        // Abrir modal automáticamente
+        abrirModalTimeline(nro);
 
         loadOrderData(nro);
     }
@@ -63,11 +87,97 @@ async function loadFullDashboard() {
             renderFullDashboard(result.orders);
             updateDriversGrid(result.drivers, result.noProgramados);
             updateFifoQueue(result.drivers);
+            if(result.shiftSummary) renderShiftSummary(result.shiftSummary);
         }
     } catch (e) {
         console.error("Error dashboard:", e);
     }
 }
+
+function renderShiftSummary(shiftSummary) {
+    const container = document.getElementById('shift-summary-container');
+    if (!container) return;
+
+    if (!shiftSummary || Object.keys(shiftSummary).length === 0) {
+        container.innerHTML = '<div style="color:var(--secondary); text-align:center; width:100%; padding:20px;">Aún no hay entregas registradas hoy.</div>';
+        return;
+    }
+
+    let html = '';
+    for (const dName in shiftSummary) {
+        const orders = shiftSummary[dName];
+        html += `
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 15px; min-width: 260px;">
+            <h3 style="font-size: 0.9rem; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+                <span><i class="fa-solid fa-motorcycle" style="color:var(--neon);"></i> ${dName}</span>
+                <span style="background: rgba(96,165,250,0.1); color: var(--neon); font-size: 0.7rem; padding: 2px 8px; border-radius: 10px;">${orders.length} pedidos</span>
+            </h3>
+            <div style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; padding-right: 5px;">
+        `;
+        orders.forEach(o => {
+            html += `
+                <button onclick="buscarPedido('${o.nro}')" style="background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.2); color: white; border-radius: 8px; padding: 8px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 0.85rem; transition: 0.2s; text-align: left;" onmouseover="this.style.background='rgba(96,165,250,0.2)';this.style.borderColor='var(--neon)'" onmouseout="this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(255,255,255,0.2)'">
+                    <span style="font-weight: bold; letter-spacing: 0.5px;">${o.llave}</span>
+                    <span style="color: #94a3b8; font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> ${o.hora || '--:--'}</span>
+                </button>
+            `;
+        });
+        html += `
+            </div>
+        </div>
+        `;
+    }
+    container.innerHTML = html;
+}
+
+// --- Lógica del Resizer (Arrastrable) ---
+document.addEventListener('DOMContentLoaded', function () {
+    const resizer = document.getElementById('dragMe');
+    const leftSide = document.getElementById('left-panel');
+    const rightSide = document.getElementById('right-panel');
+
+    if (!resizer || !leftSide || !rightSide) return;
+
+    let x = 0;
+    let leftWidth = 0;
+
+    const mouseDownHandler = function (e) {
+        x = e.clientX;
+        leftWidth = leftSide.getBoundingClientRect().width;
+
+        document.addEventListener('mousemove', mouseMoveHandler);
+        document.addEventListener('mouseup', mouseUpHandler);
+        
+        // Efecto visual durante el arrastre
+        resizer.style.background = 'rgba(96, 165, 250, 0.4)';
+        document.body.style.cursor = 'col-resize';
+        leftSide.style.userSelect = 'none';
+        rightSide.style.userSelect = 'none';
+    };
+
+    const mouseMoveHandler = function (e) {
+        const dx = e.clientX - x;
+        const newLeftWidth = ((leftWidth + dx) * 100) / resizer.parentNode.getBoundingClientRect().width;
+        
+        // Límites de seguridad (80% / 20% aprox es el default, dejamos mover entre 10% y 90%)
+        if (newLeftWidth > 15 && newLeftWidth < 85) {
+            leftSide.style.flex = newLeftWidth;
+            rightSide.style.flex = 100 - newLeftWidth;
+        }
+    };
+
+    const mouseUpHandler = function () {
+        document.removeEventListener('mousemove', mouseMoveHandler);
+        document.removeEventListener('mouseup', mouseUpHandler);
+        
+        resizer.style.background = '';
+        document.body.style.cursor = '';
+        leftSide.style.removeProperty('user-select');
+        rightSide.style.removeProperty('user-select');
+    };
+
+    resizer.addEventListener('mousedown', mouseDownHandler);
+});
 
 function renderFullDashboard(orders) {
     const grid = document.getElementById('active-orders-grid');
@@ -141,7 +251,7 @@ function renderTimeline(eventos, nro) {
                 <div style="font-size: 0.9rem; margin-bottom: 10px; color: #94a3b8;">
                     Pedido #${nro} requiere activación.
                 </div>
-                <button onclick="iniciarTrazabilidadManual('${nro}')" style="background:#60a5fa; color:black; font-weight:700; border:none; padding:8px 15px; border-radius:20px; cursor:pointer; font-size:0.75rem;">
+                <button onclick="iniciarTrazabilidadManual(this, '${nro}')" style="background:#60a5fa; color:black; font-weight:700; border:none; padding:8px 15px; border-radius:20px; cursor:pointer; font-size:0.75rem; transition:0.3s;">
                     ACTIVAR AHORA
                 </button>
             </div>`;
@@ -294,11 +404,11 @@ function createDriverElement(name, time, type) {
     `;
 
     if (type === 'NO_PROGRAMADO') {
-        html += `<button class="btn-bala btn-activar" onclick="accionMotorizadoBala('${name}', 'activarConductor')"><i class="fa-solid fa-play"></i> Activar</button>`;
+        html += `<button class="btn-bala btn-activar" onclick="accionMotorizadoBala(this, '${name}', 'activarConductor')"><i class="fa-solid fa-play"></i> Activar</button>`;
     } else if (type === 'DISPONIBLE') {
-        html += `<button class="btn-bala btn-pausar" onclick="accionMotorizadoBala('${name}', 'desactivarConductor')"><i class="fa-solid fa-power-off"></i> Pausar</button>`;
+        html += `<button class="btn-bala btn-pausar" onclick="accionMotorizadoBala(this, '${name}', 'desactivarConductor')"><i class="fa-solid fa-power-off"></i> Pausar</button>`;
     } else if (type === 'EN RUTA') {
-        html += `<button class="btn-bala btn-llego" onclick="accionMotorizadoBala('${name}', 'llegadaConductor')"><i class="fa-solid fa-flag-checkered"></i> Llegó</button>`;
+        html += `<button class="btn-bala btn-llego" onclick="accionMotorizadoBala(this, '${name}', 'llegadaConductor')"><i class="fa-solid fa-flag-checkered"></i> Llegó</button>`;
     }
 
     html += `</div>`;
@@ -306,9 +416,14 @@ function createDriverElement(name, time, type) {
     return div;
 }
 
-window.accionMotorizadoBala = async function (driver, action) {
+window.accionMotorizadoBala = async function (btn, driver, action) {
     const loader = document.getElementById('drivers-loader');
     if (loader) loader.style.display = 'inline-block';
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-hourglass-half fa-spin"></i> ...';
+    btn.style.opacity = '0.5';
 
     try {
         const response = await fetch(GAS_URL, {
@@ -317,32 +432,63 @@ window.accionMotorizadoBala = async function (driver, action) {
         });
         const result = await response.json();
         if (result.success) {
-            // Recargar Dashboard Inmediatamente
-            loadFullDashboard();
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Ok!';
+            setTimeout(() => {
+                loadFullDashboard();
+            }, 800);
         } else {
             alert("Error: " + (result.message || result.error || "Desconocido"));
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            btn.style.opacity = '1';
         }
     } catch (e) {
         alert("Error de conexión: " + e.toString());
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        btn.style.opacity = '1';
     } finally {
         if (loader) loader.style.display = 'none';
     }
 }
 
-window.iniciarTrazabilidadManual = async function (nro) {
+window.iniciarTrazabilidadManual = async function (btn, nro) {
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-hourglass-half fa-spin"></i> ...';
+    btn.style.opacity = '0.5';
+
     try {
         const response = await fetch(GAS_URL, {
             method: 'POST',
             body: JSON.stringify({ action: 'iniciarTrazabilidadManual', nro: nro })
         });
         const result = await response.json();
-        if (result.success) loadOrderData(nro);
-    } catch (e) { console.error("Error iniciar:", e); }
+        if (result.success) {
+            btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+            setTimeout(() => loadOrderData(nro), 500);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            btn.style.opacity = '1';
+        }
+    } catch (e) { 
+        console.error("Error iniciar:", e); 
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        btn.style.opacity = '1';
+    }
 };
 
-window.registrarLlegadaManual = async function () {
+window.registrarLlegadaManual = async function (btn) {
     if (!currentNro) return alert("Selecciona un pedido primero.");
     const driver = currentDriver || '';
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-hourglass-half fa-spin"></i> Avisando...';
+    btn.style.opacity = '0.5';
+
     try {
         const response = await fetch(GAS_URL, {
             method: 'POST',
@@ -350,10 +496,26 @@ window.registrarLlegadaManual = async function () {
         });
         const result = await response.json();
         if (result.success) {
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> ¡Éxito!';
             currentNro = null;
-            loadFullDashboard();
-            const timeline = document.getElementById('order-timeline');
-            if (timeline) timeline.innerHTML = '<div style="text-align:center; padding:50px; color:#94a3b8;">Pedido Despachado con éxito.</div>';
+            setTimeout(() => {
+                loadFullDashboard();
+                const timeline = document.getElementById('order-timeline');
+                if (timeline) timeline.innerHTML = '<div style="text-align:center; padding:50px; color:#94a3b8;">Pedido Despachado con éxito.</div>';
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                btn.style.opacity = '1';
+                cerrarModalTimeline();
+            }, 1000);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            btn.style.opacity = '1';
         }
-    } catch (e) { alert("Error: " + e.toString()); }
+    } catch (e) { 
+        alert("Error: " + e.toString()); 
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        btn.style.opacity = '1';
+    }
 };

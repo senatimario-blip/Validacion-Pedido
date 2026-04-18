@@ -2786,16 +2786,20 @@
       const activeDriverNames = Object.keys(sortedDrivers);
       const noProgramados = allDrivers.filter(d => !activeDriverNames.includes(d));
 
-      // -- Construir Resumen del Turno (shiftSummary) --
+      // -- Construir Resumen del Turno (Solo Cerrados - shiftSummary) --
       const shiftSummary = {};
       for (const dName in driverHitosHoy) {
         const orderMap = {};
         driverHitosHoy[dName].forEach(row => {
           const nroPed = String(row[0]);
-          if (!nroPed || nroPed === '') return; // Activar/Pausar no tienen pedido
+          const evento = String(row[4]);
+          
+          // REGLA ESTRICTA DE PRECAUCIÓN: Solo incluiremos pedidos que esten 100% CERRADOS (Llegada a tienda)
+          if (!nroPed || nroPed === '' || evento !== "LLEGADA A TIENDA") return; 
           
           if (!orderMap[nroPed]) {
              let hora = "00:00";
+             // Buscamos la hora en que se originó realmente (Hora Creación)
              const creationHito = tFinal.find(r => String(r[0]) === nroPed && r[4] === "CREACIÓN");
              if (creationHito) {
                hora = creationHito[3] instanceof Date ? Utilities.formatDate(creationHito[3],"GMT-5","HH:mm") : String(creationHito[3]).substring(0, 5);
